@@ -1,7 +1,9 @@
 // Gate every route except /login and /auth/* behind Supabase Auth.
 
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { type NextRequest, NextResponse } from "next/server";
+
+type CookieEntry = { name: string; value: string; options?: CookieOptions };
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -17,7 +19,7 @@ export async function middleware(req: NextRequest) {
     {
       cookies: {
         getAll: () => req.cookies.getAll(),
-        setAll: (entries) => {
+        setAll: (entries: CookieEntry[]) => {
           for (const { name, value, options } of entries) {
             res.cookies.set(name, value, options);
           }

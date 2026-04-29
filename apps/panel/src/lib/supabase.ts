@@ -1,8 +1,10 @@
 // Server-side Supabase client. We use the SSR helper so cookies (auth) get
 // forwarded properly between client and server components.
 
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
+
+type CookieEntry = { name: string; value: string; options?: CookieOptions };
 
 export async function getSupabaseServer() {
   const cookieStore = await cookies();
@@ -12,7 +14,7 @@ export async function getSupabaseServer() {
     {
       cookies: {
         getAll: () => cookieStore.getAll(),
-        setAll: (entries) => {
+        setAll: (entries: CookieEntry[]) => {
           for (const { name, value, options } of entries) {
             cookieStore.set(name, value, options);
           }

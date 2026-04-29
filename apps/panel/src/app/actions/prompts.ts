@@ -23,12 +23,13 @@ export async function savePromptDraft(formData: FormData) {
   if (!base) return;
 
   // Pick next version number for this (type, sede_id) tuple.
-  const [{ nextVer }] = (await db.execute<{ nextVer: number }>(sql`
+  const verRows = (await db.execute<{ nextVer: number }>(sql`
     SELECT COALESCE(MAX(version_number), 0) + 1 AS "nextVer"
       FROM prompts_versiones
      WHERE type = ${base.type}
        AND ${base.sedeId ? sql`sede_id = ${base.sedeId}` : sql`sede_id IS NULL`}
   `)) as unknown as { nextVer: number }[];
+  const nextVer = verRows[0]?.nextVer ?? 1;
 
   const [created] = await db
     .insert(promptsVersiones)
