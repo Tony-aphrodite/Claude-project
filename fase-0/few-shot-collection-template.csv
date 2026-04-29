@@ -1,0 +1,5 @@
+timestamp,sede,agent,sender,text,profile,outcome,notes
+2025-11-03 14:32 ICT,Gili Trawangan,Patrick,cliente,"Hola, info Open Water?",principiante_indeciso,closed_OW,
+2025-11-03 14:34 ICT,Gili Trawangan,Patrick,agente,"¡Hola! Te cuento... ¿cuándo llegás?",principiante_indeciso,closed_OW,
+2025-11-03 14:36 ICT,Gili Trawangan,cliente,Patrick,"Llego martes, 5 días",principiante_indeciso,closed_OW,
+2025-11-03 14:38 ICT,Gili Trawangan,Patrick,agente,"Perfecto. Martes descansás post-vuelo...",principiante_indeciso,closed_OW,
