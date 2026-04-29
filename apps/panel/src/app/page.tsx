@@ -2,6 +2,9 @@ import { getDashboardSnapshot } from "~/lib/db-queries";
 
 import { LATENCY_TARGETS } from "@dpm/shared";
 
+// Dashboard reads live data; never pre-render at build time.
+export const dynamic = "force-dynamic";
+
 function StatusBadge({ p95 }: { p95: number }) {
   const target = LATENCY_TARGETS.P95_MS;
   if (p95 <= target) {

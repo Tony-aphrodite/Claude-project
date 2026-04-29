@@ -7,6 +7,17 @@ const nextConfig = {
   experimental: {
     serverActions: { bodySizeLimit: "1mb" },
   },
+  // Workspace packages use NodeNext-style ".js" import specifiers in their
+  // TypeScript source. Webpack needs to know that "./foo.js" should resolve
+  // to "./foo.ts" or "./foo.tsx" in those packages.
+  webpack: (config) => {
+    config.resolve.extensionAlias = {
+      ...(config.resolve.extensionAlias ?? {}),
+      ".js": [".ts", ".tsx", ".js"],
+      ".jsx": [".tsx", ".jsx"],
+    };
+    return config;
+  },
   // We use the panel only inside the brand's organization; CSP blocks
   // accidental embedding by third parties.
   async headers() {
