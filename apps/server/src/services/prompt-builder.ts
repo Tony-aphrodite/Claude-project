@@ -29,7 +29,7 @@ export type BuildPromptInput = {
 };
 
 export type BuildPromptOutput = {
-  system: Anthropic.MessageParam["content"]; // typed as TextBlockParam[]
+  system: Anthropic.TextBlockParam[];
   messages: Anthropic.MessageParam[];
 };
 

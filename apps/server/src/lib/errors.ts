@@ -21,27 +21,28 @@ export class AppError extends Error {
 }
 
 export class WebhookSignatureError extends AppError {
+  override readonly name = "WebhookSignatureError";
   constructor(reason: string) {
     super("webhook_signature_invalid", `Invalid signature: ${reason}`, 401);
-    this.name = "WebhookSignatureError";
   }
 }
 
 export class SedeNotFoundError extends AppError {
+  override readonly name = "SedeNotFoundError";
   constructor(tag: string) {
     super("sede_not_found", `No sede mapped to tag "${tag}"`, 404, { tag });
-    this.name = "SedeNotFoundError";
   }
 }
 
 export class UpstreamError extends AppError {
+  override readonly name = "UpstreamError";
   constructor(source: string, message: string, context?: Record<string, unknown>) {
     super(`upstream_${source}`, message, 502, context);
-    this.name = "UpstreamError";
   }
 }
 
 export class CostLimitError extends AppError {
+  override readonly name = "CostLimitError";
   constructor(limitUsd: number, spentUsd: number) {
     super(
       "cost_limit_reached",
@@ -49,6 +50,5 @@ export class CostLimitError extends AppError {
       503,
       { limitUsd, spentUsd },
     );
-    this.name = "CostLimitError";
   }
 }
