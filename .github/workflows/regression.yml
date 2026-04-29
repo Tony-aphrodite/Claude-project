@@ -1,0 +1,47 @@
+name: Regression suite
+
+# Triggered by:
+#  - Manual dispatch (Miguel runs after a prompt edit)
+#  - On push to main of files in fixtures/regression or any prompt seed
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Prompt version to test (e.g. v2 or 'active')"
+        required: true
+        default: "active"
+      skip_judge:
+        description: "Skip LLM-as-judge layer"
+        type: boolean
+        default: false
+  push:
+    paths:
+      - "fixtures/regression/**"
+      - "packages/db/sql/seed-system-prompt-*.sql"
+      - "packages/regression/**"
+    branches: [main]
+
+jobs:
+  regress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r --if-present run build
+      - name: Run regression suite
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          pnpm regression -- run \
+            --version=${{ github.event.inputs.version || 'active' }} \
+            --cases=fixtures/regression/cases \
+            --kb-dir=fixtures/regression/kb \
+            ${{ github.event.inputs.skip_judge == 'true' && '--skip-judge' || '' }}
