@@ -1,0 +1,33 @@
+{
+  "name": "dpm-diving-claude-integration",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Respond.io <-> Claude API middleware for DPM Diving (5 sedes pilot starting with Gili Trawangan)",
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=20.11.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "lint": "pnpm -r run lint",
+    "typecheck": "pnpm -r run typecheck",
+    "db:generate": "pnpm --filter @dpm/db run generate",
+    "db:migrate": "pnpm --filter @dpm/db run migrate",
+    "db:studio": "pnpm --filter @dpm/db run studio",
+    "server:dev": "pnpm --filter @dpm/server run dev",
+    "server:build": "pnpm --filter @dpm/server run build",
+    "server:start": "pnpm --filter @dpm/server run start",
+    "panel:dev": "pnpm --filter @dpm/panel run dev",
+    "panel:build": "pnpm --filter @dpm/panel run build",
+    "panel:start": "pnpm --filter @dpm/panel run start",
+    "regression": "pnpm --filter @dpm/regression run run --"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

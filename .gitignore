@@ -141,3 +141,25 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Drizzle
+drizzle/meta/_journal.json.tmp
+
+# Local DB / dumps
+*.dump
+*.sql.gz
+
+# Confidential project artifacts (never commit)
+chatting.txt
+*.private.md
+secrets/
+local-data/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
