@@ -1,0 +1,112 @@
+// ============================================================================
+// Project-wide constants. Single source of truth for tunable values that
+// the architecture depends on. Values are derived from the project guide
+// (DPM_Diving_Project_Guide.md §17, §22 and "Critical Constants" appendix).
+// ============================================================================
+
+export const LATENCY_TARGETS = {
+  P50_MS: 1500,
+  P95_MS: 3000,
+  P99_MS: 4000,
+} as const;
+
+export const CACHE_TTL = {
+  // Anthropic prompt-cache TTLs we declare via cache_control
+  SYSTEM_BLOCK: "1h",
+  KB_BLOCK: "1h",
+  HISTORY_BLOCK: "5m",
+  // Roster cache (Supabase) — lives between Apps Script polls
+  ROSTER_SECONDS: 600,
+} as const;
+
+export const FOLLOW_UP_LEVELS = {
+  LEVEL_1: { hours: 4, requiresTemplate: false },
+  LEVEL_2: { hours: 24, requiresTemplate: false },
+  LEVEL_3: { hours: 48, requiresTemplate: true },
+  LEVEL_4: { hours: 24 * 7, requiresTemplate: true },
+  LEVEL_5: { hours: 24 * 30, requiresTemplate: true },
+} as const;
+
+export type FollowUpLevel = keyof typeof FOLLOW_UP_LEVELS;
+
+export const FOLLOW_UP_SCANNER_INTERVAL_MS = 15 * 60 * 1000; // 15 min
+
+export const CONCURRENCY = {
+  FOLLOW_UP_WORKERS: 10,
+  REGRESSION_WORKERS: 5,
+} as const;
+
+export const TIMEOUTS = {
+  APPS_SCRIPT_MS: 2000,
+  CLAUDE_API_MS: 30000,
+  RESPOND_IO_MS: 5000,
+  // HTTP keep-alive idle timeout for outbound connections
+  KEEP_ALIVE_MS: 60000,
+} as const;
+
+export const HISTORY_WINDOW = {
+  // Last N messages we always include verbatim in Bloque 3
+  MAX_MESSAGES: 30,
+  // Cap total tokens for safety even if MAX_MESSAGES is exceeded
+  MAX_TOKENS: 4000,
+} as const;
+
+export const REGRESSION = {
+  // PromptVersion can be auto-promoted to active only if pass rate >= this
+  MIN_PASS_RATE: 0.95,
+  // LLM-judge confidence below which we route to human review
+  HUMAN_REVIEW_CONFIDENCE_THRESHOLD: 0.7,
+  // Number of conversations in the curated suite (project requirement)
+  SUITE_SIZE: 100,
+} as const;
+
+export const PII_RETENTION_DAYS = 365; // 12 months — guide §16 #8
+
+// ── Sede registry (5 pilot sedes, guide §1) ─────────────────────────────────
+// Authoritative names are stored in the `sedes` table; this enum is for
+// type-safety in code paths that branch on sede explicitly.
+export const SEDE_NAMES = [
+  "Koh Tao",
+  "Phi Phi",
+  "Gili Trawangan",
+  "Gili Air",
+  "Nusa Penida",
+] as const;
+export type SedeName = (typeof SEDE_NAMES)[number];
+
+export const SEDE_TIMEZONES: Record<SedeName, string> = {
+  "Koh Tao": "Asia/Bangkok",
+  "Phi Phi": "Asia/Bangkok",
+  "Gili Trawangan": "Asia/Makassar",
+  "Gili Air": "Asia/Makassar",
+  "Nusa Penida": "Asia/Makassar",
+};
+
+export const SEDE_CURRENCIES: Record<SedeName, { code: string; symbol: string }> = {
+  "Koh Tao": { code: "THB", symbol: "฿" },
+  "Phi Phi": { code: "THB", symbol: "฿" },
+  "Gili Trawangan": { code: "IDR", symbol: "Rp" },
+  "Gili Air": { code: "IDR", symbol: "Rp" },
+  "Nusa Penida": { code: "IDR", symbol: "Rp" },
+};
+
+export const PILOT_SEDE: SedeName = "Gili Trawangan";
+
+// ── Anthropic pricing (USD per 1M tokens) — Sonnet 4.6 ─────────────────────
+// Used by cost estimator + dashboard. Update when Anthropic pricing changes.
+export const ANTHROPIC_PRICING = {
+  "claude-sonnet-4-6": {
+    inputUsdPerMTok: 3.0,
+    cacheReadUsdPerMTok: 0.3,
+    cacheWriteUsdPerMTok: 3.75,
+    outputUsdPerMTok: 15.0,
+  },
+  "claude-haiku-4-5-20251001": {
+    inputUsdPerMTok: 0.8,
+    cacheReadUsdPerMTok: 0.08,
+    cacheWriteUsdPerMTok: 1.0,
+    outputUsdPerMTok: 4.0,
+  },
+} as const;
+
+export type AnthropicModel = keyof typeof ANTHROPIC_PRICING;
