@@ -14,7 +14,7 @@
     "lint": "echo 'TODO: eslint'"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
+    "@anthropic-ai/sdk": "^0.91.1",
     "@dpm/db": "workspace:*",
     "@dpm/shared": "workspace:*",
     "@fastify/sensible": "^6.0.1",
