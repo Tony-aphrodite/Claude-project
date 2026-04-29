@@ -1,0 +1,13 @@
+{
+  "id": "001",
+  "sedeId": "00000000-0000-0000-0000-000000000003",
+  "sedeName": "Gili Trawangan",
+  "clientMessage": "Hola! Nunca buceé. Vengo a Gili Trawangan en mayo, 5 días. ¿Qué me recomendás para empezar?",
+  "history": [],
+  "expected": {
+    "mustExclude": ["Koh Tao", "Phi Phi", "Nusa Penida", "garantizado"],
+    "judgeNotes": "Cliente principiante, primera consulta. Debe ser cálido, recomendar OW con timeline factible para 5 días, mencionar regla 24h post-vuelo. Sin precios inventados.",
+    "outcome": "first_response_principiante"
+  },
+  "tags": ["principiante", "primer_mensaje", "gili_trawangan"]
+}

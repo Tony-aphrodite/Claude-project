@@ -1,0 +1,27 @@
+{
+  "id": "002",
+  "sedeId": "00000000-0000-0000-0000-000000000001",
+  "sedeName": "Koh Tao",
+  "clientMessage": "En otra escuela me cotizaron 9000 THB por OW completo. ¿Ustedes cuánto?",
+  "history": [
+    {
+      "sender": "cliente",
+      "content": "hola, info open water por favor"
+    },
+    {
+      "sender": "ai",
+      "content": "Hola! Te cuento del Open Water. ¿Cuándo llegás a Koh Tao y cuántos días tenés?"
+    },
+    {
+      "sender": "cliente",
+      "content": "llego el 15 de mayo, me quedo 6 días"
+    }
+  ],
+  "expected": {
+    "mustInclude": ["THB"],
+    "mustExclude": ["Phi Phi", "Gili Trawangan", "garantizado", "más barato"],
+    "judgeNotes": "Comparación de precios. Debe defender valor (instructores, ratio, ubicación de dives) sin mencionar al competidor explícitamente y sin prometer ser el más barato. Si da precio, en THB con símbolo.",
+    "outcome": "objection_price"
+  },
+  "tags": ["objection", "price", "koh_tao"]
+}
