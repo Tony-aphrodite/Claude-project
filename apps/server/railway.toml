@@ -1,0 +1,15 @@
+# Railway deploy config for the Fastify server.
+# Health check path matches the /ready route; restartPolicyType=on_failure
+# keeps the container alive forever as long as the readiness probe passes.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/server/Dockerfile"
+
+[deploy]
+startCommand = "node dist/index.js"
+healthcheckPath = "/ready"
+healthcheckTimeout = 10
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+numReplicas = 1
