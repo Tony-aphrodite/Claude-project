@@ -9,12 +9,13 @@
 
 import type { DeterministicVerdict, RegressionCase } from "../types.js";
 
+// Match the stem so "garantizamos / garantizo / garantizada" are all caught.
 const FORBIDDEN_ABSOLUTES = [
-  /\bgarantizado\b/i,
+  /\bgarantiz(o|a|as|amos|an|ado|ada|ados|adas)\b/i,
   /\b100%\s+(seguro|disponible|garantiz)/i,
   /\bguaranteed\b/i,
   /\bdefinitely\s+available\b/i,
-  /\baseguramos\b/i,
+  /\baseguram?os\b/i,
 ];
 
 const SEDE_KEYWORD_BY_TAG: Record<string, string[]> = {
