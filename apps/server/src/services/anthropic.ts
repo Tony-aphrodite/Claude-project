@@ -59,6 +59,7 @@ export type CallClaudeInput = {
 
 export type CallClaudeResult = {
   text: string;
+  fuentes: string[];
   toolCalls: string[];
   cost: CostBreakdown;
   latencyMs: number;
@@ -118,12 +119,21 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
     );
 
     if (toolUseBlocks.length === 0 || round === MAX_TOOL_ROUNDS) {
-      // Final answer.
-      const text = response.content
+      // Final answer. The prompt instructs the model to emit a structured
+      // {respuesta, fuentes} envelope; if parsing fails (older prompt versions
+      // or model dropped to plain text) we fall back to the raw text and
+      // record empty fuentes — never block the user response on format drift.
+      const rawText = response.content
         .filter((b): b is Anthropic.TextBlock => b.type === "text")
         .map((b) => b.text)
         .join("\n")
         .trim();
+      const { text, fuentes } = parseStructuredAnswer(rawText);
+
+      // Append tool_use to fuentes if Claude actually invoked any.
+      if (toolCalls.includes("consultar_disponibilidad")) {
+        fuentes.push("tool:consultar_disponibilidad");
+      }
 
       const latencyMs = Date.now() - startedAt;
       const cost = computeCost(model, response.usage);
@@ -147,11 +157,12 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
           cacheHitRate: cost.cacheHitRate,
           costUsd: cost.totalUsd,
           toolCalls,
+          fuentesCount: fuentes.length,
         },
         "claude call ok",
       );
 
-      return { text, toolCalls, cost, latencyMs, model };
+      return { text, fuentes, toolCalls, cost, latencyMs, model };
     }
 
     // Resolve every tool_use the model emitted this turn.
@@ -204,6 +215,45 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
 
   // Unreachable — the loop returns within the final-answer branch.
   throw new Error("callClaude: tool-use loop exceeded MAX_TOOL_ROUNDS");
+}
+
+/**
+ * Parse the {respuesta, fuentes} JSON envelope. Tolerates pre/post fence
+ * tokens (markdown, "```json"). On any parse failure we degrade gracefully:
+ * the raw text becomes the response and fuentes is empty — the panel will
+ * surface the missing-citations status so we can fix the prompt.
+ */
+export function parseStructuredAnswer(raw: string): {
+  text: string;
+  fuentes: string[];
+} {
+  if (!raw) return { text: "", fuentes: [] };
+
+  // Strip code fences if present.
+  const stripped = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```\s*$/i, "")
+    .trim();
+
+  // Find the first balanced JSON object. The model occasionally adds a tiny
+  // pre-amble despite the instruction; we match the outermost {...} block.
+  const start = stripped.indexOf("{");
+  const end = stripped.lastIndexOf("}");
+  if (start < 0 || end <= start) return { text: stripped, fuentes: [] };
+
+  try {
+    const j = JSON.parse(stripped.slice(start, end + 1)) as Record<string, unknown>;
+    const text =
+      typeof j.respuesta === "string" && j.respuesta.length > 0
+        ? j.respuesta
+        : stripped;
+    const fuentes = Array.isArray(j.fuentes)
+      ? j.fuentes.filter((x): x is string => typeof x === "string")
+      : [];
+    return { text, fuentes };
+  } catch {
+    return { text: stripped, fuentes: [] };
+  }
 }
 
 function computeCost(model: AnthropicModel, usage: Anthropic.Message["usage"]): CostBreakdown {

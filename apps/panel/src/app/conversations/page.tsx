@@ -73,11 +73,13 @@ export default async function ConversationsPage({
                 </td>
                 <td className="py-2 pr-4">{r.sedeName}</td>
                 <td className="py-2 pr-4">
-                  {r.conv.clientName ?? "—"}{" "}
-                  <span className="text-xs text-ink-500">{r.conv.clientPhone}</span>
+                  {r.contact?.name ?? "—"}{" "}
+                  <span className="text-xs text-ink-500">
+                    {r.contact?.phone ?? r.conv.respondIoContactId}
+                  </span>
                 </td>
                 <td className="py-2 pr-4">{r.conv.status}</td>
-                <td className="py-2 pr-4 text-ink-500">{r.conv.clientLanguage ?? "—"}</td>
+                <td className="py-2 pr-4 text-ink-500">{r.contact?.language ?? "—"}</td>
                 <td className="py-2 text-right">
                   <Link
                     href={`/conversations/${r.conv.id}`}

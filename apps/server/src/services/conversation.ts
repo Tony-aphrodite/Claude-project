@@ -4,11 +4,16 @@
 //   1. upsert: ensure a `conversaciones` row exists for the inbound webhook.
 //   2. recentMessages: load the sliding window for Bloque 3 of the prompt.
 //
+// Per-person identity (phone, name, language) is owned by chat_contacts; this
+// service only deals with thread state. Callers must resolve the contact
+// first via `chatContactsService.upsertFromWebhook` and pass the
+// respond_io_contact_id here.
+//
 // We cap by both message count (HISTORY_WINDOW.MAX_MESSAGES) and a rough
 // token budget so that very long conversations don't blow the prompt size
 // even if they happen to be short messages.
 
-import { and, asc, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 import {
   conversaciones,
@@ -21,10 +26,18 @@ import { HISTORY_WINDOW } from "@dpm/shared";
 
 export type IncomingMessageMeta = {
   respondIoConversationId: string;
+  respondIoContactId: string;
   sedeId: string;
-  clientPhone: string;
-  clientName?: string | undefined;
-  clientLanguage?: string | undefined;
+};
+
+export type AppendAiMessageMeta = {
+  fuentes?: string[] | undefined;
+  model?: string | undefined;
+  latencyMs?: number | undefined;
+  cacheHitRate?: number | undefined;
+  costUsd?: number | undefined;
+  toolCalls?: string[] | undefined;
+  [k: string]: unknown;
 };
 
 export class ConversationService {
@@ -41,10 +54,8 @@ export class ConversationService {
       .insert(conversaciones)
       .values({
         respondIoConversationId: meta.respondIoConversationId,
+        respondIoContactId: meta.respondIoContactId,
         sedeId: meta.sedeId,
-        clientPhone: meta.clientPhone,
-        clientName: meta.clientName ?? null,
-        clientLanguage: meta.clientLanguage ?? null,
         status: "active",
       })
       .returning();
@@ -74,16 +85,19 @@ export class ConversationService {
   async appendAiMessage(
     conversacionId: string,
     text: string,
-    metadata?: Record<string, unknown>,
+    meta?: AppendAiMessageMeta,
   ): Promise<Mensaje> {
     const db = getDb();
+    const { fuentes, ...rest } = meta ?? {};
+    const db_metadata = Object.keys(rest).length > 0 ? rest : null;
     const [row] = await db
       .insert(mensajes)
       .values({
         conversacionId,
         sender: "ai",
         content: text,
-        metadata: metadata ?? null,
+        fuentes: fuentes && fuentes.length > 0 ? fuentes : null,
+        metadata: db_metadata,
       })
       .returning();
     if (!row) throw new Error("ai message insert returned no row");

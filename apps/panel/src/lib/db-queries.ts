@@ -4,10 +4,15 @@
 //
 // All queries are exposed through Server Components / Server Actions only;
 // none of them are reachable from the browser directly.
+//
+// Identity (phone, name, language) lives on chat_contacts; conversations only
+// hold thread state. Every conversation-facing query in this file joins
+// chat_contacts so the UI can display the client without a second hop.
 
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 
 import {
+  chatContacts,
   conversaciones,
   errores,
   followUps,
@@ -71,10 +76,15 @@ export async function listConversations(opts: {
   return db
     .select({
       conv: conversaciones,
+      contact: chatContacts,
       sedeName: sedes.nombre,
     })
     .from(conversaciones)
     .leftJoin(sedes, eq(sedes.id, conversaciones.sedeId))
+    .leftJoin(
+      chatContacts,
+      eq(chatContacts.respondIoContactId, conversaciones.respondIoContactId),
+    )
     .where(where)
     .orderBy(desc(conversaciones.updatedAt))
     .limit(opts.limit ?? 50);
@@ -85,10 +95,15 @@ export async function getConversation(id: string) {
   const [conv] = await db
     .select({
       conv: conversaciones,
+      contact: chatContacts,
       sedeName: sedes.nombre,
     })
     .from(conversaciones)
     .leftJoin(sedes, eq(sedes.id, conversaciones.sedeId))
+    .leftJoin(
+      chatContacts,
+      eq(chatContacts.respondIoContactId, conversaciones.respondIoContactId),
+    )
     .where(eq(conversaciones.id, id))
     .limit(1);
   if (!conv) return null;

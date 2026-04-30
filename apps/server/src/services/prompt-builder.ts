@@ -11,6 +11,11 @@
 //   - Bloque 2 (sede KB):               15-40k   (cached, 1h TTL)
 //   - Bloque 3 (sliding window):        ~3,000   (cached, 5m TTL)
 //   - Bloque 4 (now + roster + msg):    ~1,500   (NOT cached)
+//
+// Output contract: Bloque 4 instructs the model to emit a structured JSON
+// envelope { respuesta, fuentes } so we can store and audit which KB sections
+// / history turns / system rules backed each answer. The text we send back
+// to Respond.io is `respuesta`; `fuentes` lands in mensajes.fuentes.
 // ============================================================================
 
 import type Anthropic from "@anthropic-ai/sdk";
@@ -116,7 +121,9 @@ export function formatHistoryForPrompt(history: Mensaje[]): string {
           : m.sender === "ai"
             ? "AI"
             : `AGENTE${m.agenteName ? ` (${m.agenteName})` : ""}`;
-      return `[${ts}] ${who}: ${m.content}`;
+      // [msg-id] prefix lets the model cite a specific past turn via
+      // "history:<id>" in its `fuentes` array.
+      return `[${m.id}] [${ts}] ${who}: ${m.content}`;
     })
     .join("\n");
 }
@@ -161,7 +168,28 @@ ${langLine}
 ${rosterText}
 
 === MENSAJE DEL CLIENTE ===
-${input.incomingMessage}`;
+${input.incomingMessage}
+
+=== FORMATO DE SALIDA OBLIGATORIO ===
+Devolvé EXCLUSIVAMENTE un JSON con esta forma exacta, sin texto antes ni
+después:
+
+{
+  "respuesta": "<el texto que va al cliente, en su idioma>",
+  "fuentes": ["kb:<seccion-id>", "history:<id-msg>", "rule:<n>", "tool:consultar_disponibilidad"]
+}
+
+REGLAS PARA "fuentes":
+- Si afirmás un precio, capacidad, fecha, política o cualquier dato concreto,
+  añadí en "fuentes" el id de la sección de la KB que lo respalda
+  (formato: "kb:<id-de-la-seccion>"; los headings de la KB usan IDs estables).
+- Si referenciaste algo dicho antes en la conversación, citá el mensaje:
+  "history:<msg-id>" usando el id que aparece entre corchetes en el HISTORIAL.
+- Si invocaste consultar_disponibilidad, agregá "tool:consultar_disponibilidad".
+- Si la respuesta es solo conversacional (saludo, cortesía), "fuentes" puede
+  ser un array vacío [].
+- NO inventes ids. Si no encontrás respaldo en la KB para algo factual,
+  reformulá la respuesta para no afirmar ese dato.`;
 }
 
 function formatRoster(roster: RosterSnapshot): string {

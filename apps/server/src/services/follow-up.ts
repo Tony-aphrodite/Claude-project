@@ -23,11 +23,12 @@ import Anthropic from "@anthropic-ai/sdk";
 import { and, desc, eq, isNull, lte, sql } from "drizzle-orm";
 
 import {
+  chatContacts,
   conversaciones,
   followUps,
   getDb,
   mensajes,
-  type Conversacion,
+  type ChatContact,
   type FollowUp,
   type Mensaje,
 } from "@dpm/db";
@@ -211,12 +212,20 @@ export class FollowUpProcessor {
     const log = getLogger();
 
     // Re-check current state to avoid races with the cancellation path.
-    const [conv] = await db
-      .select()
+    // Identity (name, language) lives on chat_contacts; we join it in here
+    // so downstream code never has to remember to do that lookup.
+    const [convRow] = await db
+      .select({ conv: conversaciones, contact: chatContacts })
       .from(conversaciones)
+      .leftJoin(
+        chatContacts,
+        eq(chatContacts.respondIoContactId, conversaciones.respondIoContactId),
+      )
       .where(eq(conversaciones.id, fu.conversacionId))
       .limit(1);
-    if (!conv) return "failed";
+    if (!convRow) return "failed";
+    const conv = convRow.conv;
+    const contact = convRow.contact;
     if (conv.status !== "active") {
       await db
         .update(followUps)
@@ -266,13 +275,15 @@ export class FollowUpProcessor {
 
     const insideWindow = isWithin24hWindow(lastClientMsg?.createdAt ?? null);
     const requiresTemplate = !insideWindow || fu.level >= 3;
+    const language = contact?.language ?? null;
+    const name = contact?.name ?? null;
 
     try {
       if (requiresTemplate) {
-        const template = pickTemplate(fu.level as 3 | 4 | 5, conv.clientLanguage);
+        const template = pickTemplate(fu.level as 3 | 4 | 5, language);
         if (!template) {
           log.warn(
-            { level: fu.level, lang: conv.clientLanguage },
+            { level: fu.level, lang: language },
             "no template found — skipping follow-up",
           );
           await db
@@ -284,7 +295,7 @@ export class FollowUpProcessor {
             .where(eq(followUps.id, fu.id));
           return "cancelled";
         }
-        const variables = [conv.clientName ?? "amigo"];
+        const variables = [name ?? "amigo"];
         await respondIoClient.sendTemplate({
           conversationId: conv.respondIoConversationId,
           templateName: template.name,
@@ -302,7 +313,7 @@ export class FollowUpProcessor {
       }
 
       // Free-form: generate contextual text with Claude.
-      const text = await generateFollowUpText(fu.level, recent, conv);
+      const text = await generateFollowUpText(fu.level, recent, contact);
       await respondIoClient.sendMessage({
         conversationId: conv.respondIoConversationId,
         text,
@@ -329,7 +340,7 @@ export class FollowUpProcessor {
 async function generateFollowUpText(
   level: number,
   recent: Mensaje[],
-  conv: Conversacion,
+  contact: ChatContact | null,
 ): Promise<string> {
   const env = loadEnv();
   const transcript = recent
@@ -352,7 +363,7 @@ async function generateFollowUpText(
         role: "user",
         content:
           `Historial reciente:\n${transcript}\n\n` +
-          `Idioma del cliente: ${conv.clientLanguage ?? "auto-detectar"}\n\n` +
+          `Idioma del cliente: ${contact?.language ?? "auto-detectar"}\n\n` +
           `Generá el follow-up de nivel ${level}.`,
       },
     ],

@@ -55,6 +55,7 @@ const HISTORY: Mensaje[] = [
     sender: "cliente",
     agenteName: null,
     content: "Hola, quería info de Open Water",
+    fuentes: null,
     metadata: null,
     createdAt: new Date("2026-04-29T08:00:00Z"),
   },
@@ -64,6 +65,7 @@ const HISTORY: Mensaje[] = [
     sender: "ai",
     agenteName: null,
     content: "¡Hola! Te cuento sobre el OW…",
+    fuentes: null,
     metadata: null,
     createdAt: new Date("2026-04-29T08:00:30Z"),
   },
@@ -78,6 +80,12 @@ describe("formatHistoryForPrompt", () => {
     const out = formatHistoryForPrompt(HISTORY);
     expect(out.indexOf("CLIENTE:")).toBeLessThan(out.indexOf("AI:"));
     expect(out).toContain("Hola, quería info de Open Water");
+  });
+
+  it("prefixes each turn with the message id so the model can cite it", () => {
+    const out = formatHistoryForPrompt(HISTORY);
+    expect(out).toContain("[m1]");
+    expect(out).toContain("[m2]");
   });
 });
 
@@ -95,6 +103,17 @@ describe("formatDynamicBlock", () => {
     expect(text).toContain("OW: AM 4/6");
     expect(text).toContain("¿Tenés plaza el 30?");
     expect(text).toContain("español");
+  });
+
+  it("instructs the model to emit a {respuesta, fuentes} JSON envelope", () => {
+    const text = formatDynamicBlock({
+      sede: SEDE,
+      roster: ROSTER,
+      incomingMessage: "hola",
+    });
+    expect(text).toMatch(/FORMATO DE SALIDA OBLIGATORIO/);
+    expect(text).toContain("\"respuesta\"");
+    expect(text).toContain("\"fuentes\"");
   });
 
   it("falls back gracefully when roster is unavailable", () => {

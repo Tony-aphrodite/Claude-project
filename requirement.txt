@@ -1,0 +1,46 @@
+Desarrollador para Integración de Respond.io con Claude Api (Anthropic) vía Servidor Intermedio
+
+
+Description:
+Busco un desarrollador experimentado para un proyecto piloto de integración de Respond.io con la Claude API (Anthropic) utilizando un servidor intermedio. Este proyecto inicial se centrará en una única sede (una escuela de buceo con alto volumen de mensajes de WhatsApp).
+
+El objetivo principal es trasladar la lógica de inteligencia artificial del motor nativo de Respond.io, que tiene un límite de 10,000 caracteres de prompt, y delegarla a la Claude API. Esto permitirá utilizar prompts y bases de conocimiento sin restricciones de tamaño, mejorando significativamente la capacidad de respuesta y la calidad de las interacciones.
+
+El alcance del proyecto incluye:
+
+*  Implementación de un webhook bidireccional entre Respond.io y un servidor intermedio. Se sugiere utilizar plataformas como Vercel o Railway para el despliegue del servidor.
+*  El servidor intermedio deberá procesar las solicitudes, identificando la sede por un tag específico, recuperando el historial de conversaciones, cargando prompts y bases de conocimiento (KB), consultando Google Apps Script si es necesario, y finalmente llamando a la Claude API para obtener una respuesta.
+*  Integración con una base de datos Supabase para almacenar el historial de conversaciones y gestionar prompts editables.
+*  Desarrollo de una suite de regression tests robusta, que se ejecutará automáticamente con 100 conversaciones reales (proporcionadas por mí) ante cualquier cambio en los prompts.
+*  Creación de un panel de monitoreo básico para visualizar conversaciones diarias, métricas clave, errores y consumo de la API.
+*  El proyecto tiene como objetivo una latencia de respuesta inferior a 3 segundos.
+
+Todas las cuentas necesarias serán abiertas por mí, y el desarrollador accederá como invitado.
+
+Requisitos indispensables:
+
+*  Experiencia comprobable con Claude API o OpenAI API.
+*  Experiencia con webhooks de Respond.io (altamente valorado).
+*  Dominio de Node.js o Python para el desarrollo del servidor, junto con experiencia en Vercel/Railway y Supabase.
+*  Español nativo o fluido para una comunicación efectiva.
+*  Se requerirá la firma de un Acuerdo de Confidencialidad (NDA) antes de compartir cualquier dato sensible del proyecto.
+
+La estructura de pagos se dividirá en 3 hitos:
+
+*  30% al inicio del proyecto.
+*  40% una vez que el primer mensaje end-to-end funcione correctamente.
+*  30% al completar el piloto con 10 clientes reales atendidos.
+
+Este es un proyecto piloto. Si la implementación es exitosa, se ofrecerá continuidad para integrar 4 sedes adicionales.
+
+En su propuesta, por favor incluya:
+
+*  Proyectos previos similares, con enlaces o repositorios si es posible.
+*  Su enfoque para el desarrollo de la suite de regression tests.
+*  Su disponibilidad semanal en horas.
+Presupuesto máximo: USD 5.000 (equivalente en pesos argentinos según cotización). Plazo estimado: 4 a 6 semanas.
+
+Category: IT & Programming
+Subcategory: Artificial Intelligence
+Project size: Medium
+APINode.jsPythonDatabaseJavaScriptSoftware TestingWeb ServicesIT & Programming

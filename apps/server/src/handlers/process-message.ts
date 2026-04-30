@@ -2,7 +2,7 @@
 // Orchestrator for an inbound Respond.io message. Wires the 10 steps from
 // guide §6:
 //   1. Webhook received (done by route layer, signature already verified)
-//   2. Sede identification (tag → DB)
+//   2. Contact upsert (chat_contacts) + sede identification (tag → DB)
 //   3. Conversation history (sliding window)
 //   4. KB + prompt loaded from Supabase
 //   5. 4-block prompt build with cache_control
@@ -11,6 +11,10 @@
 //   8. Claude API call
 //   9. Response handling + logging
 //  10. Send via Respond.io outbound API
+//
+// Architectural rule: chat_contacts is the only place per-person identity
+// lives. The Conversation row only references the contact_id. The handler
+// MUST upsert the contact BEFORE the conversation so the FK is satisfied.
 // ============================================================================
 
 import type { FastifyBaseLogger } from "fastify";
@@ -20,6 +24,7 @@ import type { ConsultarDisponibilidadInput, ConsultarDisponibilidadResult, Respo
 import { errores, getDb } from "@dpm/db";
 import { callClaude } from "../services/anthropic.js";
 import { appsScriptService } from "../services/apps-script.js";
+import { chatContactsService } from "../services/chat-contacts.js";
 import { conversationService } from "../services/conversation.js";
 import { followUpProcessor } from "../services/follow-up.js";
 import { detectLanguage } from "../services/language.js";
@@ -58,7 +63,8 @@ export async function processIncomingMessage(
     };
   }
 
-  // Step 2: sede identification
+  // Step 2a: sede identification from tags. We need the sede.id before we can
+  // attach it to the contact upsert.
   const { sede, usedFallback } = await sedeService.resolveOrPilot(payload.contact.tags);
   if (usedFallback) {
     log.warn(
@@ -67,13 +73,22 @@ export async function processIncomingMessage(
     );
   }
 
+  // Step 2b: contact upsert. This is the canonical store for per-person data;
+  // the conversation row only carries a foreign key.
+  const contact = await chatContactsService.upsertFromWebhook({
+    respondIoContactId: payload.contact.id,
+    phone: payload.contact.phone,
+    name: payload.contact.name,
+    language: payload.contact.language,
+    tags: payload.contact.tags,
+    sedeId: sede.id,
+  });
+
   // Step 3: conversation upsert + history
   const conversation = await conversationService.upsertOnInbound({
-    respondIoConversationId: payload.conversation?.id ?? `tmp_${payload.contact.id}`,
+    respondIoConversationId: payload.conversation?.id ?? `tmp_${contact.respondIoContactId}`,
+    respondIoContactId: contact.respondIoContactId,
     sedeId: sede.id,
-    clientPhone: payload.contact.phone ?? `unknown:${payload.contact.id}`,
-    clientName: payload.contact.name,
-    clientLanguage: payload.contact.language,
   });
   await conversationService.appendInboundMessage(conversation.id, incomingText, {
     respondIoMessageId: payload.message.messageId,
@@ -99,7 +114,7 @@ export async function processIncomingMessage(
   const rosterPromise = appsScriptService.getRoster(sede);
 
   // Step 6: dynamic block + 5: 4-block prompt
-  const detectedLanguage = detectLanguage(incomingText);
+  const detectedLanguage = detectLanguage(incomingText) ?? contact.language ?? undefined;
   const roster = await rosterPromise;
 
   // Drop the bot's own message from the history we send back to Claude;
@@ -187,8 +202,9 @@ export async function processIncomingMessage(
     promptVersionId: promptVersion?.id,
   });
 
-  // Step 9: persist AI message
+  // Step 9: persist AI message with citations
   await conversationService.appendAiMessage(conversation.id, claudeResult.text, {
+    fuentes: claudeResult.fuentes,
     model: claudeResult.model,
     latencyMs: claudeResult.latencyMs,
     cacheHitRate: claudeResult.cost.cacheHitRate,

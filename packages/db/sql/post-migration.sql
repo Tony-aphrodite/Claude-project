@@ -5,6 +5,124 @@
 -- All statements MUST be idempotent — this file runs on every deploy.
 -- ============================================================================
 
+-- ── Structural safety net for the chat_contacts refactor ────────────────────
+-- The owner runs a separate operational system (payments registry) that joins
+-- on Respond.io's contact_id. Identity for clients lives in chat_contacts;
+-- conversaciones is just thread state. These guards make the migration
+-- forward-only safe even if drizzle-generated SQL ran on an older DB.
+CREATE TABLE IF NOT EXISTS chat_contacts (
+  respond_io_contact_id text PRIMARY KEY,
+  phone text,
+  name text,
+  language text,
+  tags text[] NOT NULL DEFAULT ARRAY[]::text[],
+  sede_id uuid REFERENCES sedes(id),
+  external_customer_id text,
+  metadata jsonb,
+  pii_deletion_requested boolean NOT NULL DEFAULT FALSE,
+  pii_retention_until timestamptz,
+  last_synced_at timestamptz NOT NULL DEFAULT NOW(),
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS chat_contacts_sede_idx ON chat_contacts (sede_id);
+CREATE INDEX IF NOT EXISTS chat_contacts_phone_idx ON chat_contacts (phone);
+CREATE INDEX IF NOT EXISTS chat_contacts_external_idx ON chat_contacts (external_customer_id);
+
+-- Backfill chat_contacts from any pre-refactor rows of conversaciones that
+-- still hold the legacy client_* columns. Skip silently when the columns are
+-- already gone.
+DO $$
+DECLARE
+  has_legacy boolean;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'conversaciones' AND column_name = 'client_phone'
+  ) INTO has_legacy;
+
+  IF has_legacy THEN
+    INSERT INTO chat_contacts (
+      respond_io_contact_id, phone, name, language, sede_id,
+      pii_deletion_requested, pii_retention_until, last_synced_at, created_at
+    )
+    SELECT DISTINCT ON (COALESCE(respond_io_contact_id, client_phone))
+           COALESCE(respond_io_contact_id, client_phone),
+           client_phone,
+           client_name,
+           client_language,
+           sede_id,
+           COALESCE(pii_deletion_requested, FALSE),
+           pii_retention_until,
+           NOW(),
+           created_at
+      FROM conversaciones
+     WHERE COALESCE(respond_io_contact_id, client_phone) IS NOT NULL
+    ON CONFLICT (respond_io_contact_id) DO NOTHING;
+  END IF;
+END $$;
+
+-- Add the contact FK column to conversaciones, then point conversations at
+-- the freshly populated chat_contacts row before dropping the legacy fields.
+ALTER TABLE conversaciones
+  ADD COLUMN IF NOT EXISTS respond_io_contact_id text;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'conversaciones' AND column_name = 'client_phone'
+  ) THEN
+    UPDATE conversaciones
+       SET respond_io_contact_id = COALESCE(respond_io_contact_id, client_phone)
+     WHERE respond_io_contact_id IS NULL;
+  END IF;
+END $$;
+
+ALTER TABLE conversaciones
+  DROP COLUMN IF EXISTS client_phone,
+  DROP COLUMN IF EXISTS client_name,
+  DROP COLUMN IF EXISTS client_language,
+  DROP COLUMN IF EXISTS pii_retention_until,
+  DROP COLUMN IF EXISTS pii_deletion_requested;
+
+DROP INDEX IF EXISTS conversaciones_phone_idx;
+
+-- Once data is consistent, enforce NOT NULL + FK on the new contact column.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'conversaciones'
+      AND column_name = 'respond_io_contact_id'
+      AND is_nullable = 'YES'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM conversaciones WHERE respond_io_contact_id IS NULL
+  ) THEN
+    ALTER TABLE conversaciones
+      ALTER COLUMN respond_io_contact_id SET NOT NULL;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE table_name = 'conversaciones'
+      AND constraint_name = 'conversaciones_respond_io_contact_id_fk'
+  ) THEN
+    ALTER TABLE conversaciones
+      ADD CONSTRAINT conversaciones_respond_io_contact_id_fk
+      FOREIGN KEY (respond_io_contact_id)
+      REFERENCES chat_contacts(respond_io_contact_id)
+      ON DELETE CASCADE;
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS conversaciones_contact_idx
+  ON conversaciones (respond_io_contact_id);
+
+-- mensajes.fuentes — stores citation refs (e.g. "kb:ow-course") for AI rows.
+ALTER TABLE mensajes
+  ADD COLUMN IF NOT EXISTS fuentes jsonb;
+
 -- ── Partial index for the follow-up scanner hot path ─────────────────────────
 -- The 15-min scanner needs O(log n) access to "due, not sent, not cancelled"
 -- rows. A partial index keeps it tiny even at 100k+ historical rows.
@@ -18,6 +136,7 @@ CREATE INDEX IF NOT EXISTS follow_ups_due_partial_idx
 -- bypasses RLS, so this gates the panel only.
 ALTER TABLE brands              ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sedes               ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_contacts       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE kb_documents        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE prompts_versiones   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE conversaciones      ENABLE ROW LEVEL SECURITY;
@@ -44,6 +163,11 @@ DROP POLICY IF EXISTS tenant_isolation_sedes ON sedes;
 CREATE POLICY tenant_isolation_sedes ON sedes
   FOR ALL
   USING (brand_id IS NULL OR brand_id = current_brand_id());
+
+DROP POLICY IF EXISTS tenant_isolation_chat_contacts ON chat_contacts;
+CREATE POLICY tenant_isolation_chat_contacts ON chat_contacts
+  FOR ALL
+  USING (sede_id IS NULL OR sede_id IN (SELECT id FROM sedes WHERE brand_id = current_brand_id()));
 
 DROP POLICY IF EXISTS tenant_isolation_kb ON kb_documents;
 CREATE POLICY tenant_isolation_kb ON kb_documents
@@ -137,9 +261,15 @@ BEGIN
 END $$;
 
 -- ── Seed: PII retention default ──────────────────────────────────────────────
+-- chat_contacts is now the canonical PII home; mensajes still has free-text
+-- bodies that need scrubbing on retention.
 INSERT INTO pii_retention_policy (retention_days, auto_delete_enabled, applies_to)
-SELECT 365, true, ARRAY['mensajes', 'conversaciones']
+SELECT 365, true, ARRAY['chat_contacts', 'mensajes']
 WHERE NOT EXISTS (SELECT 1 FROM pii_retention_policy);
+
+UPDATE pii_retention_policy
+   SET applies_to = ARRAY['chat_contacts', 'mensajes']
+ WHERE applies_to IS DISTINCT FROM ARRAY['chat_contacts', 'mensajes'];
 
 -- ── Regression suite tables ──────────────────────────────────────────────────
 -- Telemetry for the @dpm/regression package. Kept out of Drizzle because they

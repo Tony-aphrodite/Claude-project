@@ -63,6 +63,42 @@ export const sedes = pgTable(
   }),
 );
 
+// ── chat_contacts ──────────────────────────────────────────────────────────
+// Synchronization mirror of Respond.io contacts. The PRIMARY KEY is the
+// Respond.io contact_id verbatim (text, not a UUID) by explicit decision: the
+// owner runs a separate operational system (payments registry) that joins on
+// the same external key, so any UUID surrogate would force a future refactor.
+//
+// Rules (do not violate):
+//   • This is the ONLY place that stores per-person identity in the system.
+//   • Conversations, mensajes, follow_ups, llamadas_api MUST reference
+//     respond_io_contact_id, not phone/name/email embedded.
+//   • PII redaction (12-month retention or on request) happens HERE.
+export const chatContacts = pgTable(
+  "chat_contacts",
+  {
+    respondIoContactId: text("respond_io_contact_id").primaryKey(),
+    phone: text("phone"),
+    name: text("name"),
+    language: text("language"),
+    tags: text("tags").array().notNull().default(sql`ARRAY[]::text[]`),
+    sedeId: uuid("sede_id").references(() => sedes.id),
+    // Optional foreign-key into the owner's external payments / CRM system.
+    // Filled in lazily once that integration exists; null until then.
+    externalCustomerId: text("external_customer_id"),
+    metadata: jsonb("metadata"),
+    piiDeletionRequested: boolean("pii_deletion_requested").notNull().default(false),
+    piiRetentionUntil: timestamp("pii_retention_until", { withTimezone: true }),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    sedeIdx: index("chat_contacts_sede_idx").on(t.sedeId),
+    phoneIdx: index("chat_contacts_phone_idx").on(t.phone),
+    externalIdx: index("chat_contacts_external_idx").on(t.externalCustomerId),
+  }),
+);
+
 // ── kb_documents ───────────────────────────────────────────────────────────
 // Pointer to KB blobs in Supabase Storage. We version them; only one row per
 // sede may have active=true at a time (enforced at app layer).
@@ -110,23 +146,22 @@ export const promptsVersiones = pgTable(
 // ── conversaciones ─────────────────────────────────────────────────────────
 // Lifecycle of a single client thread inside Respond.io. follow_up_state is
 // a small JSON describing where in the 5-level state machine we are
-// (guide §11).
+// (guide §11). Personally-identifying client metadata lives in chat_contacts;
+// this row only holds thread-level state.
 export const conversaciones = pgTable(
   "conversaciones",
   {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
     respondIoConversationId: text("respond_io_conversation_id").notNull(),
+    respondIoContactId: text("respond_io_contact_id")
+      .notNull()
+      .references(() => chatContacts.respondIoContactId, { onDelete: "cascade" }),
     sedeId: uuid("sede_id")
       .notNull()
       .references(() => sedes.id),
-    clientPhone: text("client_phone").notNull(),
-    clientName: text("client_name"),
-    clientLanguage: text("client_language"),
     status: text("status").notNull().default("active"),
     followUpState: jsonb("follow_up_state"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
-    piiRetentionUntil: timestamp("pii_retention_until", { withTimezone: true }),
-    piiDeletionRequested: boolean("pii_deletion_requested").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -136,12 +171,15 @@ export const conversaciones = pgTable(
     ),
     sedeIdx: index("conversaciones_sede_idx").on(t.sedeId),
     statusIdx: index("conversaciones_status_idx").on(t.status),
-    phoneIdx: index("conversaciones_phone_idx").on(t.clientPhone),
+    contactIdx: index("conversaciones_contact_idx").on(t.respondIoContactId),
   }),
 );
 
 // ── mensajes ───────────────────────────────────────────────────────────────
 // Append-only message log. sender is one of: "cliente" | "ai" | "agente_humano".
+// `fuentes` records, for AI messages only, the citations the model emitted
+// (e.g. ["kb:ow-course", "history:m12"]). Used by the panel for auditability
+// and by the regression suite to detect uncited factual claims.
 export const mensajes = pgTable(
   "mensajes",
   {
@@ -152,6 +190,7 @@ export const mensajes = pgTable(
     sender: text("sender").notNull(),
     agenteName: text("agente_name"),
     content: text("content").notNull(),
+    fuentes: jsonb("fuentes"), // string[] — null for non-AI messages
     metadata: jsonb("metadata"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -279,6 +318,8 @@ export type Brand = typeof brands.$inferSelect;
 export type NewBrand = typeof brands.$inferInsert;
 export type Sede = typeof sedes.$inferSelect;
 export type NewSede = typeof sedes.$inferInsert;
+export type ChatContact = typeof chatContacts.$inferSelect;
+export type NewChatContact = typeof chatContacts.$inferInsert;
 export type KbDocument = typeof kbDocuments.$inferSelect;
 export type PromptVersion = typeof promptsVersiones.$inferSelect;
 export type NewPromptVersion = typeof promptsVersiones.$inferInsert;

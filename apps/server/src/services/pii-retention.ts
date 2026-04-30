@@ -1,17 +1,24 @@
 // ============================================================================
 // PII auto-deletion (12-month retention by default — guide §16 #8 / §8 schema).
-// Runs once per hour. Two triggers per row:
-//   1. pii_retention_until is in the past (whatever was set at write time).
+// Runs once per hour. Two triggers per chat_contacts row:
+//   1. pii_retention_until is in the past.
 //   2. pii_deletion_requested = true (GDPR-style on-demand request).
 //
-// We delete the message bodies + client name + phone but keep the row's
-// shell so analytics keep working. This satisfies both "right to be
-// forgotten" and our need to count past conversations.
+// Identity for clients now lives in chat_contacts; that's where we redact
+// phone/name/language. Message bodies still carry free-text PII so we also
+// scrub `mensajes.content` for every conversation tied to redacted contacts.
+// Conversation rows themselves are kept (status -> "closed") so analytics keep
+// counting historical activity, but they only point to a redacted contact.
 // ============================================================================
 
 import { eq, lt, or, sql } from "drizzle-orm";
 
-import { conversaciones, getDb, mensajes } from "@dpm/db";
+import {
+  chatContacts,
+  conversaciones,
+  getDb,
+  mensajes,
+} from "@dpm/db";
 
 import { getLogger } from "../logger.js";
 
@@ -20,53 +27,81 @@ const REDACTED_NAME = null;
 const REDACTED_BODY = "[redacted by retention policy]";
 
 export class PiiRetentionService {
-  async runOnce(): Promise<{ conversationsRedacted: number; messagesRedacted: number }> {
+  async runOnce(): Promise<{
+    contactsRedacted: number;
+    messagesRedacted: number;
+    conversationsClosed: number;
+  }> {
     const db = getDb();
     const log = getLogger();
 
     const eligible = await db
-      .select({ id: conversaciones.id })
-      .from(conversaciones)
+      .select({ id: chatContacts.respondIoContactId })
+      .from(chatContacts)
       .where(
         or(
-          eq(conversaciones.piiDeletionRequested, true),
-          lt(conversaciones.piiRetentionUntil, new Date()),
+          eq(chatContacts.piiDeletionRequested, true),
+          lt(chatContacts.piiRetentionUntil, new Date()),
         ),
       );
 
-    if (eligible.length === 0) return { conversationsRedacted: 0, messagesRedacted: 0 };
+    if (eligible.length === 0) {
+      return { contactsRedacted: 0, messagesRedacted: 0, conversationsClosed: 0 };
+    }
 
     const ids = eligible.map((r) => r.id);
     let messagesRedacted = 0;
-    let conversationsRedacted = 0;
+    let contactsRedacted = 0;
+    let conversationsClosed = 0;
 
     // Process in chunks to avoid one giant transaction.
     const CHUNK = 100;
     for (let i = 0; i < ids.length; i += CHUNK) {
       const chunk = ids.slice(i, i + CHUNK);
+
+      // Redact every message body that belongs to any conversation owned by
+      // these contacts. We scrub by joining through conversaciones.
       const msgRes = await db
         .update(mensajes)
-        .set({ content: REDACTED_BODY, metadata: null })
-        .where(sql`${mensajes.conversacionId} = ANY(${chunk})`)
+        .set({ content: REDACTED_BODY, metadata: null, fuentes: null })
+        .where(
+          sql`${mensajes.conversacionId} IN (
+            SELECT id FROM conversaciones
+             WHERE respond_io_contact_id = ANY(${chunk})
+          )`,
+        )
         .returning({ id: mensajes.id });
       messagesRedacted += msgRes.length;
 
+      // Close the threads — they are not deletable for analytics, but they
+      // should not look "active" to the follow-up scanner anymore.
       const convRes = await db
         .update(conversaciones)
+        .set({ status: "closed" })
+        .where(sql`${conversaciones.respondIoContactId} = ANY(${chunk})`)
+        .returning({ id: conversaciones.id });
+      conversationsClosed += convRes.length;
+
+      const contactRes = await db
+        .update(chatContacts)
         .set({
-          clientName: REDACTED_NAME,
-          clientPhone: REDACTED_PHONE,
+          phone: REDACTED_PHONE,
+          name: REDACTED_NAME,
+          language: null,
+          metadata: null,
           piiDeletionRequested: false,
           piiRetentionUntil: null,
-          status: "closed",
         })
-        .where(sql`${conversaciones.id} = ANY(${chunk})`)
-        .returning({ id: conversaciones.id });
-      conversationsRedacted += convRes.length;
+        .where(sql`${chatContacts.respondIoContactId} = ANY(${chunk})`)
+        .returning({ id: chatContacts.respondIoContactId });
+      contactsRedacted += contactRes.length;
     }
 
-    log.info({ conversationsRedacted, messagesRedacted }, "pii retention pass");
-    return { conversationsRedacted, messagesRedacted };
+    log.info(
+      { contactsRedacted, messagesRedacted, conversationsClosed },
+      "pii retention pass",
+    );
+    return { contactsRedacted, messagesRedacted, conversationsClosed };
   }
 }
 
