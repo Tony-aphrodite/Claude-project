@@ -19,19 +19,34 @@
 
 import type { FastifyBaseLogger } from "fastify";
 
-import type { ConsultarDisponibilidadInput, ConsultarDisponibilidadResult, RespondIoIncomingMessage } from "@dpm/shared";
+import type {
+  ConsultarDisponibilidadInput,
+  ConsultarDisponibilidadResult,
+  DepositCurrency,
+  RespondIoIncomingMessage,
+  SolicitarDepositoInput,
+  SolicitarDepositoResult,
+} from "@dpm/shared";
+import { DEPOSIT_AMOUNT } from "@dpm/shared";
 
 import { errores, getDb } from "@dpm/db";
 import { callClaude } from "../services/anthropic.js";
 import { appsScriptService } from "../services/apps-script.js";
 import { chatContactsService } from "../services/chat-contacts.js";
 import { conversationService } from "../services/conversation.js";
+import {
+  buildPaymentInstructions,
+  sedeHasAutomaticGateway,
+  type SedeKey,
+} from "../services/deposit-instructions.js";
 import { followUpProcessor } from "../services/follow-up.js";
 import { detectLanguage } from "../services/language.js";
+import { leadStageService } from "../services/lead-stage.js";
 import { buildFourBlockPrompt } from "../services/prompt-builder.js";
 import { promptsService } from "../services/prompts.js";
 import { respondIoClient } from "../services/respond-io.js";
 import { sedeService } from "../services/sede.js";
+import { generateRefCode } from "../tools/solicitar-deposito.js";
 
 export type ProcessResult = {
   conversationId: string;
@@ -130,8 +145,8 @@ export async function processIncomingMessage(
     detectedLanguage,
   });
 
-  // Step 7+8: tool_use handler + Claude call
-  const toolHandler = async (
+  // Step 7+8: tool_use handlers + Claude call
+  const consultarDisponibilidadHandler = async (
     input: ConsultarDisponibilidadInput,
   ): Promise<ConsultarDisponibilidadResult> => {
     if (input.sede_id !== sede.id) {
@@ -142,6 +157,17 @@ export async function processIncomingMessage(
         "tool_use sede_id mismatch — overriding",
       );
     }
+    // Side effect: any successful availability check moves the lead toward
+    // the "proposed" stage, since the AI is committing to specific dates.
+    void leadStageService
+      .transition({
+        conversacionId: conversation.id,
+        to: "proposed",
+        by: "ai",
+        note: `consultar_disponibilidad ${input.curso} ${input.fecha}`,
+      })
+      .catch(() => {});
+
     const fresh = await appsScriptService.getRoster(sede);
     if (!fresh) {
       return {
@@ -193,10 +219,65 @@ export async function processIncomingMessage(
     };
   };
 
+  const solicitarDepositoHandler = async (
+    input: SolicitarDepositoInput,
+  ): Promise<SolicitarDepositoResult> => {
+    if (input.sede_id !== sede.id) {
+      log.warn(
+        { claimed: input.sede_id, actual: sede.id },
+        "solicitar_deposito sede_id mismatch — overriding",
+      );
+    }
+
+    const refCode = generateRefCode();
+    const currency = input.moneda_cliente as DepositCurrency;
+    const requiresHumanVerification = !sedeHasAutomaticGateway(sede.nombre as SedeKey);
+
+    const instrucciones = buildPaymentInstructions({
+      sedeNombre: sede.nombre,
+      language: input.cliente_idioma,
+      currency,
+      refCode,
+    });
+
+    const transitionResult = await leadStageService.transition({
+      conversacionId: conversation.id,
+      to: "deposit_pending",
+      by: "ai",
+      note: `solicitar_deposito ${refCode} ${currency}`,
+      metadataPatch: {
+        ref_code: refCode,
+        deposit_amount: DEPOSIT_AMOUNT,
+        deposit_currency: currency,
+        payment_instructions_snapshot: instrucciones,
+        requires_human_verification: requiresHumanVerification,
+      },
+    });
+
+    if (!transitionResult.ok) {
+      log.warn(
+        { reason: transitionResult.reason, from: transitionResult.from, to: transitionResult.to },
+        "solicitar_deposito transition rejected — returning instructions anyway",
+      );
+    }
+
+    return {
+      ok: true,
+      ref_code: refCode,
+      monto: DEPOSIT_AMOUNT,
+      moneda: currency,
+      instrucciones,
+      requires_human_verification: requiresHumanVerification,
+    };
+  };
+
   const claudeResult = await callClaude({
     system,
     messages,
-    toolHandler,
+    toolHandlers: {
+      consultar_disponibilidad: consultarDisponibilidadHandler,
+      solicitar_deposito: solicitarDepositoHandler,
+    },
     conversacionId: conversation.id,
     sedeId: sede.id,
     promptVersionId: promptVersion?.id,
