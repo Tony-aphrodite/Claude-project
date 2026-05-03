@@ -93,6 +93,93 @@ export type ConsultarDisponibilidadResult =
       message: string;
     };
 
+// solicitar_deposito — invoked when the AI detects clear booking intent. The
+// server generates a unique reference code, marks the conversation as
+// deposit_pending, and returns sede-specific payment instructions plus the
+// reference. The AI weaves the instructions into its reply; the human team
+// later matches the reference against incoming Wise / Revolut / bank
+// transfers in the panel.
+export const DEPOSIT_AMOUNT = 40 as const;
+
+export const SUPPORTED_DEPOSIT_CURRENCIES = [
+  "EUR",
+  "USD",
+  "GBP",
+  "THB",
+  "IDR",
+] as const;
+export type DepositCurrency = (typeof SUPPORTED_DEPOSIT_CURRENCIES)[number];
+
+export const solicitarDepositoInputSchema = z.object({
+  sede_id: z.string().uuid(),
+  cliente_idioma: z.string().min(2).max(10),
+  moneda_cliente: z.enum(SUPPORTED_DEPOSIT_CURRENCIES),
+});
+
+export type SolicitarDepositoInput = z.infer<typeof solicitarDepositoInputSchema>;
+
+export type SolicitarDepositoResult =
+  | {
+      ok: true;
+      ref_code: string;
+      monto: typeof DEPOSIT_AMOUNT;
+      moneda: DepositCurrency;
+      instrucciones: string;
+      // True when this sede has an automatic gateway (Stripe) that will mark
+      // the deposit paid via webhook. False means a human must confirm in the
+      // panel after seeing the transfer in Wise/Revolut/bank.
+      requires_human_verification: boolean;
+    }
+  | {
+      ok: false;
+      reason: "sede_unknown" | "currency_unsupported" | "internal_error";
+      message: string;
+    };
+
+// ── Lead pipeline ───────────────────────────────────────────────────────────
+// State machine for the sales pipeline view. Transitions are validated by
+// the server; humans can override from the panel.
+export const LEAD_STAGES = [
+  "new",
+  "qualified",
+  "proposed",
+  "deposit_pending",
+  "deposit_paid",
+  "handed_off",
+  "closed",
+  "lost",
+] as const;
+export type LeadStage = (typeof LEAD_STAGES)[number];
+
+// Allowed forward transitions. "lost" is reachable from anywhere (negative
+// intent / explicit decline). Backward moves require a human override path.
+export const LEAD_STAGE_TRANSITIONS: Record<LeadStage, LeadStage[]> = {
+  new: ["qualified", "proposed", "deposit_pending", "lost"],
+  qualified: ["proposed", "deposit_pending", "lost"],
+  proposed: ["deposit_pending", "lost"],
+  deposit_pending: ["deposit_paid", "lost"],
+  deposit_paid: ["handed_off", "lost"],
+  handed_off: ["closed", "lost"],
+  closed: [],
+  lost: [],
+};
+
+export type LeadMetadata = {
+  ref_code?: string;
+  deposit_amount?: number;
+  deposit_currency?: DepositCurrency;
+  payment_instructions_snapshot?: string;
+  requires_human_verification?: boolean;
+  // Free-form audit trail of the last 10 transitions: { from, to, at, by }.
+  history?: Array<{
+    from: LeadStage;
+    to: LeadStage;
+    at: string; // ISO timestamp
+    by: "ai" | "human" | "system" | "negative_intent";
+    note?: string;
+  }>;
+};
+
 // ── Roster (Apps Script response shape) ─────────────────────────────────────
 export type RosterDay = {
   date: string; // YYYY-MM-DD in sede TZ
