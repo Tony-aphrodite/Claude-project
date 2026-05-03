@@ -42,6 +42,7 @@ import {
 
 import { loadEnv } from "../env.js";
 import { getLogger } from "../logger.js";
+import { leadStageService } from "./lead-stage.js";
 import { detectNegativeIntent } from "./negative-intent.js";
 import { respondIoClient } from "./respond-io.js";
 import {
@@ -267,6 +268,16 @@ export class FollowUpProcessor {
           followUpState: { disabledReason: negative.reason, at: new Date().toISOString() },
         })
         .where(eq(conversaciones.id, conv.id));
+      // Negative intent advances the lead to "lost" — terminal state, panel
+      // can still re-open via human override if it was a false positive.
+      await leadStageService
+        .forceTransition({
+          conversacionId: conv.id,
+          to: "lost",
+          by: "negative_intent",
+          note: negative.reason ?? "negative_intent",
+        })
+        .catch((err) => log.warn({ err }, "lead_stage lost transition failed"));
       log.info({ convId: conv.id, reason: negative.reason }, "follow-up cancelled by intent");
       return "cancelled";
     }
