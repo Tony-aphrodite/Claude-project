@@ -148,6 +148,21 @@ export const promptsVersiones = pgTable(
 // a small JSON describing where in the 5-level state machine we are
 // (guide §11). Personally-identifying client metadata lives in chat_contacts;
 // this row only holds thread-level state.
+//
+// lead_stage drives the sales pipeline view ("espía-monitoreo") and dictates
+// when the AI hands off to a human:
+//   new          — conversation just opened
+//   qualified    — AI assessed real interest (heuristic: 3+ exchanges)
+//   proposed     — AI proposed dates / course (consultar_disponibilidad ok)
+//   deposit_pending — AI invoked solicitar_deposito; waiting human verification
+//   deposit_paid — human confirmed payment in panel
+//   handed_off   — AI silenced; sede team owns the thread
+//   closed       — booked, end-state
+//   lost         — explicit decline / negative intent / dead lead
+//
+// lead_metadata holds per-stage data (reference codes, deposit amount,
+// currency, assigned agent name). Free-form jsonb so we can iterate without
+// migrations.
 export const conversaciones = pgTable(
   "conversaciones",
   {
@@ -160,6 +175,12 @@ export const conversaciones = pgTable(
       .notNull()
       .references(() => sedes.id),
     status: text("status").notNull().default("active"),
+    leadStage: text("lead_stage").notNull().default("new"),
+    leadStageChangedAt: timestamp("lead_stage_changed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    leadMetadata: jsonb("lead_metadata"),
+    assignedAgent: text("assigned_agent"),
     followUpState: jsonb("follow_up_state"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -172,6 +193,7 @@ export const conversaciones = pgTable(
     sedeIdx: index("conversaciones_sede_idx").on(t.sedeId),
     statusIdx: index("conversaciones_status_idx").on(t.status),
     contactIdx: index("conversaciones_contact_idx").on(t.respondIoContactId),
+    leadStageIdx: index("conversaciones_lead_stage_idx").on(t.leadStage, t.leadStageChangedAt),
   }),
 );
 
