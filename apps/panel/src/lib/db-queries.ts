@@ -8,6 +8,10 @@
 // Identity (phone, name, language) lives on chat_contacts; conversations only
 // hold thread state. Every conversation-facing query in this file joins
 // chat_contacts so the UI can display the client without a second hop.
+//
+// Dev-mode: when DEV_MOCK_DATA=1 (and NODE_ENV !== production) every query
+// returns canned data from db-queries-mock.ts so we can boot the panel for
+// UI smoke tests without a real Postgres. The flag is refused in production.
 
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 
@@ -23,7 +27,22 @@ import {
   sedes,
 } from "@dpm/db";
 
+import {
+  isMockMode,
+  MOCK_SEDES,
+  mockGetConversation,
+  mockGetDashboardSnapshot,
+  mockGetFollowUpMetrics,
+  mockGetRegressionRunDetail,
+  mockListConversations,
+  mockListDepositPending,
+  mockListFollowUps,
+  mockListPrompts,
+  mockListRegressionRuns,
+} from "./db-queries-mock";
+
 export async function getDashboardSnapshot(rangeHours = 24) {
+  if (isMockMode()) return mockGetDashboardSnapshot();
   const db = getDb();
   const since = new Date(Date.now() - rangeHours * 60 * 60 * 1000);
 
@@ -68,6 +87,12 @@ export async function listConversations(opts: {
   status?: string;
   limit?: number;
 }) {
+  if (isMockMode()) {
+    let rows = mockListConversations();
+    if (opts.sedeId) rows = rows.filter((r) => r.conv.sedeId === opts.sedeId);
+    if (opts.status) rows = rows.filter((r) => r.conv.status === opts.status);
+    return rows.slice(0, opts.limit ?? 50);
+  }
   const db = getDb();
   const where = and(
     opts.sedeId ? eq(conversaciones.sedeId, opts.sedeId) : undefined,
@@ -91,6 +116,7 @@ export async function listConversations(opts: {
 }
 
 export async function getConversation(id: string) {
+  if (isMockMode()) return mockGetConversation(id);
   const db = getDb();
   const [conv] = await db
     .select({
@@ -116,6 +142,7 @@ export async function getConversation(id: string) {
 }
 
 export async function listPrompts(type: string) {
+  if (isMockMode()) return mockListPrompts().filter((p) => p.type === type);
   const db = getDb();
   return db
     .select()
@@ -125,6 +152,13 @@ export async function listPrompts(type: string) {
 }
 
 export async function getActivePrompt(type: string, sedeId?: string | null) {
+  if (isMockMode()) {
+    return (
+      mockListPrompts().find(
+        (p) => p.type === type && (sedeId === undefined || p.sedeId === sedeId) && p.active,
+      ) ?? null
+    );
+  }
   const db = getDb();
   const [row] = await db
     .select()
@@ -142,6 +176,13 @@ export async function getActivePrompt(type: string, sedeId?: string | null) {
 }
 
 export async function listFollowUps(opts: { status?: "pending" | "sent" | "cancelled" }) {
+  if (isMockMode()) {
+    const rows = mockListFollowUps();
+    if (opts.status === "pending") return rows.filter((r) => !r.sentAt && !r.cancelledAt);
+    if (opts.status === "sent") return rows.filter((r) => r.sentAt);
+    if (opts.status === "cancelled") return rows.filter((r) => r.cancelledAt);
+    return rows;
+  }
   const db = getDb();
   let where;
   if (opts.status === "pending") {
@@ -161,6 +202,7 @@ export async function listFollowUps(opts: { status?: "pending" | "sent" | "cance
 }
 
 export async function getFollowUpMetrics() {
+  if (isMockMode()) return mockGetFollowUpMetrics();
   const db = getDb();
   const [agg] = await db
     .select({
@@ -176,6 +218,7 @@ export async function getFollowUpMetrics() {
 }
 
 export async function listRegressionRuns() {
+  if (isMockMode()) return mockListRegressionRuns();
   const db = getDb();
   return db.execute<{
     id: string;
@@ -195,6 +238,7 @@ export async function listRegressionRuns() {
 }
 
 export async function getRegressionRunDetail(runId: string) {
+  if (isMockMode()) return mockGetRegressionRunDetail();
   const db = getDb();
   const runRows = await db.execute<Record<string, unknown>>(sql`
     SELECT * FROM regression_runs WHERE id = ${runId}::uuid LIMIT 1
@@ -209,6 +253,60 @@ export async function getRegressionRunDetail(runId: string) {
 }
 
 export async function listSedes() {
+  if (isMockMode()) return MOCK_SEDES;
   const db = getDb();
   return db.select().from(sedes).orderBy(sedes.nombre);
+}
+
+/**
+ * Conversations awaiting human deposit verification (panel /payments).
+ * Joined with chat_contacts so the operator sees the client name + phone
+ * without a second hop.
+ */
+export async function listDepositPending() {
+  if (isMockMode()) return mockListDepositPending();
+  const db = getDb();
+  return db
+    .select({
+      conv: conversaciones,
+      contact: chatContacts,
+      sedeName: sedes.nombre,
+    })
+    .from(conversaciones)
+    .leftJoin(
+      chatContacts,
+      eq(chatContacts.respondIoContactId, conversaciones.respondIoContactId),
+    )
+    .leftJoin(sedes, eq(sedes.id, conversaciones.sedeId))
+    .where(eq(conversaciones.leadStage, "deposit_pending"))
+    .orderBy(conversaciones.leadStageChangedAt);
+}
+
+/**
+ * All conversations grouped by lead_stage (panel /pipeline kanban).
+ * The kanban view filters in-memory; the query returns up to 200 rows so
+ * we never exhaust the page on a busy day.
+ */
+export async function listConversationsForPipeline(opts: { sedeId?: string }) {
+  if (isMockMode()) {
+    let rows = mockListConversations();
+    if (opts.sedeId) rows = rows.filter((r) => r.conv.sedeId === opts.sedeId);
+    return rows;
+  }
+  const db = getDb();
+  return db
+    .select({
+      conv: conversaciones,
+      contact: chatContacts,
+      sedeName: sedes.nombre,
+    })
+    .from(conversaciones)
+    .leftJoin(
+      chatContacts,
+      eq(chatContacts.respondIoContactId, conversaciones.respondIoContactId),
+    )
+    .leftJoin(sedes, eq(sedes.id, conversaciones.sedeId))
+    .where(opts.sedeId ? eq(conversaciones.sedeId, opts.sedeId) : undefined)
+    .orderBy(desc(conversaciones.leadStageChangedAt))
+    .limit(200);
 }
