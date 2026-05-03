@@ -1,7 +1,7 @@
 // ============================================================================
 // Anthropic client wrapper. Single entry point for Claude calls so we can
 // centralize:
-//   - tool_use loop (one redirect to consultar_disponibilidad if Claude asks)
+//   - tool_use loop with a generic dispatcher over the registered tool set
 //   - usage logging into llamadas_api
 //   - cost computation + daily spend limit guard
 //
@@ -29,9 +29,14 @@ import { CostLimitError, UpstreamError } from "../lib/errors.js";
 import { getLogger } from "../logger.js";
 import {
   consultarDisponibilidadTool,
-  parseToolInput,
+  parseToolInput as parseConsultarDisponibilidadInput,
   type ConsultarDisponibilidadHandler,
 } from "../tools/consultar-disponibilidad.js";
+import {
+  parseSolicitarDepositoInput,
+  solicitarDepositoTool,
+  type SolicitarDepositoHandler,
+} from "../tools/solicitar-deposito.js";
 
 let _client: Anthropic | undefined;
 
@@ -46,12 +51,17 @@ function getClient(): Anthropic {
   return _client;
 }
 
+export type ToolHandlers = {
+  consultar_disponibilidad: ConsultarDisponibilidadHandler;
+  solicitar_deposito: SolicitarDepositoHandler;
+};
+
 export type CallClaudeInput = {
   model?: AnthropicModel;
   maxTokens?: number;
   system: Anthropic.TextBlockParam[];
   messages: Anthropic.MessageParam[];
-  toolHandler: ConsultarDisponibilidadHandler;
+  toolHandlers: ToolHandlers;
   conversacionId: string;
   sedeId: string;
   promptVersionId?: string | undefined;
@@ -93,7 +103,7 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         model,
         max_tokens: maxTokens,
         system: input.system,
-        tools: [consultarDisponibilidadTool],
+        tools: [consultarDisponibilidadTool, solicitarDepositoTool],
         messages,
       });
     } catch (err) {
@@ -130,9 +140,10 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         .trim();
       const { text, fuentes } = parseStructuredAnswer(rawText);
 
-      // Append tool_use to fuentes if Claude actually invoked any.
-      if (toolCalls.includes("consultar_disponibilidad")) {
-        fuentes.push("tool:consultar_disponibilidad");
+      // Append tool_use to fuentes if Claude actually invoked any. The panel
+      // surfaces these so a human can audit which tool the AI relied on.
+      for (const toolName of new Set(toolCalls)) {
+        fuentes.push(`tool:${toolName}`);
       }
 
       const latencyMs = Date.now() - startedAt;
@@ -172,42 +183,8 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const tu of toolUseBlocks) {
       toolCalls.push(tu.name);
-      if (tu.name !== "consultar_disponibilidad") {
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: tu.id,
-          content: `Error: tool "${tu.name}" no soportada`,
-          is_error: true,
-        });
-        continue;
-      }
-
-      const parsed = parseToolInput(tu.input);
-      if (!parsed.ok) {
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: tu.id,
-          content: parsed.message,
-          is_error: true,
-        });
-        continue;
-      }
-
-      try {
-        const result = await input.toolHandler(parsed.value);
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: tu.id,
-          content: JSON.stringify(result),
-        });
-      } catch (err) {
-        toolResults.push({
-          type: "tool_result",
-          tool_use_id: tu.id,
-          content: `Error ejecutando consulta: ${(err as Error).message}`,
-          is_error: true,
-        });
-      }
+      const dispatched = await dispatchTool(tu, input.toolHandlers);
+      toolResults.push(dispatched);
     }
 
     messages.push({ role: "user", content: toolResults });
@@ -215,6 +192,78 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
 
   // Unreachable — the loop returns within the final-answer branch.
   throw new Error("callClaude: tool-use loop exceeded MAX_TOOL_ROUNDS");
+}
+
+/**
+ * Dispatch a single tool_use block to the registered handler. Validation
+ * errors and handler exceptions are converted to `is_error` tool_result
+ * blocks so Claude can recover within the same round, rather than tearing
+ * down the request.
+ */
+async function dispatchTool(
+  tu: Anthropic.ToolUseBlock,
+  handlers: ToolHandlers,
+): Promise<Anthropic.ToolResultBlockParam> {
+  if (tu.name === "consultar_disponibilidad") {
+    const parsed = parseConsultarDisponibilidadInput(tu.input);
+    if (!parsed.ok) {
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: parsed.message,
+        is_error: true,
+      };
+    }
+    try {
+      const result = await handlers.consultar_disponibilidad(parsed.value);
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: JSON.stringify(result),
+      };
+    } catch (err) {
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: `Error ejecutando consulta: ${(err as Error).message}`,
+        is_error: true,
+      };
+    }
+  }
+
+  if (tu.name === "solicitar_deposito") {
+    const parsed = parseSolicitarDepositoInput(tu.input);
+    if (!parsed.ok) {
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: parsed.message,
+        is_error: true,
+      };
+    }
+    try {
+      const result = await handlers.solicitar_deposito(parsed.value);
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: JSON.stringify(result),
+      };
+    } catch (err) {
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: `Error solicitando depósito: ${(err as Error).message}`,
+        is_error: true,
+      };
+    }
+  }
+
+  return {
+    type: "tool_result",
+    tool_use_id: tu.id,
+    content: `Error: tool "${tu.name}" no soportada`,
+    is_error: true,
+  };
 }
 
 /**
