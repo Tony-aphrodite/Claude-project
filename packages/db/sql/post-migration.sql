@@ -123,6 +123,34 @@ CREATE INDEX IF NOT EXISTS conversaciones_contact_idx
 ALTER TABLE mensajes
   ADD COLUMN IF NOT EXISTS fuentes jsonb;
 
+-- ── conversaciones lead pipeline (espía-monitoreo) ──────────────────────────
+-- The AI advances lead_stage automatically on specific events (deposit tool,
+-- negative intent); humans correct it from the panel kanban.
+ALTER TABLE conversaciones
+  ADD COLUMN IF NOT EXISTS lead_stage text NOT NULL DEFAULT 'new',
+  ADD COLUMN IF NOT EXISTS lead_stage_changed_at timestamptz NOT NULL DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS lead_metadata jsonb,
+  ADD COLUMN IF NOT EXISTS assigned_agent text;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+     WHERE table_name = 'conversaciones'
+       AND constraint_name = 'conversaciones_lead_stage_check'
+  ) THEN
+    ALTER TABLE conversaciones
+      ADD CONSTRAINT conversaciones_lead_stage_check
+      CHECK (lead_stage IN (
+        'new','qualified','proposed','deposit_pending',
+        'deposit_paid','handed_off','closed','lost'
+      ));
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS conversaciones_lead_stage_idx
+  ON conversaciones (lead_stage, lead_stage_changed_at);
+
 -- ── Partial index for the follow-up scanner hot path ─────────────────────────
 -- The 15-min scanner needs O(log n) access to "due, not sent, not cancelled"
 -- rows. A partial index keeps it tiny even at 100k+ historical rows.
