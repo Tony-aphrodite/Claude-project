@@ -11,6 +11,16 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Dev escape hatch: lets us boot the panel for UI-only smoke tests without
+  // a real Supabase project. Refuses to honor the flag in production so a
+  // misconfigured deploy can never expose the panel publicly.
+  if (
+    process.env.NODE_ENV !== "production" &&
+    process.env.DEV_AUTH_BYPASS === "1"
+  ) {
+    return NextResponse.next({ request: { headers: req.headers } });
+  }
+
   const res = NextResponse.next({ request: { headers: req.headers } });
 
   const supabase = createServerClient(
