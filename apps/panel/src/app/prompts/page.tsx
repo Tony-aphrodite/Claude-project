@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { PageHeader } from "~/app/_components/page-header";
 import { listPrompts } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
@@ -8,55 +9,62 @@ export default async function PromptsPage() {
   const versions = await listPrompts("system");
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-ink-900">Prompts del sistema</h1>
-        <Link
-          href="/prompts/new"
-          className="px-3 py-1.5 text-sm bg-ink-900 text-white rounded"
-        >
-          + Nueva versión
-        </Link>
-      </div>
+    <>
+      <PageHeader
+        eyebrow="Configuración de la AI"
+        title="Prompts del sistema"
+        description="Versionado del Bloque 1. Sólo se promociona a activa una versión que pasó la suite de regresión (≥95%)."
+        actions={
+          <Link href="/prompts/new" className="btn-primary">
+            <svg viewBox="0 0 20 20" fill="none" className="h-3.5 w-3.5">
+              <path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            Nueva versión
+          </Link>
+        }
+      />
 
-      <div className="card overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-left text-ink-500">
+      <div className="card !p-0 overflow-x-auto">
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="py-2 pr-4">Versión</th>
-              <th className="py-2 pr-4">Creada</th>
-              <th className="py-2 pr-4">Estado</th>
-              <th className="py-2 pr-4">Regression</th>
-              <th className="py-2 pr-4">Sede</th>
-              <th className="py-2"></th>
+              <th className="pl-5">Versión</th>
+              <th>Creada</th>
+              <th>Estado</th>
+              <th>Regression</th>
+              <th>Sede</th>
+              <th className="pr-5"></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-ink-100">
+          <tbody>
             {versions.map((v) => (
               <tr key={v.id}>
-                <td className="py-2 pr-4 font-medium">v{v.versionNumber}</td>
-                <td className="py-2 pr-4 text-ink-500">
+                <td className="pl-5 font-medium tabular-nums">v{v.versionNumber}</td>
+                <td className="text-xs text-ink-500 tabular-nums">
                   {new Date(v.createdAt).toLocaleDateString()}
                 </td>
-                <td className="py-2 pr-4">
+                <td>
                   {v.active ? (
-                    <span className="badge bg-accent-500/10 text-accent-600">Activa</span>
+                    <span className="badge-ok">Activa</span>
                   ) : (
-                    <span className="badge bg-ink-200 text-ink-700">Inactiva</span>
+                    <span className="badge-neutral">Inactiva</span>
                   )}
                 </td>
-                <td className="py-2 pr-4">
+                <td>
                   {v.regressionSuitePassed ? (
-                    <span className="badge bg-accent-500/10 text-accent-600">passed</span>
+                    <span className="badge-ok">passed</span>
                   ) : (
-                    <span className="badge bg-warn-500/10 text-warn-500">pending</span>
+                    <span className="badge-warn">pending</span>
                   )}
                 </td>
-                <td className="py-2 pr-4 text-ink-500">
+                <td className="text-xs text-ink-500">
                   {v.sedeId ? "override sede" : "global"}
                 </td>
-                <td className="py-2 text-right">
-                  <Link href={`/prompts/${v.id}`} className="text-accent-600 hover:underline">
+                <td className="pr-5 text-right">
+                  <Link
+                    href={`/prompts/${v.id}`}
+                    className="text-brand-600 hover:text-brand-700 text-sm font-medium"
+                  >
                     Ver →
                   </Link>
                 </td>
@@ -65,11 +73,11 @@ export default async function PromptsPage() {
           </tbody>
         </table>
         {versions.length === 0 && (
-          <div className="text-center text-sm text-ink-500 py-6">
-            Sin versiones todavía. Corré <code>pnpm db:migrate</code> para sembrar v1.
+          <div className="text-center text-sm text-ink-500 py-12">
+            Sin versiones todavía. Corré <code className="font-mono text-brand-600">pnpm db:migrate</code> para sembrar v1.
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }

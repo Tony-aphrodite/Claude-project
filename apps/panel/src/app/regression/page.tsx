@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { PageHeader } from "~/app/_components/page-header";
 import { listRegressionRuns } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
@@ -16,60 +17,50 @@ export default async function RegressionPage() {
   }>;
 
   return (
-    <div className="space-y-6">
-      <header className="flex justify-between items-baseline">
-        <h1 className="text-2xl font-semibold text-ink-900">Regression runs</h1>
-        <div className="text-sm text-ink-500">
-          Trigger desde CLI: <code className="text-xs">pnpm regression -- run --version=v2 ...</code>
-        </div>
-      </header>
+    <>
+      <PageHeader
+        eyebrow="Calidad"
+        title="Regression runs"
+        description="Resultados de la suite de 3 capas (deterministic + LLM-judge + human review). Trigger CLI: pnpm regression -- run --version=…"
+      />
 
-      <div className="card overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-left text-ink-500">
+      <div className="card !p-0 overflow-x-auto">
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="py-2 pr-4">Cuándo</th>
-              <th className="py-2 pr-4">Prompt v</th>
-              <th className="py-2 pr-4">Cases</th>
-              <th className="py-2 pr-4">Pass rate</th>
-              <th className="py-2 pr-4">Score promedio</th>
-              <th className="py-2 pr-4">Review</th>
-              <th className="py-2"></th>
+              <th className="pl-5">Cuándo</th>
+              <th>Prompt v</th>
+              <th>Cases</th>
+              <th>Pass rate</th>
+              <th>Score</th>
+              <th>Review</th>
+              <th className="pr-5"></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-ink-100">
+          <tbody>
             {rows.map((r) => {
-              const passPct = (Number(r.pass_rate) * 100).toFixed(1);
+              const passPct = Number(r.pass_rate) * 100;
               const passed = Number(r.pass_rate) >= 0.95;
               return (
                 <tr key={r.id}>
-                  <td className="py-2 pr-4 text-ink-500">
+                  <td className="pl-5 text-xs text-ink-500 tabular-nums">
                     {new Date(r.finished_at).toLocaleString()}
                   </td>
-                  <td className="py-2 pr-4 font-mono text-xs">
+                  <td className="font-mono text-xs">
                     {r.prompt_version_id?.slice(0, 8) ?? "—"}
                   </td>
-                  <td className="py-2 pr-4 tabular-nums">{r.total_cases}</td>
-                  <td className="py-2 pr-4">
-                    <span
-                      className={
-                        "badge " +
-                        (passed
-                          ? "bg-accent-500/10 text-accent-600"
-                          : "bg-bad-500/10 text-bad-500")
-                      }
-                    >
-                      {passPct}%
+                  <td className="tabular-nums">{r.total_cases}</td>
+                  <td>
+                    <span className={passed ? "badge-ok" : "badge-bad"}>
+                      {passPct.toFixed(1)}%
                     </span>
                   </td>
-                  <td className="py-2 pr-4 tabular-nums">
-                    {Number(r.avg_overall).toFixed(2)}
-                  </td>
-                  <td className="py-2 pr-4">{r.review_queue_size}</td>
-                  <td className="py-2 text-right">
+                  <td className="tabular-nums">{Number(r.avg_overall).toFixed(2)}</td>
+                  <td className="tabular-nums">{r.review_queue_size}</td>
+                  <td className="pr-5 text-right">
                     <Link
                       href={`/regression/${r.id}`}
-                      className="text-accent-600 hover:underline"
+                      className="text-brand-600 hover:text-brand-700 text-sm font-medium"
                     >
                       Ver →
                     </Link>
@@ -80,11 +71,11 @@ export default async function RegressionPage() {
           </tbody>
         </table>
         {rows.length === 0 && (
-          <div className="text-center text-sm text-ink-500 py-6">
+          <div className="text-center text-sm text-ink-500 py-12">
             No se ejecutó regression todavía.
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }

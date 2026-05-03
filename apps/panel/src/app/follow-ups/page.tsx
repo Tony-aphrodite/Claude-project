@@ -1,6 +1,40 @@
+import { PageHeader } from "~/app/_components/page-header";
 import { getFollowUpMetrics, listFollowUps } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
+
+const TABS = [
+  { value: "pending", label: "Pendientes" },
+  { value: "sent", label: "Enviados" },
+  { value: "cancelled", label: "Cancelados" },
+] as const;
+
+function MetricCard({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+  accent?: "brand" | "ok" | "warn" | "bad";
+}) {
+  const bar: Record<string, string> = {
+    brand: "bg-brand-500",
+    ok: "bg-ok-500",
+    warn: "bg-warn-500",
+    bad: "bg-bad-500",
+  };
+  return (
+    <div className="card relative overflow-hidden">
+      {accent && <span className={`absolute left-0 top-0 h-full w-1 ${bar[accent]}`} />}
+      <div className="metric-label">{label}</div>
+      <div className="metric-value mt-2">{value}</div>
+      {sub && <div className="metric-sub mt-1">{sub}</div>}
+    </div>
+  );
+}
 
 export default async function FollowUpsPage({
   searchParams,
@@ -14,110 +48,109 @@ export default async function FollowUpsPage({
   ]);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-ink-900">Follow-ups</h1>
+    <>
+      <PageHeader
+        eyebrow="Reactivación de leads"
+        title="Follow-ups"
+        description="State machine de 5 niveles (4 h / 24 h / 48 h / 7 d / 30 d). El scanner los programa, el processor los envía respetando la ventana 24 h de WhatsApp."
+      />
 
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="card">
-          <div className="metric-label">Pending</div>
-          <div className="metric-value">{metrics?.pending ?? 0}</div>
-        </div>
-        <div className="card">
-          <div className="metric-label">Sent</div>
-          <div className="metric-value">{metrics?.sent ?? 0}</div>
-        </div>
-        <div className="card">
-          <div className="metric-label">Cancelled</div>
-          <div className="metric-value">{metrics?.cancelled ?? 0}</div>
-        </div>
-        <div className="card">
-          <div className="metric-label">Respondieron</div>
-          <div className="metric-value">{metrics?.responded ?? 0}</div>
-        </div>
-        <div className="card">
-          <div className="metric-label">Ventas atribuidas</div>
-          <div className="metric-value">{metrics?.sales ?? 0}</div>
-        </div>
-        <div className="card col-span-2">
-          <div className="metric-label">Revenue recuperado</div>
-          <div className="metric-value">${(metrics?.recoveredUsd ?? 0).toFixed(2)}</div>
-          <div className="text-xs text-ink-500 mt-1">
-            Suma de ventas marcadas resulted_in_sale
-          </div>
-        </div>
+        <MetricCard label="Pendientes" value={metrics?.pending ?? 0} accent="warn" />
+        <MetricCard label="Enviados" value={metrics?.sent ?? 0} accent="brand" />
+        <MetricCard label="Cancelados" value={metrics?.cancelled ?? 0} />
+        <MetricCard label="Respondieron" value={metrics?.responded ?? 0} accent="ok" />
+        <MetricCard label="Ventas atribuidas" value={metrics?.sales ?? 0} accent="ok" />
+        <MetricCard
+          label="Revenue recuperado"
+          value={`$${(metrics?.recoveredUsd ?? 0).toFixed(2)}`}
+          sub="suma de resulted_in_sale=true"
+          accent="brand"
+        />
       </section>
 
       <nav className="flex gap-2 text-sm">
-        {(["pending", "sent", "cancelled"] as const).map((s) => (
-          <a
-            key={s}
-            href={`?status=${s}`}
-            className={
-              "px-3 py-1 rounded border " +
-              (params.status === s
-                ? "border-ink-900 bg-ink-900 text-white"
-                : "border-ink-200 text-ink-700")
-            }
-          >
-            {s}
-          </a>
-        ))}
+        {TABS.map((t) => {
+          const active = params.status === t.value;
+          return (
+            <a
+              key={t.value}
+              href={`?status=${t.value}`}
+              className={
+                active
+                  ? "rounded-lg bg-brand-600 px-3 py-1.5 text-white shadow-card"
+                  : "rounded-lg bg-white px-3 py-1.5 text-ink-700 ring-1 ring-inset ring-ink-200 hover:bg-ink-50"
+              }
+            >
+              {t.label}
+            </a>
+          );
+        })}
         <a
           href="?"
           className={
-            "px-3 py-1 rounded border " +
-            (!params.status
-              ? "border-ink-900 bg-ink-900 text-white"
-              : "border-ink-200 text-ink-700")
+            !params.status
+              ? "rounded-lg bg-brand-600 px-3 py-1.5 text-white shadow-card"
+              : "rounded-lg bg-white px-3 py-1.5 text-ink-700 ring-1 ring-inset ring-ink-200 hover:bg-ink-50"
           }
         >
-          all
+          Todos
         </a>
       </nav>
 
-      <div className="card overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-left text-ink-500">
+      <div className="card !p-0 overflow-x-auto">
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="py-2 pr-4">Creado</th>
-              <th className="py-2 pr-4">Conv.</th>
-              <th className="py-2 pr-4">Nivel</th>
-              <th className="py-2 pr-4">Sched.</th>
-              <th className="py-2 pr-4">Sent</th>
-              <th className="py-2 pr-4">Cancelled</th>
-              <th className="py-2 pr-4">Reason</th>
-              <th className="py-2">Resp.</th>
+              <th className="pl-5">Creado</th>
+              <th>Conv</th>
+              <th>Nivel</th>
+              <th>Programado</th>
+              <th>Enviado</th>
+              <th>Cancelado</th>
+              <th>Razón</th>
+              <th className="pr-5">Resp</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-ink-100">
+          <tbody>
             {rows.map((r) => (
               <tr key={r.id}>
-                <td className="py-2 pr-4 tabular-nums text-ink-500">
+                <td className="pl-5 text-xs text-ink-500 tabular-nums">
                   {new Date(r.createdAt).toLocaleString()}
                 </td>
-                <td className="py-2 pr-4 font-mono text-xs">{r.conversacionId.slice(0, 8)}</td>
-                <td className="py-2 pr-4">L{r.level}</td>
-                <td className="py-2 pr-4 tabular-nums text-ink-500">
+                <td className="font-mono text-xs">
+                  {r.conversacionId.slice(0, 8)}
+                </td>
+                <td>
+                  <span className="badge-brand">L{r.level}</span>
+                </td>
+                <td className="text-xs text-ink-500 tabular-nums">
                   {new Date(r.scheduledAt).toLocaleString()}
                 </td>
-                <td className="py-2 pr-4 text-ink-500">
+                <td className="text-xs text-ink-500 tabular-nums">
                   {r.sentAt ? new Date(r.sentAt).toLocaleString() : "—"}
                 </td>
-                <td className="py-2 pr-4 text-ink-500">
+                <td className="text-xs text-ink-500 tabular-nums">
                   {r.cancelledAt ? new Date(r.cancelledAt).toLocaleString() : "—"}
                 </td>
-                <td className="py-2 pr-4 text-ink-500">{r.cancellationReason ?? "—"}</td>
-                <td className="py-2">{r.clientResponded ? "✓" : "—"}</td>
+                <td className="text-xs text-ink-500">{r.cancellationReason ?? "—"}</td>
+                <td className="pr-5">
+                  {r.clientResponded ? (
+                    <span className="badge-ok">✓</span>
+                  ) : (
+                    <span className="text-ink-400">—</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
         {rows.length === 0 && (
-          <div className="text-center text-sm text-ink-500 py-6">
+          <div className="text-center text-sm text-ink-500 py-12">
             Sin follow-ups que coincidan.
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }
