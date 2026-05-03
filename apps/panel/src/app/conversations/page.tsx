@@ -1,5 +1,9 @@
 import Link from "next/link";
 
+import { type LeadStage } from "@dpm/shared";
+
+import { PageHeader } from "~/app/_components/page-header";
+import { StageChip } from "~/app/_components/stage";
 import { listConversations, listSedes } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
@@ -20,84 +24,117 @@ export default async function ConversationsPage({
   ]);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-ink-900">Conversaciones</h1>
+    <>
+      <PageHeader
+        eyebrow="Hilos"
+        title="Conversaciones"
+        description="Todos los hilos abiertos en Respond.io. Click en una fila para ver el detalle, fuentes citadas por la AI y el historial de etapas."
+        actions={
+          <form className="flex items-end gap-2">
+            <label className="text-xs">
+              <div className="metric-label mb-1">Sede</div>
+              <select name="sede" defaultValue={params.sede ?? ""} className="select">
+                <option value="">Todas</option>
+                {sedes.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs">
+              <div className="metric-label mb-1">Estado</div>
+              <select name="status" defaultValue={params.status ?? ""} className="select">
+                <option value="">Todos</option>
+                <option value="active">Active</option>
+                <option value="closed">Closed</option>
+                <option value="follow_up_disabled">Follow-up disabled</option>
+              </select>
+            </label>
+            <button className="btn-primary">Filtrar</button>
+          </form>
+        }
+      />
 
-      <form className="flex gap-3 items-end">
-        <label className="text-sm">
-          <div className="metric-label mb-1">Sede</div>
-          <select
-            name="sede"
-            defaultValue={params.sede ?? ""}
-            className="border border-ink-200 rounded px-2 py-1 text-sm bg-white"
-          >
-            <option value="">Todas</option>
-            {sedes.map((s) => (
-              <option key={s.id} value={s.id}>{s.nombre}</option>
-            ))}
-          </select>
-        </label>
-        <label className="text-sm">
-          <div className="metric-label mb-1">Estado</div>
-          <select
-            name="status"
-            defaultValue={params.status ?? ""}
-            className="border border-ink-200 rounded px-2 py-1 text-sm bg-white"
-          >
-            <option value="">Todos</option>
-            <option value="active">Active</option>
-            <option value="closed">Closed</option>
-            <option value="follow_up_disabled">Follow-up disabled</option>
-          </select>
-        </label>
-        <button className="px-3 py-1 text-sm bg-ink-900 text-white rounded">Filtrar</button>
-      </form>
-
-      <div className="card overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-left text-ink-500">
+      <div className="card !p-0 overflow-x-auto">
+        <table className="tbl">
+          <thead>
             <tr>
-              <th className="py-2 pr-4">Fecha</th>
-              <th className="py-2 pr-4">Sede</th>
-              <th className="py-2 pr-4">Cliente</th>
-              <th className="py-2 pr-4">Estado</th>
-              <th className="py-2 pr-4">Lang</th>
-              <th className="py-2"></th>
+              <th className="pl-5">Cliente</th>
+              <th>Sede</th>
+              <th>Etapa</th>
+              <th>Estado</th>
+              <th>Idioma</th>
+              <th>Última actividad</th>
+              <th className="pr-5"></th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-ink-100">
-            {rows.map((r) => (
-              <tr key={r.conv.id}>
-                <td className="py-2 pr-4 tabular-nums text-ink-500">
-                  {new Date(r.conv.updatedAt).toLocaleString()}
-                </td>
-                <td className="py-2 pr-4">{r.sedeName}</td>
-                <td className="py-2 pr-4">
-                  {r.contact?.name ?? "—"}{" "}
-                  <span className="text-xs text-ink-500">
-                    {r.contact?.phone ?? r.conv.respondIoContactId}
-                  </span>
-                </td>
-                <td className="py-2 pr-4">{r.conv.status}</td>
-                <td className="py-2 pr-4 text-ink-500">{r.contact?.language ?? "—"}</td>
-                <td className="py-2 text-right">
-                  <Link
-                    href={`/conversations/${r.conv.id}`}
-                    className="text-accent-600 hover:underline"
-                  >
-                    Ver →
-                  </Link>
-                </td>
-              </tr>
-            ))}
+          <tbody>
+            {rows.map((r) => {
+              const initials = (r.contact?.name ?? "—")
+                .split(" ")
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((s) => s[0]?.toUpperCase() ?? "")
+                .join("");
+              return (
+                <tr key={r.conv.id}>
+                  <td className="pl-5">
+                    <Link
+                      href={`/conversations/${r.conv.id}`}
+                      className="flex items-center gap-3"
+                    >
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-500/10 text-brand-700 text-[11px] font-semibold">
+                        {initials || "·"}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="font-medium text-ink-900 truncate">
+                          {r.contact?.name ?? "—"}
+                        </div>
+                        <div className="text-xs text-ink-500 font-mono">
+                          {r.contact?.phone ?? r.conv.respondIoContactId}
+                        </div>
+                      </div>
+                    </Link>
+                  </td>
+                  <td className="text-ink-700">{r.sedeName}</td>
+                  <td>
+                    <StageChip stage={r.conv.leadStage as LeadStage} />
+                  </td>
+                  <td className="text-xs">
+                    {r.conv.status === "active" ? (
+                      <span className="badge-ok">active</span>
+                    ) : r.conv.status === "follow_up_disabled" ? (
+                      <span className="badge-bad">follow-up off</span>
+                    ) : (
+                      <span className="badge-neutral">{r.conv.status}</span>
+                    )}
+                  </td>
+                  <td className="text-xs text-ink-500 uppercase tracking-wide">
+                    {r.contact?.language ?? "—"}
+                  </td>
+                  <td className="tabular-nums text-xs text-ink-500">
+                    {new Date(r.conv.updatedAt).toLocaleString()}
+                  </td>
+                  <td className="pr-5 text-right">
+                    <Link
+                      href={`/conversations/${r.conv.id}`}
+                      className="text-brand-600 hover:text-brand-700 text-sm font-medium"
+                    >
+                      Ver →
+                    </Link>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {rows.length === 0 && (
-          <div className="text-center text-sm text-ink-500 py-6">
+          <div className="text-center text-sm text-ink-500 py-12">
             Sin conversaciones que coincidan con el filtro.
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }
