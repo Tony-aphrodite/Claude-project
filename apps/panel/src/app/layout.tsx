@@ -1,7 +1,14 @@
+// Root layout. Intentionally minimal — only html/body + global styles.
+//
+// Pages that need the operator sidebar (dashboard, pipeline, conversations,
+// etc.) live under the (app) route group and inherit its layout, which adds
+// <Sidebar /> + <main>. Pages that render full-bleed without the sidebar
+// (login, auth callback) live at the top level and inherit only this minimal
+// shell.
+
 import type { Metadata } from "next";
 
 import "./globals.css";
-import { Sidebar } from "./_components/sidebar";
 
 export const metadata: Metadata = {
   title: "DPM Diving — Panel",
@@ -15,16 +22,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body className="min-h-screen font-sans">
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <main className="flex-1 min-w-0">
-            <div className="mx-auto w-full max-w-7xl px-6 py-6 space-y-6">
-              {children}
-            </div>
-          </main>
-        </div>
-      </body>
+      <body className="min-h-screen font-sans">{children}</body>
     </html>
   );
 }
