@@ -10,7 +10,10 @@
 // ============================================================================
 
 import sensible from "@fastify/sensible";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, {
+  type FastifyBaseLogger,
+  type FastifyInstance,
+} from "fastify";
 
 import { loadEnv } from "./env.js";
 import { AppError } from "./lib/errors.js";
@@ -23,7 +26,13 @@ export async function buildServer(): Promise<FastifyInstance> {
   const logger = getLogger();
 
   const app = Fastify({
-    logger,
+    // Fastify 5 split `logger` (config-only) from `loggerInstance` (an
+    // already-built pino-shaped logger). We hand it our pre-configured pino
+    // instance so the redaction + transport setup in logger.ts stays in one
+    // place. The cast bridges pino's Logger to FastifyBaseLogger — pino has
+    // every method Fastify needs, only the optional `msgPrefix` field is
+    // missing, so the runtime contract holds.
+    loggerInstance: logger as unknown as FastifyBaseLogger,
     disableRequestLogging: false,
     bodyLimit: 1 * 1024 * 1024, // 1 MiB — Respond.io webhooks are small
     trustProxy: true, // Railway sits behind a reverse proxy
