@@ -1,5 +1,9 @@
 # syntax=docker/dockerfile:1.7
 
+# Touched 2026-05-04 to invalidate Railway's "Watch Paths" cache after the
+# packages/db and packages/shared package.json fixes (main → dist/index.js)
+# that were not picked up by repeated CLI uploads.
+
 # ── Stage 1: install deps for the whole workspace ────────────────────────────
 FROM node:20-alpine AS deps
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
