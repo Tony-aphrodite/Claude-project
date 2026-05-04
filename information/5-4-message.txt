@@ -1,0 +1,58 @@
+Hola Steve,
+Te paso el detalle completo del mecanismo de identificación de Gili Trawangan en Respond.io que pediste como bloqueante (f).
+Mecanismo de identificación:
+Respond.io NO usa un tag tradicional para identificar la sede. Usa un campo de contacto llamado Branch que se popula automáticamente desde el workflow de bienvenida.
+ItemValorTipoContact field / campo de contactoNombre del campoBranchTipo de datoTextoValor para Gili TrawanganGili Trawangan (literal, con espacio, mayúsculas iniciales en cada palabra)
+Cómo se popula el campo:
+Existe un workflow activo llamado Mensaje Bienvenida - Asigna Sede. Cuando un cliente abre conversación nueva, ese workflow:
+
+Le pregunta al cliente en qué país quiere bucear (Tailandia / Indonesia / Otra)
+Si elige Indonesia, le pregunta cuál sede (Gili Air / Gili Trawangan / Nusa Penida)
+Guarda la respuesta en el campo de contacto Branch
+Verifica horario laboral por timezone
+Asigna al equipo humano correspondiente
+
+Para tu integración:
+Cuando recibas un mensaje desde el webhook de Respond.io, leé el valor del campo Branch del contacto. Si Branch === "Gili Trawangan" → es un contacto del piloto, lo procesás con tu sistema. Cualquier otro valor (Gili Air, Nusa Penida, Koh Tao, Koh Phi Phi, vacío) → no tocar, dejar que siga el flujo humano normal.
+Sobre el mecanismo de conexión al workflow:
+La forma exacta de conectar tu sistema al workflow de Respond.io (interceptar todo el tráfico y filtrar por Branch, o modificar el workflow para que solo Gili Trawangan salga a tu webhook) la decidimos cuando estés listo para integrar. Avisame cuando llegue ese momento.
+Datos adicionales que pueden serte útiles:
+
+El workflow está actualmente publicado y activo (atendiendo a todos los clientes con el equipo humano)
+Los otros valores posibles del campo Branch son: Gili Air, Nusa Penida, Koh Tao, Koh Phi Phi
+Hay un segundo workflow llamado DPM - AI Routing v2 que está desactivado (era el que usábamos cuando tenía agentes AI viejos corriendo)
+
+Hola Steve,
+Te paso el bloqueante (c) — few-shots de conversaciones reales ejemplares para insertar inline en el system prompt.
+Adjunto: FEW_SHOTS_GiliTrawangan.md
+Resumen:
+
+8 conversaciones reales seleccionadas de un dataset de 692 conversaciones cerradas exitosamente entre agosto 2025 y febrero 2026
+5 en inglés, 3 en español (representativo del mix de ventas: 37% ES)
+Anonimizadas: datos personales reemplazados por placeholders ([CLIENT_NAME], [PASSPORT], [AMOUNT], etc.)
+Cubren los 8 patrones críticos: beginner, refresh, repeat DPM, OW con upsell, descuento, last-minute, repeat de otra sede, family con menores
+~7,900 tokens total — recomiendo cargarlas en la sección cacheable del prompt para minimizar costo por mensaje
+
+Cada conversación viene con:
+
+Etiqueta del patrón que ilustra
+Outcome (cómo cerró)
+Texto completo bilingüe en formato CLIENT/AGENT
+
+Al final del documento incluí una sección "Patrones comunes" con los principios extraídos y otra "Items pendientes" con advertencias sobre cosas que el AI NO debe imitar literal del agente humano (insistencia, voice notes, etc.).
+Si querés más ejemplos de algún patrón específico o querés ver el dataset completo de 692 conversaciones, decime y te lo paso.
+
+Hola Steve,
+Te confirmo que están enviadas las invitaciones de los 5 accesos guest que pediste. Revisá tu casilla aupwork00@gmail.com:
+#PlataformaRol1Anthropic ConsoleDeveloper (límite mensual USD 120 con alerta a USD 80)2SupabaseDeveloper en organización dpmdiving con acceso al proyecto dpm-ai-production (Singapore region, t4g.micro, healthy)3Respond.ioGerente / Manager en el workspace de DPM Diving4RailwayMember en workspace dpmdiving (plan Pro)5GitHubCollaborator en repo privado dpmdiving-group/dpm-ai-pilot
+Notas:
+
+En Anthropic Console ya hay USD 100 de créditos cargados y el Tier 2 confirmado (Sonnet 1K solicitudes/min, 450K tokens entrada, 90K salida)
+El proyecto Supabase es completamente nuevo y limpio, sin migraciones previas, dedicado al piloto
+Respond.io te da acceso completo al workspace para que puedas testear el ruteo por campo Branch desde las 5 sedes (recordá que la única en piloto es Gili Trawangan)
+Vercel lo coordinamos por separado cuando lo necesites: avisame si querés que te invite a una cuenta mía o si preferís crearlo en tu cuenta y transferir al final del piloto
+
+Un solo pendiente menor en Supabase: tengo que cargar el Tax ID de PT Dalam Propesional Menyelam (NIB 9120001390428) en facturación. Lo hago hoy.
+¿Algún acceso que no llegue o que necesite ajuste?
+Saludos,
+Miguel
