@@ -126,9 +126,16 @@ export class PromptsService {
   private async fetchKbBlob(doc: KbDocument): Promise<string> {
     const env = loadEnv();
     // Supabase Storage REST API — service-role key bypasses bucket RLS.
+    // Sends BOTH `authorization: Bearer` (legacy JWT path) and `apikey`
+    // (new sb_secret_* path) so the same call works regardless of which
+    // key format the operator pasted into env. Mirrors the seeder in
+    // packages/db/src/seed-content.ts.
     const url = `${env.SUPABASE_URL}/storage/v1/object/${doc.storagePath}`;
     const res = await fetch(url, {
-      headers: { authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}` },
+      headers: {
+        authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+        apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+      },
     });
     if (!res.ok) {
       getLogger().error(
