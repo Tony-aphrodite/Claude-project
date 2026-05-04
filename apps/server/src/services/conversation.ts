@@ -82,6 +82,34 @@ export class ConversationService {
     return row;
   }
 
+  /**
+   * Espía path: store a reply sent by a human agent (Patrick, Giovanni,
+   * Grecia, etc.). Used so the panel + regression suite can reason about how
+   * the team actually closes deals, and so handed-off conversations show the
+   * full timeline. We never call Claude in response — the human owns the
+   * thread once they have replied.
+   */
+  async appendAgentMessage(
+    conversacionId: string,
+    text: string,
+    agentName: string | null,
+    metadata?: Record<string, unknown>,
+  ): Promise<Mensaje> {
+    const db = getDb();
+    const [row] = await db
+      .insert(mensajes)
+      .values({
+        conversacionId,
+        sender: "agente_humano",
+        agenteName: agentName,
+        content: text,
+        metadata: metadata ?? null,
+      })
+      .returning();
+    if (!row) throw new Error("agent message insert returned no row");
+    return row;
+  }
+
   async appendAiMessage(
     conversacionId: string,
     text: string,

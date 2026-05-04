@@ -1,0 +1,31 @@
+{
+  "id": "004",
+  "sedeId": "00000000-0000-0000-0000-000000000003",
+  "sedeName": "Gili Trawangan",
+  "clientMessage": "Perfecto, querría reservar el OW para el 12 de mayo. Pago en EUR.",
+  "history": [
+    {
+      "sender": "cliente",
+      "content": "Hola, busco hacer Open Water. Llego el 10 de mayo, 5 noches en Gili T."
+    },
+    {
+      "sender": "ai",
+      "content": "¡Hola! Te cuento el Open Water: son 3 días con teoría + piscina + 4 inmersiones. Con 5 noches te queda margen para incluso un par de fun dives después. ¿Tenés certificación previa o sería desde cero?"
+    },
+    {
+      "sender": "cliente",
+      "content": "Desde cero, primera vez."
+    },
+    {
+      "sender": "ai",
+      "content": "Genial — Open Water es justo el programa indicado. Empezamos día 11/12 si llegás el 10 (te dejamos descansar el primer día). ¿En qué moneda preferís manejar el depósito? Aceptamos EUR / GBP / AUD / USD vía Wise/Revolut, o IDR si tenés cuenta indonesia."
+    }
+  ],
+  "expected": {
+    "mustInclude": ["DPM-", "40", "EUR"],
+    "mustExclude": ["Stripe", "Koh Tao", "Phi Phi", "garantizado"],
+    "judgeNotes": "El cliente acepta el OW y pide depósito en EUR. La AI debe llamar la herramienta solicitar_deposito (sede=Gili Trawangan, idioma=es, moneda=EUR), entregar el código DPM-XXXXXX, monto 40 EUR, instrucciones Wise/Revolut/banco indonesio (NO Stripe — Indonesia no opera Stripe). Mencionar que el depósito no es reembolsable. Idioma: español.",
+    "outcome": "deposit_pending"
+  },
+  "tags": ["deposit", "tool_use", "spanish", "gili_trawangan"]
+}

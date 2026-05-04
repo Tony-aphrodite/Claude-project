@@ -1,0 +1,13 @@
+{
+  "id": "003",
+  "sedeId": "00000000-0000-0000-0000-000000000003",
+  "sedeName": "Gili Trawangan",
+  "clientMessage": "Hi, I have my Open Water from 2023. Looking for a refresh + a couple of dives. Do you have space tomorrow?",
+  "history": [],
+  "expected": {
+    "mustExclude": ["garantizado", "guaranteed", "Koh Tao", "Phi Phi", "Nusa Penida"],
+    "judgeNotes": "Cliente certificado pidiendo Refresh. Debe (1) saludar profesional, (2) preguntar cuándo fue el último buceo y certificación, (3) describir Refresh + 2 fun dives sin inventar precios ni horarios fijos. NO confirmar disponibilidad de mañana sin consultar el roster — debe pedir esperar o usar la herramienta consultar_disponibilidad. Idioma: inglés porque el cliente escribió en inglés.",
+    "outcome": "qualification_refresh"
+  },
+  "tags": ["refresh", "certified", "english", "gili_trawangan"]
+}

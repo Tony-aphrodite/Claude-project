@@ -19,9 +19,19 @@ import { z } from "zod";
 // inconsistently across event types; the sede service normalizes them.
 const customFieldsBag = z.record(z.unknown());
 
+// `direction` and `message.sentBy` are filled when Respond.io fires the same
+// `message.created` event for OUTGOING messages (replies sent by the human
+// team or by a bot). The espía path uses these to capture human-agent replies
+// and store them with sender="agente_humano".
+const sentByTypeSchema = z.enum(["agent", "bot", "contact", "user", "system"]);
+
 export const respondIoIncomingMessageSchema = z.object({
   event: z.string(),
   channelId: z.string().optional(),
+  // "incoming" — client→DPM. "outgoing" — DPM→client (agent or bot reply).
+  // Older payloads omit this; we treat absence as "incoming" to preserve the
+  // original AI-handler behavior.
+  direction: z.enum(["incoming", "outgoing"]).optional(),
   contact: z
     .object({
       id: z.union([z.string(), z.number()]).transform(String),
@@ -41,6 +51,25 @@ export const respondIoIncomingMessageSchema = z.object({
     type: z.string().default("text"),
     text: z.string().optional(),
     timestamp: z.union([z.string(), z.number()]).optional(),
+    // For outgoing messages, identifies who sent the reply. We accept several
+    // shapes Respond.io has been observed to use.
+    direction: z.enum(["incoming", "outgoing"]).optional(),
+    sentBy: z
+      .object({
+        id: z.union([z.string(), z.number()]).transform(String).optional(),
+        type: sentByTypeSchema.optional(),
+        name: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+    sender: z
+      .object({
+        id: z.union([z.string(), z.number()]).transform(String).optional(),
+        type: sentByTypeSchema.optional(),
+        name: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
   }),
   conversation: z
     .object({
@@ -70,6 +99,38 @@ export function readBranchField(
     }
   }
   return null;
+}
+
+export type WebhookDispatch =
+  | { kind: "client_inbound" }
+  | { kind: "agent_outbound"; agentName: string | null }
+  | { kind: "bot_outbound" }
+  | { kind: "ignored"; reason: "non_text" };
+
+/**
+ * Decide whether a payload is a client message (run AI), a human-agent reply
+ * (run espía capture), or a bot/system echo (drop — we already wrote it
+ * ourselves). Centralized so the route layer and the regression harness see
+ * the same dispatch logic.
+ */
+export function classifyWebhook(payload: RespondIoIncomingMessage): WebhookDispatch {
+  const text = (payload.message.text ?? "").trim();
+  if (!text) return { kind: "ignored", reason: "non_text" };
+
+  const direction = payload.direction ?? payload.message.direction ?? "incoming";
+  const sentBy = payload.message.sentBy ?? payload.message.sender ?? null;
+  const senderType = sentBy?.type ?? null;
+
+  if (direction === "outgoing") {
+    if (senderType === "agent" || senderType === "user") {
+      return { kind: "agent_outbound", agentName: sentBy?.name ?? null };
+    }
+    // Default outgoing → assume bot/system. We never want to re-process our
+    // own replies as human traffic.
+    return { kind: "bot_outbound" };
+  }
+
+  return { kind: "client_inbound" };
 }
 
 // ── Anthropic prompt block descriptors ──────────────────────────────────────

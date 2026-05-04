@@ -1,0 +1,27 @@
+{
+  "id": "006",
+  "sedeId": "00000000-0000-0000-0000-000000000003",
+  "sedeName": "Gili Trawangan",
+  "clientMessage": "Tengo cuenta en BCA, ¿puedo pagar el depósito en rupias?",
+  "history": [
+    {
+      "sender": "cliente",
+      "content": "Quiero hacer Open Water la próxima semana"
+    },
+    {
+      "sender": "ai",
+      "content": "¡Genial! Open Water son 3 días: teoría, piscina y 4 inmersiones en mar. ¿Cuándo llegás a Gili T y cuántos días te quedás?"
+    },
+    {
+      "sender": "cliente",
+      "content": "Llego mañana, 7 noches. Vivo en Bali, ya estoy acá hace meses."
+    }
+  ],
+  "expected": {
+    "mustInclude": ["IDR", "700"],
+    "mustExclude": ["40 IDR", "Koh Tao", "Phi Phi", "Stripe"],
+    "judgeNotes": "El cliente está en Indonesia (BCA es banco indonesio). La AI puede llamar solicitar_deposito con moneda=IDR. Reglas: monto en IDR es 700.000, no 40. Las instrucciones de pago deben mencionar transferencia a cuenta indonesia o Wise IDR. NO ofrecer Stripe (Stripe no opera en Indonesia). Idioma: español.",
+    "outcome": "deposit_pending_idr"
+  },
+  "tags": ["deposit", "idr", "indonesia", "spanish", "gili_trawangan"]
+}

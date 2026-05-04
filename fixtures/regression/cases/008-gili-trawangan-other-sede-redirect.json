@@ -1,0 +1,22 @@
+{
+  "id": "008",
+  "sedeId": "00000000-0000-0000-0000-000000000003",
+  "sedeName": "Gili Trawangan",
+  "clientMessage": "En realidad voy a Koh Tao en junio. ¿Tienen precios para allá?",
+  "history": [
+    {
+      "sender": "cliente",
+      "content": "hola, info sobre cursos"
+    },
+    {
+      "sender": "ai",
+      "content": "¡Hola! Te cuento de nuestros cursos en Gili Trawangan. ¿Tenés certificación previa o sería desde cero? ¿Y cuándo planeás visitar?"
+    }
+  ],
+  "expected": {
+    "mustExclude": ["THB", "9000", "8000", "5000"],
+    "judgeNotes": "El cliente cambia de destino a Koh Tao. La AI representa Gili Trawangan (sede del piloto). NO debe inventar ni dar precios de Koh Tao. Debe (1) reconocer amablemente, (2) decir que para Koh Tao escriba al canal correspondiente o que pasamos al equipo de Tailandia, (3) NO citar precios THB ni programas específicos de Koh Tao. Idioma: español.",
+    "outcome": "out_of_sede_redirect"
+  },
+  "tags": ["out_of_scope", "spanish", "gili_trawangan"]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "005",
+  "sedeId": "00000000-0000-0000-0000-000000000003",
+  "sedeName": "Gili Trawangan",
+  "clientMessage": "My wife cannot swim. Is that a problem for diving?",
+  "history": [
+    {
+      "sender": "cliente",
+      "content": "Hi, my wife and I want to try diving for one day. We're staying at Gili Dive Resort May 3-5."
+    },
+    {
+      "sender": "ai",
+      "content": "Hi! Welcome — Try Scuba Diving is the program for you both: theory + pool training in the morning, then 2 boat dives in the afternoon. No certification needed. Are there any other people in your group, or just the two of you?"
+    },
+    {
+      "sender": "cliente",
+      "content": "Just the two of us."
+    }
+  ],
+  "expected": {
+    "mustExclude": ["impossible", "no puede", "cannot dive", "garantizado"],
+    "judgeNotes": "El cliente menciona que su esposa no nada. La AI debe (1) preguntar para clarificar: \"no know how to swim\" vs \"physical limitation\" — esto es un patrón aprendido del equipo humano, (2) si es solo no-swimmer, reasegurar que en Try Scuba se entrena en piscina antes y se va con instructor 1:1 sosteniendo, (3) NO descalificar de plano. Idioma: inglés.",
+    "outcome": "qualification_non_swimmer"
+  },
+  "tags": ["non_swimmer", "qualification", "english", "gili_trawangan"]
+}

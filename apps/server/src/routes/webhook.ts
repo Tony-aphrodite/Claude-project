@@ -11,9 +11,10 @@
 
 import type { FastifyInstance } from "fastify";
 
-import { respondIoIncomingMessageSchema } from "@dpm/shared";
+import { classifyWebhook, respondIoIncomingMessageSchema } from "@dpm/shared";
 
 import { loadEnv } from "../env.js";
+import { processAgentMessage } from "../handlers/process-agent-message.js";
 import { processIncomingMessage } from "../handlers/process-message.js";
 import { pickSignatureHeader, verifySignature } from "../lib/hmac.js";
 
@@ -52,7 +53,22 @@ export async function webhookRoutes(app: FastifyInstance) {
       return reply.send({ ok: true, ignored: event });
     }
 
+    const dispatch = classifyWebhook(parsed.data);
+
+    if (dispatch.kind === "ignored") {
+      return reply.send({ ok: true, ignored: dispatch.reason });
+    }
+    if (dispatch.kind === "bot_outbound") {
+      // Our own AI reply being echoed back. We already wrote the row in
+      // process-message; do not double-store.
+      return reply.send({ ok: true, ignored: "bot_outbound" });
+    }
+
     try {
+      if (dispatch.kind === "agent_outbound") {
+        const result = await processAgentMessage(parsed.data, dispatch.agentName, req.log);
+        return reply.send(result);
+      }
       const result = await processIncomingMessage(parsed.data, req.log);
       // Pilot gate / non-text rejections come back as ok:false ignored — we
       // still return HTTP 200 so Respond.io does not retry, but the body
