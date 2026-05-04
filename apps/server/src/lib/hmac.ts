@@ -126,3 +126,59 @@ function timingSafeStringEqual(a: string, b: string): boolean {
   if (ab.length !== bb.length) return false;
   return timingSafeEqual(ab, bb);
 }
+
+// ── Token-based fallback auth ───────────────────────────────────────────────
+// Some webhook callers can't compute a body-dependent HMAC (e.g. Respond.io's
+// generic HTTP-Request workflow step, which only allows static headers). For
+// those callers we accept a shared bearer token via x-workflow-token. The
+// token is opaque to the body, so it offers no integrity guarantee — only
+// authentication. We use it ONLY for trusted internal callers and require it
+// to be at least 16 chars (validated upstream in env.ts).
+//
+// Order of attempts in authenticateWebhook:
+//   1. If x-workflow-token is present AND configured token is non-empty AND
+//      they match constant-time → accept (matched: "workflow-token").
+//   2. Otherwise fall back to HMAC verification of the body against
+//      x-respond-signature (existing path).
+//
+// If neither matches, the verdict from HMAC is returned so callers can log
+// the original reason ("missing_header" / "mismatch" / "bad_format").
+
+const WORKFLOW_TOKEN_HEADER = "x-workflow-token";
+
+export type AuthVerifyResult =
+  | { ok: true; matched: "workflow-token" | "respond-io-base64" | "hex" }
+  | { ok: false; reason: "missing_header" | "bad_format" | "mismatch" };
+
+export function pickWorkflowTokenHeader(
+  headers: Record<string, string | string[] | undefined>,
+): string | undefined {
+  const v = headers[WORKFLOW_TOKEN_HEADER];
+  if (typeof v === "string" && v.length > 0) return v;
+  if (Array.isArray(v) && v[0]) return v[0];
+  return undefined;
+}
+
+/**
+ * Authenticate a webhook request. Tries the bearer-token path first (if a
+ * non-empty token is configured), then falls back to HMAC of the body.
+ */
+export function authenticateWebhook(args: {
+  rawBody: Buffer | string;
+  signatureHeader: string | undefined;
+  tokenHeader: string | undefined;
+  hmacSecret: string;
+  workflowToken?: string | undefined;
+}): AuthVerifyResult {
+  const { rawBody, signatureHeader, tokenHeader, hmacSecret, workflowToken } = args;
+
+  if (workflowToken && workflowToken.length > 0 && tokenHeader) {
+    if (timingSafeStringEqual(tokenHeader, workflowToken)) {
+      return { ok: true, matched: "workflow-token" };
+    }
+    // token presented but didn't match — keep going through HMAC, since a
+    // legitimate Respond.io webhook may still carry the right signature.
+  }
+
+  return verifySignature(rawBody, signatureHeader, hmacSecret);
+}

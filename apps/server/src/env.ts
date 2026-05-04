@@ -29,6 +29,11 @@ const envSchema = z.object({
   RESPOND_IO_WEBHOOK_SECRET: z.string().min(8),
   RESPOND_IO_API_KEY: z.string().min(8),
   RESPOND_IO_API_BASE_URL: z.string().url().default("https://api.respond.io/v2"),
+  // Alternative shared-secret auth for webhook callers that cannot compute
+  // an HMAC of the body (e.g. Respond.io's "Petición HTTP" workflow step,
+  // which sends static headers only). When set and matched, the route
+  // accepts the request without HMAC verification. Leave empty to disable.
+  WEBHOOK_WORKFLOW_TOKEN: z.string().min(16).optional().or(z.literal("")),
 
   APPS_SCRIPT_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
 

@@ -1,7 +1,12 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { pickSignatureHeader, verifySignature } from "../src/lib/hmac.js";
+import {
+  authenticateWebhook,
+  pickSignatureHeader,
+  pickWorkflowTokenHeader,
+  verifySignature,
+} from "../src/lib/hmac.js";
 
 const SECRET = "test-secret-12345";
 // Realistic Respond.io secret: a base64-encoded 32-byte HMAC key.
@@ -121,5 +126,79 @@ describe("pickSignatureHeader", () => {
 
   it("returns undefined when no candidate header is present", () => {
     expect(pickSignatureHeader({ "content-type": "application/json" })).toBeUndefined();
+  });
+});
+
+describe("pickWorkflowTokenHeader", () => {
+  it("returns the x-workflow-token header value when present", () => {
+    expect(
+      pickWorkflowTokenHeader({ "x-workflow-token": "abc123" }),
+    ).toBe("abc123");
+  });
+
+  it("returns the first element when header arrives as an array", () => {
+    expect(
+      pickWorkflowTokenHeader({ "x-workflow-token": ["first", "second"] }),
+    ).toBe("first");
+  });
+
+  it("returns undefined when header is missing", () => {
+    expect(pickWorkflowTokenHeader({})).toBeUndefined();
+    expect(pickWorkflowTokenHeader({ "x-workflow-token": "" })).toBeUndefined();
+  });
+});
+
+describe("authenticateWebhook — token-first path", () => {
+  const TOKEN = "this-is-a-long-shared-token-32chars";
+  const body = '{"event":"x"}';
+
+  it("accepts when token matches and configured token is non-empty", () => {
+    expect(
+      authenticateWebhook({
+        rawBody: body,
+        signatureHeader: undefined,
+        tokenHeader: TOKEN,
+        hmacSecret: SECRET,
+        workflowToken: TOKEN,
+      }),
+    ).toEqual({ ok: true, matched: "workflow-token" });
+  });
+
+  it("falls back to HMAC when token is presented but does not match", () => {
+    const sig = `sha256=${signHex(body)}`;
+    expect(
+      authenticateWebhook({
+        rawBody: body,
+        signatureHeader: sig,
+        tokenHeader: "wrong-token",
+        hmacSecret: SECRET,
+        workflowToken: TOKEN,
+      }),
+    ).toEqual({ ok: true, matched: "hex" });
+  });
+
+  it("falls back to HMAC when token feature is disabled (workflowToken empty)", () => {
+    const sig = `sha256=${signHex(body)}`;
+    expect(
+      authenticateWebhook({
+        rawBody: body,
+        signatureHeader: sig,
+        tokenHeader: TOKEN, // even with header set, no env token → ignore
+        hmacSecret: SECRET,
+        workflowToken: undefined,
+      }),
+    ).toEqual({ ok: true, matched: "hex" });
+  });
+
+  it("rejects when neither token nor HMAC is valid", () => {
+    expect(
+      authenticateWebhook({
+        rawBody: body,
+        signatureHeader: undefined,
+        tokenHeader: "wrong-token",
+        hmacSecret: SECRET,
+        workflowToken: TOKEN,
+      }),
+    ).toEqual({ ok: false, reason: "missing_header" });
   });
 });

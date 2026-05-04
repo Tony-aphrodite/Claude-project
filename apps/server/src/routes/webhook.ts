@@ -16,7 +16,11 @@ import { classifyWebhook, respondIoIncomingMessageSchema } from "@dpm/shared";
 import { loadEnv } from "../env.js";
 import { processAgentMessage } from "../handlers/process-agent-message.js";
 import { processIncomingMessage } from "../handlers/process-message.js";
-import { pickSignatureHeader, verifySignature } from "../lib/hmac.js";
+import {
+  authenticateWebhook,
+  pickSignatureHeader,
+  pickWorkflowTokenHeader,
+} from "../lib/hmac.js";
 
 export async function webhookRoutes(app: FastifyInstance) {
   const env = loadEnv();
@@ -32,10 +36,19 @@ export async function webhookRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: { code: "no_body" } });
     }
 
-    const verdict = verifySignature(rawBody, headerSig, env.RESPOND_IO_WEBHOOK_SECRET);
+    const tokenHeader = pickWorkflowTokenHeader(
+      req.headers as Record<string, string | string[] | undefined>,
+    );
+    const verdict = authenticateWebhook({
+      rawBody,
+      signatureHeader: headerSig,
+      tokenHeader,
+      hmacSecret: env.RESPOND_IO_WEBHOOK_SECRET,
+      workflowToken: env.WEBHOOK_WORKFLOW_TOKEN || undefined,
+    });
     if (!verdict.ok) {
-      req.log.warn({ reason: verdict.reason }, "webhook signature rejected");
-      return reply.status(401).send({ error: { code: "signature_invalid" } });
+      req.log.warn({ reason: verdict.reason }, "webhook auth rejected");
+      return reply.status(401).send({ error: { code: "auth_invalid" } });
     }
 
     const parsed = respondIoIncomingMessageSchema.safeParse(req.body);
