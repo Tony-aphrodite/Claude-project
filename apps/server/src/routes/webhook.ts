@@ -54,7 +54,10 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     try {
       const result = await processIncomingMessage(parsed.data, req.log);
-      return reply.send({ ok: true, ...result });
+      // Pilot gate / non-text rejections come back as ok:false ignored — we
+      // still return HTTP 200 so Respond.io does not retry, but the body
+      // surfaces the reason for ops visibility.
+      return reply.send(result);
     } catch (err) {
       req.log.error({ err }, "process-message failed");
       // Re-throw so the global error handler maps AppError → status code.

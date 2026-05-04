@@ -2,8 +2,10 @@
 // Orchestrator for an inbound Respond.io message. Wires the 10 steps from
 // guide §6:
 //   1. Webhook received (done by route layer, signature already verified)
-//   2. Contact upsert (chat_contacts) + sede identification (tag → DB)
-//   3. Conversation history (sliding window)
+//   2. Pilot gate — read contact.Branch field; only "Gili Trawangan"
+//      proceeds. Other sedes / empty Branch return HTTP 200 ignored so the
+//      human flow continues unchanged.
+//   3. Contact upsert (chat_contacts) + conversation upsert + history
 //   4. KB + prompt loaded from Supabase
 //   5. 4-block prompt build with cache_control
 //   6. Dynamic block (current time + 7-day roster + msg)
@@ -12,9 +14,13 @@
 //   9. Response handling + logging
 //  10. Send via Respond.io outbound API
 //
-// Architectural rule: chat_contacts is the only place per-person identity
-// lives. The Conversation row only references the contact_id. The handler
-// MUST upsert the contact BEFORE the conversation so the FK is satisfied.
+// Architectural rules:
+//   • chat_contacts is the only place per-person identity lives. The
+//     conversation row only references the contact_id. We MUST upsert the
+//     contact BEFORE the conversation so the FK is satisfied.
+//   • The deposit reference code is generated AT MOST ONCE per conversation;
+//     subsequent solicitar_deposito calls reuse the existing code (per
+//     INSTRUCCIONES_PAGO_GiliTrawangansteve.md §codigo-generacion).
 // ============================================================================
 
 import type { FastifyBaseLogger } from "fastify";
@@ -23,11 +29,12 @@ import type {
   ConsultarDisponibilidadInput,
   ConsultarDisponibilidadResult,
   DepositCurrency,
+  LeadMetadata,
   RespondIoIncomingMessage,
   SolicitarDepositoInput,
   SolicitarDepositoResult,
 } from "@dpm/shared";
-import { DEPOSIT_AMOUNT } from "@dpm/shared";
+import { depositAmountFor } from "@dpm/shared";
 
 import { errores, getDb } from "@dpm/db";
 import { callClaude } from "../services/anthropic.js";
@@ -46,17 +53,29 @@ import { buildFourBlockPrompt } from "../services/prompt-builder.js";
 import { promptsService } from "../services/prompts.js";
 import { respondIoClient } from "../services/respond-io.js";
 import { sedeService } from "../services/sede.js";
-import { generateRefCode } from "../tools/solicitar-deposito.js";
+import {
+  generateRefCode,
+  isValidRefCode,
+} from "../tools/solicitar-deposito.js";
 
-export type ProcessResult = {
-  conversationId: string;
-  sede: string;
-  responseSentChars: number;
-  latencyMs: number;
-  toolCalls: string[];
-  cacheHitRate: number;
-  costUsd: number;
-};
+export type ProcessResult =
+  | {
+      ok: true;
+      conversationId: string;
+      sede: string;
+      responseSentChars: number;
+      latencyMs: number;
+      toolCalls: string[];
+      cacheHitRate: number;
+      costUsd: number;
+    }
+  | {
+      ok: false;
+      ignored: true;
+      reason: "non_text" | "branch_other_sede" | "branch_empty" | "sede_not_seeded";
+      branch?: string | null;
+      latencyMs: number;
+    };
 
 export async function processIncomingMessage(
   payload: RespondIoIncomingMessage,
@@ -67,26 +86,32 @@ export async function processIncomingMessage(
   const incomingText = (payload.message.text ?? "").trim();
   if (!incomingText) {
     log.info("ignoring non-text message");
-    return {
-      conversationId: payload.conversation?.id ?? "",
-      sede: "",
-      responseSentChars: 0,
-      latencyMs: Date.now() - t0,
-      toolCalls: [],
-      cacheHitRate: 0,
-      costUsd: 0,
-    };
+    return { ok: false, ignored: true, reason: "non_text", latencyMs: Date.now() - t0 };
   }
 
-  // Step 2a: sede identification from tags. We need the sede.id before we can
-  // attach it to the contact upsert.
-  const { sede, usedFallback } = await sedeService.resolveOrPilot(payload.contact.tags);
-  if (usedFallback) {
-    log.warn(
-      { tags: payload.contact.tags, fallback: sede.nombre },
-      "no sede tag — using pilot fallback",
+  // Step 2: Pilot gate. The Branch contact field decides whether this
+  // message belongs to our system. Anything other than "Gili Trawangan"
+  // (including empty) is the human team's responsibility — return 200 so
+  // Respond.io does not retry.
+  const resolution = await sedeService.resolveForPilot(payload.contact);
+  if (!resolution.ok) {
+    log.info(
+      {
+        reason: resolution.reason,
+        branch: resolution.branchValue,
+        contactId: payload.contact.id,
+      },
+      "pilot gate rejected message",
     );
+    return {
+      ok: false,
+      ignored: true,
+      reason: resolution.reason,
+      branch: resolution.branchValue,
+      latencyMs: Date.now() - t0,
+    };
   }
+  const sede = resolution.sede;
 
   // Step 2b: contact upsert. This is the canonical store for per-person data;
   // the conversation row only carries a foreign key.
@@ -150,15 +175,11 @@ export async function processIncomingMessage(
     input: ConsultarDisponibilidadInput,
   ): Promise<ConsultarDisponibilidadResult> => {
     if (input.sede_id !== sede.id) {
-      // Defensive: the model sometimes emits a different sede_id from the
-      // dynamic block. We ignore the model's claim and use the bound sede.
       log.warn(
         { claimed: input.sede_id, actual: sede.id },
         "tool_use sede_id mismatch — overriding",
       );
     }
-    // Side effect: any successful availability check moves the lead toward
-    // the "proposed" stage, since the AI is committing to specific dates.
     void leadStageService
       .transition({
         conversacionId: conversation.id,
@@ -176,9 +197,6 @@ export async function processIncomingMessage(
         message: "Apps Script no respondió en el plazo permitido",
       };
     }
-    // Find the requested day + course in the snapshot. This logic is a
-    // stub that we will extend once we see the real Apps Script schema in
-    // Semana 0; for now we return the closest day's slot info.
     const day = fresh.days.find((d) => d.date === input.fecha) ?? null;
     if (!day) {
       return {
@@ -199,7 +217,14 @@ export async function processIncomingMessage(
         notes: `No hay franjas de ${input.curso} ese día`,
       };
     }
-    const slot = input.horario === "AM" ? course.am : input.horario === "PM" ? course.pm : input.horario === "Night" ? course.night : (course.am ?? course.pm ?? course.night);
+    const slot =
+      input.horario === "AM"
+        ? course.am
+        : input.horario === "PM"
+          ? course.pm
+          : input.horario === "Night"
+            ? course.night
+            : (course.am ?? course.pm ?? course.night);
     if (!slot) {
       return {
         ok: true,
@@ -229,9 +254,27 @@ export async function processIncomingMessage(
       );
     }
 
-    const refCode = generateRefCode();
+    // Block IDR for clients without an Indonesian bank account. We can't
+    // verify that from the AI side, so we trust the client's claim — but
+    // we record the decision in lead_metadata for audit.
     const currency = input.moneda_cliente as DepositCurrency;
-    const requiresHumanVerification = !sedeHasAutomaticGateway(sede.nombre as SedeKey);
+    const monto = depositAmountFor(currency);
+
+    // Reuse the existing reference code if this conversation already has
+    // one (owner spec — never mint twice for the same lead). We look at
+    // lead_metadata.ref_code as the canonical store.
+    const existingMeta =
+      (conversation.leadMetadata as LeadMetadata | null) ?? null;
+    const existingRefCode =
+      existingMeta?.ref_code && isValidRefCode(existingMeta.ref_code)
+        ? existingMeta.ref_code
+        : null;
+    const reused = existingRefCode !== null;
+    const refCode = existingRefCode ?? generateRefCode();
+
+    const requiresHumanVerification = !sedeHasAutomaticGateway(
+      sede.nombre as SedeKey,
+    );
 
     const instrucciones = buildPaymentInstructions({
       sedeNombre: sede.nombre,
@@ -240,14 +283,19 @@ export async function processIncomingMessage(
       refCode,
     });
 
+    // Only transition to deposit_pending the first time the tool is
+    // invoked. Subsequent reuses are no-ops on the state machine but still
+    // refresh the snapshot of instructions for audit.
     const transitionResult = await leadStageService.transition({
       conversacionId: conversation.id,
       to: "deposit_pending",
       by: "ai",
-      note: `solicitar_deposito ${refCode} ${currency}`,
+      note: reused
+        ? `solicitar_deposito reuse ${refCode} ${currency}`
+        : `solicitar_deposito ${refCode} ${currency}`,
       metadataPatch: {
         ref_code: refCode,
-        deposit_amount: DEPOSIT_AMOUNT,
+        deposit_amount: monto,
         deposit_currency: currency,
         payment_instructions_snapshot: instrucciones,
         requires_human_verification: requiresHumanVerification,
@@ -256,7 +304,12 @@ export async function processIncomingMessage(
 
     if (!transitionResult.ok) {
       log.warn(
-        { reason: transitionResult.reason, from: transitionResult.from, to: transitionResult.to },
+        {
+          reason: transitionResult.reason,
+          from: transitionResult.from,
+          to: transitionResult.to,
+          reused,
+        },
         "solicitar_deposito transition rejected — returning instructions anyway",
       );
     }
@@ -264,10 +317,11 @@ export async function processIncomingMessage(
     return {
       ok: true,
       ref_code: refCode,
-      monto: DEPOSIT_AMOUNT,
+      monto,
       moneda: currency,
       instrucciones,
       requires_human_verification: requiresHumanVerification,
+      reused_existing: reused,
     };
   };
 
@@ -300,8 +354,6 @@ export async function processIncomingMessage(
       text: claudeResult.text,
     });
   } catch (err) {
-    // We've already logged the AI message and llamadas_api row. The error
-    // here is just the outbound send — log and store, but don't unwind.
     log.error({ err }, "respond_io send failed; AI text saved but not delivered");
     await getDb()
       .insert(errores)
@@ -317,6 +369,7 @@ export async function processIncomingMessage(
   }
 
   return {
+    ok: true,
     conversationId: conversation.id,
     sede: sede.nombre,
     responseSentChars: claudeResult.text.length,
