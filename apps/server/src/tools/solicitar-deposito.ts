@@ -1,22 +1,19 @@
 // ============================================================================
 // tool_use definition for `solicitar_deposito`. Claude invokes it once it
-// detects clear booking intent. The handler:
-//   1. Generates a unique reference code (DPM-XXXXXX, 6-char alnum) so the
-//      sede team can match the inbound transfer in Wise/Revolut/bank/cash.
-//   2. Advances lead_stage to "deposit_pending" and snapshots the payment
+// detects clear booking intent. The handler in process-message:
+//   1. Reuses the existing reference code if this conversation already has
+//      one in lead_metadata.ref_code (owner spec — never mint twice for the
+//      same lead, even on currency change).
+//   2. Otherwise generates a new DPM-XXXXXX code (6 chars; ambiguous chars
+//      0/O/1/I/L excluded so a sede agent reading it off a Wise transfer
+//      cannot mis-key it).
+//   3. Advances lead_stage to "deposit_pending" and snapshots the rendered
 //      instructions onto lead_metadata for audit.
-//   3. Returns sede-specific instructions in the client's language so Claude
-//      can fold them into the next outbound message.
+//   4. Returns sede-specific instructions in the client's language.
 //
-// Payment automation differs by sede (owner-confirmed 2026-04-30):
-//   • Koh Tao: Stripe + Wise + Revolut + Thai bank   (Stripe → automatic)
-//   • Koh Phi Phi: Wise + Revolut + Thai bank        (manual verification)
-//   • Gili Air / Gili Trawangan / Nusa Penida: Wise + Revolut + Indonesian
-//     bank (cash IDR or transfer; Stripe NO disponible en Indonesia)
-//
-// The actual instruction copy is owner-authored and lives in
-// `services/deposit-instructions.ts`. The tool here is a thin orchestrator —
-// no business copy is hard-coded into the schema or the prompt.
+// Currency matrix (owner-confirmed): EUR / GBP / AUD / USD all 40 units;
+// IDR is 700,000. Stripe is NOT enabled in Gili Trawangan — every deposit
+// requires human verification from the panel.
 // ============================================================================
 
 import type Anthropic from "@anthropic-ai/sdk";
@@ -30,12 +27,15 @@ import {
 export const solicitarDepositoTool: Anthropic.Tool = {
   name: "solicitar_deposito",
   description:
-    "Solicita el depósito obligatorio de 40 unidades de la moneda local del cliente para confirmar la reserva. " +
-    "USAR SOLO cuando el cliente manifiesta intención clara de reservar (no para sondeos ni preguntas exploratorias). " +
-    "El depósito es OBLIGATORIO para confirmar la reserva, NO REEMBOLSABLE, y se descuenta del precio total del curso. " +
-    "La herramienta devuelve un código de referencia único y las instrucciones de pago de la sede; tu respuesta debe " +
-    "incluir el código de referencia textual y el monto en la moneda del cliente. NO inventes códigos ni instrucciones " +
-    "alternativas; usá literalmente lo que devuelve la herramienta.",
+    "Solicita el depósito obligatorio para confirmar la reserva. " +
+    "USAR SOLO cuando el cliente manifiesta intención clara de reservar (no para sondeos). " +
+    "El depósito es OBLIGATORIO, NO REEMBOLSABLE, y se descuenta del precio total. " +
+    "Monto: 40 EUR / 40 GBP / 40 AUD / 40 USD por persona, o 700,000 IDR (solo con cuenta bancaria local indonesia). " +
+    "La herramienta devuelve un código de referencia único y las instrucciones de pago; " +
+    "tu respuesta debe incluir el código y el monto literalmente y en mensaje SEPARADO " +
+    "(precio en mensaje 1, datos bancarios en mensaje 2, pregunta de cierre en mensaje 3). " +
+    "Si la herramienta indica reused_existing=true, NO menciones que el código fue 'reusado' " +
+    "— simplemente repetí los datos con naturalidad.",
   input_schema: {
     type: "object",
     properties: {
@@ -51,9 +51,10 @@ export const solicitarDepositoTool: Anthropic.Tool = {
       },
       moneda_cliente: {
         type: "string",
-        enum: ["EUR", "USD", "GBP", "THB", "IDR"],
+        enum: ["EUR", "GBP", "AUD", "USD", "IDR"],
         description:
-          "Moneda en la que el cliente prefiere pagar el depósito. Wise/Revolut convierten automáticamente.",
+          "Moneda en la que el cliente prefiere pagar el depósito. " +
+          "IDR SOLO si el cliente tiene cuenta bancaria local indonesia.",
       },
     },
     required: ["sede_id", "cliente_idioma", "moneda_cliente"],
@@ -95,4 +96,9 @@ export function generateRefCode(): string {
     code += ALPHABET[idx];
   }
   return `DPM-${code}`;
+}
+
+/** Validate that an externally-stored ref_code still matches our shape. */
+export function isValidRefCode(code: string): boolean {
+  return /^DPM-[A-HJKMNPQRSTUVWXYZ23456789]{6}$/.test(code);
 }
