@@ -1,27 +1,26 @@
 // ============================================================================
-// Deposit payment instruction templates per sede + currency + language.
+// Deposit payment instruction blocks for Gili Trawangan.
 //
-// PLACEHOLDER COPY: the live text is owner-authored (Miguel) and arrives as
-// part of the Pieza 1 launch checklist. The structure here mirrors what the
-// owner's payments matrix demands:
+// Source of truth: information/KB03_payments.md (owner-authored, mayo 2026).
+// Five currency blocks reproduced verbatim with `{{REFERENCE_CODE}}` and
+// `{{AMOUNT}}` placeholders substituted at render time.
 //
-//                Stripe   Wise   Revolut   Local Bank
-//   Koh Tao        ✓       ✓      ✓        Thai (THB)
-//   Koh Phi Phi            ✓      ✓        Thai (THB)
-//   Gili Air               ✓      ✓        Indonesian (IDR cash/transfer)
-//   Gili Trawangan         ✓      ✓        Indonesian
-//   Nusa Penida            ✓      ✓        Indonesian
-//
-// Stripe NO opera en Indonesia, by owner statement.
-//
-// Until Miguel sends the production copy, these placeholders are good enough
-// for end-to-end testing: they reference the sede, the currency, the
-// reference code, and explicitly say "(texto provisional pendiente de copy
-// final)" so nobody confuses placeholder for production text.
+// Critical rules from the KB:
+//   • Only the block for the chosen currency is sent — never multiple.
+//   • Bank details ALWAYS in a separate message from price and from the
+//     close-question (the prompt builder enforces this on the AI side).
+//   • Stripe is NOT enabled in Gili Trawangan — every block requires human
+//     verification from the panel after the client transfers.
+//   • IDR amount is 700,000 (not 40); applies only when client has an
+//     Indonesian local bank account.
+//   • USD account is technically a Koh Tao account (we use it for GT clients
+//     who pay in USD); the client never needs to know.
 // ============================================================================
 
-import type { DepositCurrency } from "@dpm/shared";
-import { DEPOSIT_AMOUNT } from "@dpm/shared";
+import {
+  depositAmountFor,
+  type DepositCurrency,
+} from "@dpm/shared";
 
 export type SedeKey =
   | "Koh Tao"
@@ -30,26 +29,12 @@ export type SedeKey =
   | "Gili Air"
   | "Nusa Penida";
 
-export type PaymentChannel = "stripe" | "wise" | "revolut" | "local_bank" | "cash";
-
-const SEDE_CHANNELS: Record<SedeKey, PaymentChannel[]> = {
-  "Koh Tao": ["stripe", "wise", "revolut", "local_bank"],
-  "Koh Phi Phi": ["wise", "revolut", "local_bank"],
-  "Gili Trawangan": ["wise", "revolut", "local_bank", "cash"],
-  "Gili Air": ["wise", "revolut", "local_bank", "cash"],
-  "Nusa Penida": ["wise", "revolut", "local_bank", "cash"],
-};
-
-/** Whether this sede has at least one channel that confirms via webhook. */
+/** Whether this sede has an automatic gateway (Stripe) confirming via webhook. */
 export function sedeHasAutomaticGateway(sede: SedeKey): boolean {
-  return SEDE_CHANNELS[sede].includes("stripe");
-}
-
-/** Whether this sede operates in Indonesia (different bank account guidance). */
-function isIndonesianSede(sede: SedeKey): boolean {
-  return (
-    sede === "Gili Trawangan" || sede === "Gili Air" || sede === "Nusa Penida"
-  );
+  // Owner-confirmed: Stripe is NOT enabled for any sede in the pilot.
+  // Koh Tao would technically support it, but the owner deferred its
+  // activation to post-pilot.
+  return false;
 }
 
 export type BuildInstructionsInput = {
@@ -59,64 +44,82 @@ export type BuildInstructionsInput = {
   refCode: string;
 };
 
-/**
- * Render the instruction block. We default to Spanish; English used when the
- * detected language starts with "en". Other languages fall back to English
- * (Miguel will provide proper translations later).
- */
-export function buildPaymentInstructions(input: BuildInstructionsInput): string {
-  const sede = input.sedeNombre as SedeKey;
-  const channels = SEDE_CHANNELS[sede] ?? ["wise", "revolut"];
-  const isEnglish = input.language.toLowerCase().startsWith("en");
+const HEAD_EN = (amt: string, ccy: string) =>
+  `Here are the ${ccy} bank details for your deposit of ${amt} ${ccy} 🙏`;
+const HEAD_ES = (amt: string, ccy: string) =>
+  `Acá los datos bancarios en ${ccy} para tu depósito de ${amt} ${ccy} 🙏`;
 
-  const lines: string[] = [];
-  if (isEnglish) {
-    lines.push(`To confirm your booking, please send the deposit of ${DEPOSIT_AMOUNT} ${input.currency} (non-refundable, deducted from total) using ONE of the options below:`);
-  } else {
-    lines.push(`Para confirmar tu reserva, envía el depósito de ${DEPOSIT_AMOUNT} ${input.currency} (no reembolsable, se descuenta del total) usando UNA de estas opciones:`);
-  }
+const TAIL_EN = "Once sent, please download and share the payment confirmation PDF 🙏";
+const TAIL_ES = "Cuando lo envíes, descargá y compartí el comprobante de pago en PDF 🙏";
 
-  for (const ch of channels) {
-    lines.push(renderChannel(ch, sede, isEnglish));
-  }
+const REFERENCE_LINE = (refCode: string) => `Reference: ${refCode}`;
 
-  if (isEnglish) {
-    lines.push(`IMPORTANT: include the reference code in the transfer concept so we can match the payment to your booking: ${input.refCode}`);
-    lines.push(`(Provisional text — final copy pending owner sign-off)`);
-  } else {
-    lines.push(`IMPORTANTE: incluí este código de referencia en el concepto de la transferencia para que podamos identificar tu pago: ${input.refCode}`);
-    lines.push(`(Texto provisional — copy definitivo pendiente del cliente)`);
-  }
+const BANK_BLOCKS_EN: Record<DepositCurrency, string[]> = {
+  EUR: [
+    "Beneficiary: DPM Diving Gili T LLC",
+    "IBAN: BE93 9050 6891 4867",
+    "BIC/SWIFT: TRWIBEB1XXX",
+    "Bank: Wise, Brussels, Belgium",
+  ],
+  GBP: [
+    "Beneficiary: DPM Diving Gili T LLC",
+    "Account number: 55834953",
+    "Sort code: 23-08-01",
+    "IBAN: GB52 TRWI 2308 0155 8349 53",
+    "BIC/SWIFT: TRWIGB2LXXX",
+    "Bank: Wise Payments Limited, London, UK",
+  ],
+  AUD: [
+    "Beneficiary: DPM Diving Gili T LLC",
+    "Account number: 222625669",
+    "BSB: 774-001",
+    "BIC/SWIFT: TRWIAUS1XXX",
+    "Bank: Wise Australia, Sydney",
+  ],
+  USD: [
+    "Beneficiary: Dpm Diving",
+    "Account number: 822000685807",
+    "Routing number: 026073150",
+    "BIC/SWIFT: CMFGUS33",
+    "Bank: Community Federal Savings Bank, New York, USA",
+  ],
+  IDR: [
+    "Beneficiary: Dalam Professional Menyelam",
+    "Bank: Bank Mandiri",
+    "Account: 1610010570609",
+  ],
+};
 
-  return lines.join("\n");
+function formatAmount(currency: DepositCurrency): string {
+  const amt = depositAmountFor(currency);
+  // IDR uses thousand separators (700,000); the others stay as plain "40".
+  return currency === "IDR" ? amt.toLocaleString("en-US") : String(amt);
 }
 
-function renderChannel(ch: PaymentChannel, sede: SedeKey, isEnglish: boolean): string {
-  switch (ch) {
-    case "stripe":
-      return isEnglish
-        ? `• Stripe: payment link will be sent in a follow-up message (automatic confirmation)`
-        : `• Stripe: te enviamos el link de pago en un mensaje aparte (confirmación automática)`;
-    case "wise":
-      return isEnglish
-        ? `• Wise: bank details for ${sede} will be provided on request`
-        : `• Wise: datos bancarios de ${sede} a pedido`;
-    case "revolut":
-      return isEnglish
-        ? `• Revolut: account details for ${sede} on request`
-        : `• Revolut: datos de la cuenta de ${sede} a pedido`;
-    case "local_bank":
-      if (isIndonesianSede(sede)) {
-        return isEnglish
-          ? `• Indonesian bank transfer (IDR equivalent): account details on request`
-          : `• Transferencia bancaria local Indonesia (equivalente IDR): datos a pedido`;
-      }
-      return isEnglish
-        ? `• Thai bank transfer (THB equivalent): account details on request`
-        : `• Transferencia bancaria local Tailandia (equivalente THB): datos a pedido`;
-    case "cash":
-      return isEnglish
-        ? `• Cash IDR upon arrival at ${sede} (only for clients arriving within 48 hours)`
-        : `• Efectivo IDR al llegar a ${sede} (solo para clientes que llegan en menos de 48 horas)`;
-  }
+/**
+ * Render the bank block for a given currency in the client's language.
+ * Falls back to English when the language is anything other than Spanish.
+ * The block is meant to be sent ALONE in its own outbound message — the
+ * prompt builder instructs the AI to keep price, bank, and close-question
+ * in three separate messages.
+ */
+export function buildPaymentInstructions(input: BuildInstructionsInput): string {
+  const isEnglish = !input.language.toLowerCase().startsWith("es");
+  const amt = formatAmount(input.currency);
+  const head = isEnglish ? HEAD_EN(amt, input.currency) : HEAD_ES(amt, input.currency);
+  const lines = BANK_BLOCKS_EN[input.currency];
+  const tail = isEnglish ? TAIL_EN : TAIL_ES;
+  return [head, ...lines, REFERENCE_LINE(input.refCode), tail].join("\n");
+}
+
+/**
+ * Variant of the IBAN-mismatch warning used when a client transferred from
+ * Nusa Penida or Gili Air (which have different IBANs) — the AI prepends
+ * this to the EUR/GBP block to avoid the recurring confusion documented in
+ * KB-03 §alerta-iban.
+ */
+export function buildIbanMismatchWarning(language: string): string {
+  return language.toLowerCase().startsWith("es")
+    ? "Solo para confirmar — los datos de Gili Trawangan son diferentes a los de Nusa Penida y Gili Air. Acá van los datos correctos:"
+    : "Just to confirm — the Gili Trawangan account is different from Nusa Penida and Gili Air. Here are the correct details:";
 }
