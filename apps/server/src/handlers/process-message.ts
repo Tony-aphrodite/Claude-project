@@ -70,6 +70,13 @@ export type ProcessResult =
       costUsd: number;
     }
   | {
+      ok: true;
+      duplicate: true;
+      conversationId: string;
+      respondIoMessageId: string;
+      latencyMs: number;
+    }
+  | {
       ok: false;
       ignored: true;
       reason: "non_text" | "branch_other_sede" | "branch_empty" | "sede_not_seeded";
@@ -130,8 +137,37 @@ export async function processIncomingMessage(
     respondIoContactId: contact.respondIoContactId,
     sedeId: sede.id,
   });
+
+  // Idempotency: Respond.io retries any 5xx, so a network blip during reply
+  // would otherwise re-trigger a Claude call + double reply. If we already
+  // stored the inbound row for this messageId, exit before any expensive work.
+  const incomingMessageId = payload.message.messageId;
+  if (incomingMessageId) {
+    const existing = await conversationService.findByRespondIoMessageId(
+      conversation.id,
+      incomingMessageId,
+    );
+    if (existing) {
+      log.info(
+        {
+          conversationId: conversation.id,
+          respondIoMessageId: incomingMessageId,
+          existingMensajeId: existing.id,
+        },
+        "duplicate inbound message — skipping",
+      );
+      return {
+        ok: true,
+        duplicate: true,
+        conversationId: conversation.id,
+        respondIoMessageId: incomingMessageId,
+        latencyMs: Date.now() - t0,
+      };
+    }
+  }
+
   await conversationService.appendInboundMessage(conversation.id, incomingText, {
-    respondIoMessageId: payload.message.messageId,
+    respondIoMessageId: incomingMessageId,
   });
 
   // Client just replied — cancel any open follow-ups for this conversation.

@@ -38,6 +38,13 @@ export type EspiaResult =
       latencyMs: number;
     }
   | {
+      ok: true;
+      duplicate: true;
+      conversationId: string;
+      respondIoMessageId: string;
+      latencyMs: number;
+    }
+  | {
       ok: false;
       ignored: true;
       reason: "branch_other_sede" | "branch_empty" | "sede_not_seeded";
@@ -89,8 +96,33 @@ export async function processAgentMessage(
     sedeId: sede.id,
   });
 
+  const messageId = payload.message.messageId;
+  if (messageId) {
+    const existing = await conversationService.findByRespondIoMessageId(
+      conversation.id,
+      messageId,
+    );
+    if (existing) {
+      log.info(
+        {
+          conversationId: conversation.id,
+          respondIoMessageId: messageId,
+          existingMensajeId: existing.id,
+        },
+        "espia: duplicate agent message — skipping",
+      );
+      return {
+        ok: true,
+        duplicate: true,
+        conversationId: conversation.id,
+        respondIoMessageId: messageId,
+        latencyMs: Date.now() - t0,
+      };
+    }
+  }
+
   await conversationService.appendAgentMessage(conversation.id, text, agentName, {
-    respondIoMessageId: payload.message.messageId,
+    respondIoMessageId: messageId,
     capturedAt: new Date().toISOString(),
   });
 

@@ -13,7 +13,7 @@
 // token budget so that very long conversations don't blow the prompt size
 // even if they happen to be short messages.
 
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 import {
   conversaciones,
@@ -158,6 +158,32 @@ export class ConversationService {
       .select()
       .from(conversaciones)
       .where(eq(conversaciones.respondIoConversationId, respondIoConversationId))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /**
+   * Idempotency lookup. Respond.io retries delivery on any 5xx, and a network
+   * blip during our reply path can cause a second delivery of the same
+   * message. Without this check we would call Claude twice (real money) and
+   * post a second reply to the client. Scoped to the conversation so the
+   * sequential scan is cheap (<100 rows in practice).
+   */
+  async findByRespondIoMessageId(
+    conversacionId: string,
+    respondIoMessageId: string,
+  ): Promise<Mensaje | null> {
+    if (!respondIoMessageId) return null;
+    const db = getDb();
+    const [row] = await db
+      .select()
+      .from(mensajes)
+      .where(
+        and(
+          eq(mensajes.conversacionId, conversacionId),
+          sql`${mensajes.metadata}->>'respondIoMessageId' = ${respondIoMessageId}`,
+        ),
+      )
       .limit(1);
     return row ?? null;
   }
