@@ -1,6 +1,7 @@
 // Apply Drizzle-generated migrations, then the hand-written
-// sql/post-migration.sql (RLS, partial indexes, seeds). Idempotent — safe to
-// run on every deploy. Invoked by `pnpm --filter @dpm/db run migrate`.
+// sql/post-migration.sql (RLS, partial indexes, seeds), then seed the
+// owner-authored content (John v1.1 prompt, KB bundle). Idempotent — safe
+// to run on every deploy. Invoked by `pnpm --filter @dpm/db run migrate`.
 
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -9,10 +10,10 @@ import path from "node:path";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 
 import { closeDb, getDb, getRawClient } from "./client.js";
+import { seedKbBundle, seedSystemPrompt } from "./seed-content.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const POST_MIGRATION_SQL = path.resolve(__dirname, "../sql/post-migration.sql");
-const SEED_PROMPT_SQL = path.resolve(__dirname, "../sql/seed-system-prompt-v01.sql");
 const DRIZZLE_DIR = path.resolve(__dirname, "../drizzle");
 
 async function main() {
@@ -28,10 +29,20 @@ async function main() {
   await client.unsafe(sqlText);
   console.log("[db:migrate] post-migration SQL applied");
 
-  console.log(`[db:migrate] applying seed prompt ${SEED_PROMPT_SQL} ...`);
-  const seedText = await readFile(SEED_PROMPT_SQL, "utf-8");
-  await client.unsafe(seedText);
-  console.log("[db:migrate] seed prompt applied");
+  console.log("[db:migrate] seeding owner content (John v1.1 + KB bundle) ...");
+  await seedSystemPrompt();
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      await seedKbBundle();
+    } catch (err) {
+      console.warn(`[db:migrate] KB bundle skipped: ${(err as Error).message}`);
+    }
+  } else {
+    console.log(
+      "[db:migrate] KB bundle skipped (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set)",
+    );
+  }
+  console.log("[db:migrate] content seed done");
 
   await closeDb();
 }
