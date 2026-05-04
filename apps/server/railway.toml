@@ -1,15 +1,20 @@
 # Railway deploy config for the Fastify server.
-# Health check path matches the /ready route; restartPolicyType=on_failure
-# keeps the container alive forever as long as the readiness probe passes.
+#
+# Watch paths are set to "**" so any change in the repo (packages/*,
+# apps/server/*, root configs) triggers a rebuild. Earlier deploys silently
+# skipped because Railway had narrowed watch paths to apps/server/** only.
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "apps/server/Dockerfile"
+watchPatterns = ["**"]
 
 [deploy]
 startCommand = "node dist/index.js"
 healthcheckPath = "/ready"
-healthcheckTimeout = 10
+# Cold-start budget: container start (~3s) + first DB connection through the
+# Supabase pooler (~5-10s for the cold pool) + Fastify routing.
+healthcheckTimeout = 30
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
 numReplicas = 1
