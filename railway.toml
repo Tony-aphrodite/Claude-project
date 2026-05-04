@@ -1,0 +1,25 @@
+# Railway deploy config at the repo root.
+#
+# The server Dockerfile (apps/server/Dockerfile) expects the BUILD CONTEXT
+# to be the repo root because it COPYs from `packages/`, `pnpm-lock.yaml`,
+# `pnpm-workspace.yaml`, and `apps/server/`. If Root Directory is set to
+# `apps/server` in Railway, those paths break with "/packages: not found".
+#
+# This config-as-code file lives at the repo root so Railway uses the repo
+# root as context (Root Directory = empty / "/") and is told explicitly
+# where to find the Dockerfile.
+#
+# When/if we add a separate panel service, copy this template and point
+# dockerfilePath / startCommand at apps/panel.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/server/Dockerfile"
+
+[deploy]
+startCommand = "node dist/index.js"
+healthcheckPath = "/ready"
+healthcheckTimeout = 10
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+numReplicas = 1
