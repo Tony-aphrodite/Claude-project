@@ -23,6 +23,11 @@ const keepAliveAgent = new Agent({
 export type SendMessageInput = {
   conversationId: string;
   text: string;
+  // Optional fallback: when the conversation_id is missing or looks like an
+  // unresolved Respond.io workflow template literal (e.g. "$conversation.id"),
+  // we cannot send via /conversation/{id}/message. The send path tries this
+  // contact identifier instead via /contact/id:{contactId}/message.
+  contactId?: string | undefined;
 };
 
 export type SendTemplateInput = {
@@ -93,9 +98,15 @@ export class RespondIoClient {
   async sendMessage(input: SendMessageInput): Promise<void> {
     const env = loadEnv();
     const log = getLogger();
-    const url = `${env.RESPOND_IO_API_BASE_URL}/conversation/${encodeURIComponent(
-      input.conversationId,
-    )}/message`;
+
+    const useContactFallback =
+      isUnresolvedTemplate(input.conversationId) && !!input.contactId;
+
+    const url = useContactFallback
+      ? `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId!)}/message`
+      : `${env.RESPOND_IO_API_BASE_URL}/conversation/${encodeURIComponent(
+          input.conversationId,
+        )}/message`;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
@@ -118,15 +129,28 @@ export class RespondIoClient {
       if (!res.ok) {
         const bodyText = await res.text().catch(() => "");
         log.warn(
-          { status: res.status, body: bodyText.slice(0, 500) },
+          {
+            status: res.status,
+            body: bodyText.slice(0, 500),
+            via: useContactFallback ? "contact" : "conversation",
+          },
           "respond_io send_message non-2xx",
         );
         throw new UpstreamError(
           "respond_io",
           `Respond.io returned ${res.status}`,
-          { status: res.status, conversationId: input.conversationId },
+          {
+            status: res.status,
+            conversationId: input.conversationId,
+            contactId: input.contactId ?? null,
+            via: useContactFallback ? "contact" : "conversation",
+          },
         );
       }
+      log.info(
+        { via: useContactFallback ? "contact" : "conversation" },
+        "respond_io send_message ok",
+      );
     } catch (err) {
       if ((err as { name?: string }).name === "AbortError") {
         throw new UpstreamError("respond_io", "Send message timed out", {
@@ -138,6 +162,21 @@ export class RespondIoClient {
       clearTimeout(timer);
     }
   }
+}
+
+/**
+ * Detect identifiers that obviously failed Respond.io workflow template
+ * substitution (e.g. literal `$conversation.id`, empty string, or `tmp_…`
+ * placeholder our own code injects when no conversation arrives). In those
+ * cases we cannot reach /conversation/{id}/message and must fall back to the
+ * contact endpoint.
+ */
+function isUnresolvedTemplate(value: string | null | undefined): boolean {
+  if (!value) return true;
+  if (value.startsWith("$")) return true;
+  if (value.startsWith("{{") || value.startsWith("{$")) return true;
+  if (value.startsWith("tmp_")) return true;
+  return false;
 }
 
 export const respondIoClient = new RespondIoClient();

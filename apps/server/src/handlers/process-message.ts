@@ -387,6 +387,7 @@ export async function processIncomingMessage(
   try {
     await respondIoClient.sendMessage({
       conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
+      contactId: payload.contact.id,
       text: claudeResult.text,
     });
   } catch (err) {

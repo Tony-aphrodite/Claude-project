@@ -106,7 +106,15 @@ export class FollowUpScheduler {
     const now = Date.now();
 
     for (const row of candidates) {
-      const elapsedHours = (now - row.lastMessageAt.getTime()) / (60 * 60 * 1000);
+      // postgres-js returns the COALESCE/MAX subquery as an ISO string, not a
+      // Date instance, even though Drizzle's `sql<Date>` annotation suggests
+      // otherwise. Coerce defensively so the scanner doesn't crash on rows
+      // whose driver representation drifts.
+      const lastMessageAt =
+        row.lastMessageAt instanceof Date
+          ? row.lastMessageAt
+          : new Date(row.lastMessageAt as unknown as string);
+      const elapsedHours = (now - lastMessageAt.getTime()) / (60 * 60 * 1000);
       const targetLevel = pickLevelByElapsed(elapsedHours);
       if (!targetLevel) {
         skipped++;
