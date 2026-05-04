@@ -10,16 +10,32 @@ import { z } from "zod";
 // We accept a permissive shape and validate the fields we actually use, since
 // Respond.io's webhook envelope evolves and we want to fail open on unknown
 // optional fields rather than rejecting valid messages.
+//
+// Sede identification (owner-confirmed 2026-05-04): Respond.io does NOT use
+// tags for the diving school — it uses a contact custom field named "Branch"
+// populated by the welcome workflow (values: "Gili Trawangan", "Gili Air",
+// "Nusa Penida", "Koh Tao", "Koh Phi Phi", or empty). We accept the field
+// under a few candidate paths because Respond.io serializes custom fields
+// inconsistently across event types; the sede service normalizes them.
+const customFieldsBag = z.record(z.unknown());
+
 export const respondIoIncomingMessageSchema = z.object({
   event: z.string(),
   channelId: z.string().optional(),
-  contact: z.object({
-    id: z.union([z.string(), z.number()]).transform(String),
-    phone: z.string().optional(),
-    name: z.string().optional(),
-    language: z.string().optional(),
-    tags: z.array(z.string()).default([]),
-  }),
+  contact: z
+    .object({
+      id: z.union([z.string(), z.number()]).transform(String),
+      phone: z.string().optional(),
+      name: z.string().optional(),
+      language: z.string().optional(),
+      tags: z.array(z.string()).default([]),
+      // Respond.io variants we have seen across event payloads. Order of
+      // preference inside the resolver is: customFields → fields → custom_fields.
+      customFields: customFieldsBag.optional(),
+      fields: customFieldsBag.optional(),
+      custom_fields: customFieldsBag.optional(),
+    })
+    .passthrough(),
   message: z.object({
     messageId: z.union([z.string(), z.number()]).transform(String).optional(),
     type: z.string().default("text"),
@@ -35,6 +51,26 @@ export const respondIoIncomingMessageSchema = z.object({
 });
 
 export type RespondIoIncomingMessage = z.infer<typeof respondIoIncomingMessageSchema>;
+
+/**
+ * Read the canonical Branch value from any of the known custom-field paths.
+ * Returns null when the field is missing or empty (which during the pilot
+ * means "not Gili Trawangan, leave to humans").
+ */
+export function readBranchField(
+  contact: RespondIoIncomingMessage["contact"],
+): string | null {
+  const candidates = [contact.customFields, contact.fields, contact.custom_fields];
+  for (const bag of candidates) {
+    if (!bag) continue;
+    // Field names we honor (capitalization varies in real payloads).
+    for (const key of ["Branch", "branch", "BRANCH"]) {
+      const v = bag[key];
+      if (typeof v === "string" && v.trim().length > 0) return v.trim();
+    }
+  }
+  return null;
+}
 
 // ── Anthropic prompt block descriptors ──────────────────────────────────────
 // We model the 4-block structure from guide §7 explicitly so the prompt
@@ -94,21 +130,40 @@ export type ConsultarDisponibilidadResult =
     };
 
 // solicitar_deposito — invoked when the AI detects clear booking intent. The
-// server generates a unique reference code, marks the conversation as
-// deposit_pending, and returns sede-specific payment instructions plus the
-// reference. The AI weaves the instructions into its reply; the human team
-// later matches the reference against incoming Wise / Revolut / bank
-// transfers in the panel.
-export const DEPOSIT_AMOUNT = 40 as const;
-
+// server generates a unique reference code (or reuses the conversation's
+// existing one), marks the conversation as deposit_pending, and returns
+// sede-specific payment instructions plus the reference.
+//
+// Currency matrix (owner-confirmed 2026-05-04): EUR/GBP/AUD/USD/IDR.
+//   - 40 units of foreign currency for EUR/GBP/AUD/USD
+//   - 700,000 IDR (special — only when the client has an Indonesian bank
+//     account; the rupiah equivalent of 40 EUR is far higher than 40 IDR
+//     would be, so the symbolic "40-unit" rule does not apply)
+//   - THB is NOT used for Gili Trawangan (the only sede in the pilot lives
+//     in Indonesia).
 export const SUPPORTED_DEPOSIT_CURRENCIES = [
   "EUR",
-  "USD",
   "GBP",
-  "THB",
+  "AUD",
+  "USD",
   "IDR",
 ] as const;
 export type DepositCurrency = (typeof SUPPORTED_DEPOSIT_CURRENCIES)[number];
+
+const DEPOSIT_AMOUNTS: Record<DepositCurrency, number> = {
+  EUR: 40,
+  GBP: 40,
+  AUD: 40,
+  USD: 40,
+  IDR: 700_000,
+};
+
+export function depositAmountFor(currency: DepositCurrency): number {
+  return DEPOSIT_AMOUNTS[currency];
+}
+
+/** @deprecated Use depositAmountFor(currency) — kept only for legacy imports. */
+export const DEPOSIT_AMOUNT = 40 as const;
 
 export const solicitarDepositoInputSchema = z.object({
   sede_id: z.string().uuid(),
@@ -122,13 +177,16 @@ export type SolicitarDepositoResult =
   | {
       ok: true;
       ref_code: string;
-      monto: typeof DEPOSIT_AMOUNT;
+      monto: number;
       moneda: DepositCurrency;
       instrucciones: string;
       // True when this sede has an automatic gateway (Stripe) that will mark
       // the deposit paid via webhook. False means a human must confirm in the
       // panel after seeing the transfer in Wise/Revolut/bank.
       requires_human_verification: boolean;
+      // True when the same code was already issued for this conversation and
+      // we are returning the existing one (per owner spec — never mint twice).
+      reused_existing: boolean;
     }
   | {
       ok: false;
