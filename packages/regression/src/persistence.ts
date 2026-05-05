@@ -45,7 +45,7 @@ export async function persistSuiteResult(suite: SuiteResult): Promise<string> {
       ${suite.averageScores.effectiveness},
       ${suite.averageScores.overall},
       ${suite.totalCostUsd},
-      ${suite.averageLatencyMs},
+      ${Math.round(suite.averageLatencyMs)},
       ${suite.reviewQueueSize}
     )
     RETURNING id::text AS id
@@ -71,7 +71,7 @@ export async function persistSuiteResult(suite: SuiteResult): Promise<string> {
         ${runId}::uuid,
         ${r.caseId},
         ${r.generatedResponse},
-        ${r.latencyMs},
+        ${Math.round(r.latencyMs)},
         ${r.costUsd},
         ${r.cacheHitRate},
         ${r.deterministic.passed},
