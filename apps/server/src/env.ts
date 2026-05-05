@@ -34,6 +34,12 @@ const envSchema = z.object({
   // which sends static headers only). When set and matched, the route
   // accepts the request without HMAC verification. Leave empty to disable.
   WEBHOOK_WORKFLOW_TOKEN: z.string().min(16).optional().or(z.literal("")),
+  // Test-mode safety filter. When set, the AI only processes contacts that
+  // carry this tag in their Respond.io tags array. Used during pilot ramp:
+  // the operator tags only the test contact (e.g. their own number) and the
+  // server ignores everyone else even if they pass the Branch sede gate.
+  // Leave empty in production to process all gated contacts.
+  PILOT_REQUIRE_TAG: z.string().optional().or(z.literal("")),
 
   APPS_SCRIPT_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
 

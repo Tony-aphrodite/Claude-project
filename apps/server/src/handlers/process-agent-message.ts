@@ -19,6 +19,7 @@ import type { FastifyBaseLogger } from "fastify";
 
 import type { LeadMetadata, RespondIoIncomingMessage } from "@dpm/shared";
 
+import { loadEnv } from "../env.js";
 import { chatContactsService } from "../services/chat-contacts.js";
 import { conversationService } from "../services/conversation.js";
 import { followUpProcessor } from "../services/follow-up.js";
@@ -47,7 +48,11 @@ export type EspiaResult =
   | {
       ok: false;
       ignored: true;
-      reason: "branch_other_sede" | "branch_empty" | "sede_not_seeded";
+      reason:
+        | "branch_other_sede"
+        | "branch_empty"
+        | "sede_not_seeded"
+        | "test_tag_missing";
       branch?: string | null;
       latencyMs: number;
     };
@@ -80,6 +85,27 @@ export async function processAgentMessage(
     };
   }
   const sede = resolution.sede;
+
+  // Pilot test gate — same rule as the client-inbound path so we don't end
+  // up capturing real human-agent traffic before Miguel says "go live".
+  const requiredTag = loadEnv().PILOT_REQUIRE_TAG;
+  if (requiredTag && !payload.contact.tags?.includes(requiredTag)) {
+    log.info(
+      {
+        contactId: payload.contact.id,
+        requiredTag,
+        contactTags: payload.contact.tags ?? [],
+      },
+      "espia: test gate rejected — contact lacks required tag",
+    );
+    return {
+      ok: false,
+      ignored: true,
+      reason: "test_tag_missing",
+      branch: sede.nombre,
+      latencyMs: Date.now() - t0,
+    };
+  }
 
   const contact = await chatContactsService.upsertFromWebhook({
     respondIoContactId: payload.contact.id,

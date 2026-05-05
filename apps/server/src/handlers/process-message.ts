@@ -37,6 +37,8 @@ import type {
 import { depositAmountFor } from "@dpm/shared";
 
 import { errores, getDb } from "@dpm/db";
+
+import { loadEnv } from "../env.js";
 import { callClaude } from "../services/anthropic.js";
 import { appsScriptService } from "../services/apps-script.js";
 import { chatContactsService } from "../services/chat-contacts.js";
@@ -79,7 +81,12 @@ export type ProcessResult =
   | {
       ok: false;
       ignored: true;
-      reason: "non_text" | "branch_other_sede" | "branch_empty" | "sede_not_seeded";
+      reason:
+        | "non_text"
+        | "branch_other_sede"
+        | "branch_empty"
+        | "sede_not_seeded"
+        | "test_tag_missing";
       branch?: string | null;
       latencyMs: number;
     };
@@ -119,6 +126,30 @@ export async function processIncomingMessage(
     };
   }
   const sede = resolution.sede;
+
+  // Step 2a: pilot test gate. While we are still validating the AI before
+  // exposing it to the full Gili Trawangan customer base, we require an
+  // operator-controlled tag (e.g. "ai-test") on the contact. Real customers
+  // without that tag are silently dropped here so they continue to be
+  // handled by the human team. Setting the env var empty disables the gate.
+  const requiredTag = loadEnv().PILOT_REQUIRE_TAG;
+  if (requiredTag && !payload.contact.tags?.includes(requiredTag)) {
+    log.info(
+      {
+        contactId: payload.contact.id,
+        requiredTag,
+        contactTags: payload.contact.tags ?? [],
+      },
+      "test gate rejected — contact lacks required tag",
+    );
+    return {
+      ok: false,
+      ignored: true,
+      reason: "test_tag_missing",
+      branch: resolution.via === "branch" ? sede.nombre : null,
+      latencyMs: Date.now() - t0,
+    };
+  }
 
   // Step 2b: contact upsert. This is the canonical store for per-person data;
   // the conversation row only carries a foreign key.
