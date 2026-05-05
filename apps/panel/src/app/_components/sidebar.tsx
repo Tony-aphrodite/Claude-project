@@ -142,7 +142,7 @@ export function Sidebar() {
   ];
 
   return (
-    <aside className="hidden md:flex w-60 shrink-0 flex-col bg-abyss-rail border-r border-ink-200/70 text-ink-700">
+    <aside className="hidden md:flex w-60 shrink-0 flex-col bg-abyss-rail border-r border-ink-200/70 text-ink-700 sticky top-0 h-screen self-start">
       {/* Brand block — diver mark with bioluminescent ring */}
       <div className="px-5 pt-6 pb-5 border-b border-ink-200/70">
         <Link href="/" className="flex items-center gap-2.5 group">
