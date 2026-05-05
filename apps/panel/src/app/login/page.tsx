@@ -1,4 +1,4 @@
-import { signInWithEmail } from "../actions/auth";
+import { signInWithPassword } from "../actions/auth";
 
 // Bubble field — 30 particles scattered across the viewport with handpicked
 // duration/size/x/drift so the deck looks organic without RNG in JS (which
@@ -79,7 +79,7 @@ export default async function LoginPage({
 
       {/* Login card */}
       <form
-        action={signInWithEmail}
+        action={signInWithPassword}
         className="relative z-10 w-full max-w-sm space-y-5 rounded-2xl border border-ink-200/60 bg-surface-gradient p-7 shadow-card-elev backdrop-blur-md"
       >
         <div className="space-y-1.5 text-ink-900">
@@ -98,26 +98,32 @@ export default async function LoginPage({
             <h1 className="text-lg font-semibold">DPM Diving · Panel</h1>
           </div>
           <p className="text-sm text-ink-500 leading-relaxed">
-            Te enviamos un magic link al correo asociado a tu cuenta de Supabase.
+            Iniciá sesión con tu correo y contraseña de administrador.
           </p>
         </div>
 
-        <input
-          type="email"
-          name="email"
-          required
-          placeholder="tu@dpmdiving.com"
-          className="w-full rounded-lg border border-ink-300/70 bg-ink-100/70 px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30"
-        />
+        <div className="space-y-3">
+          <input
+            type="email"
+            name="email"
+            required
+            autoComplete="email"
+            placeholder="admin@dpmdiving.com"
+            className="w-full rounded-lg border border-ink-300/70 bg-ink-100/70 px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30"
+          />
+          <input
+            type="password"
+            name="password"
+            required
+            autoComplete="current-password"
+            placeholder="Contraseña"
+            className="w-full rounded-lg border border-ink-300/70 bg-ink-100/70 px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30"
+          />
+        </div>
         <button className="w-full rounded-lg bg-brand-500 py-2 text-sm font-semibold text-white shadow-glow-soft transition-all hover:bg-brand-600 hover:shadow-glow">
-          Enviar magic link
+          Iniciar sesión
         </button>
 
-        {params.sent === "1" && (
-          <div className="rounded-lg bg-ok-500/15 px-3 py-2 text-sm text-ok-50 ring-1 ring-inset ring-ok-500/30">
-            Listo. Revisá tu correo.
-          </div>
-        )}
         {params.error && (
           <div className="rounded-lg bg-bad-500/15 px-3 py-2 text-sm text-bad-50 ring-1 ring-inset ring-bad-500/30">
             Error: {params.error}
