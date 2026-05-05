@@ -203,9 +203,29 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Status pill — pulsing emerald dot for the live pilot */}
-      <div className="border-t border-ink-200/70 px-5 py-4">
-        <div className="flex items-center gap-2 text-[11px]">
+      {/* Footer — account access + pilot status */}
+      <div className="border-t border-ink-200/70 px-3 py-3 space-y-2">
+        <Link
+          href="/account"
+          className={[
+            "flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-all",
+            isActive("/account")
+              ? "bg-brand-400/10 text-ink-900 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.20)]"
+              : "text-ink-700 hover:bg-ink-200/50 hover:text-ink-900",
+          ].join(" ")}
+        >
+          <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+            <circle cx="10" cy="7" r="3" stroke="currentColor" strokeWidth="1.6" />
+            <path
+              d="M3.5 17c1.5-3 4-4.5 6.5-4.5s5 1.5 6.5 4.5"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
+          </svg>
+          Mi cuenta
+        </Link>
+        <div className="flex items-center gap-2 px-3 text-[11px]">
           <span className="relative flex h-2 w-2">
             <span className="absolute inset-0 rounded-full bg-ok-500 animate-pulseSoft" />
             <span className="absolute inset-0 rounded-full bg-ok-500 blur-[3px] opacity-80" />
