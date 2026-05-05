@@ -95,13 +95,22 @@ export default async function PipelinePage({
           const meta = STAGE_META[stage];
           const cards = byStage.get(stage) ?? [];
           return (
-            <section key={stage} className={`kanban-col ${meta.columnBg}`}>
+            <section
+              key={stage}
+              className="kanban-col"
+              style={
+                { "--stage-fg": meta.fg } as React.CSSProperties
+              }
+            >
               <header className="mb-3">
                 <div className="flex items-center justify-between">
                   <h2 className="flex items-center gap-1.5 text-sm font-semibold text-ink-800">
                     <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ background: meta.fg }}
+                      className="h-2 w-2 rounded-full shadow-[0_0_8px_currentColor]"
+                      style={{
+                        background: meta.fg,
+                        color: meta.fg,
+                      }}
                     />
                     {meta.label}
                   </h2>

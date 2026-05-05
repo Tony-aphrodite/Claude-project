@@ -152,12 +152,32 @@ select {
   }
 
   /* ---------- kanban ---------- */
+  /*
+   * Columns share a uniform dark-glass base. The only stage-specific signal
+   * is a 2px neon top stripe driven by the `--stage-fg` CSS variable that
+   * the page sets per column. This keeps the board cohesive against the
+   * abyss canvas instead of fighting it with six saturated pastel washes.
+   */
   .kanban-col {
-    @apply flex flex-col rounded-2xl border border-ink-200/70 bg-ink-100/40 p-3 shadow-card backdrop-blur-sm;
-    min-height: 200px;
+    @apply relative flex flex-col rounded-2xl border border-ink-200/60 bg-surface-gradient p-3 shadow-card backdrop-blur-md;
+    min-height: 220px;
+    overflow: hidden;
   }
+  .kanban-col::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    background: var(--stage-fg, rgb(148 163 184));
+    box-shadow: 0 0 10px var(--stage-fg, rgb(148 163 184));
+    opacity: 0.85;
+  }
+  /*
+   * Cards float as glass plates inside the column. Slight transparency lets
+   * the column's accent peek through while keeping content readable.
+   */
   .kanban-card {
-    @apply rounded-xl border border-ink-200/70 bg-ink-100/80 p-2.5 text-xs shadow-card transition-all hover:-translate-y-0.5 hover:border-brand-400/40 hover:shadow-card-hover;
+    @apply rounded-xl border border-ink-200/60 bg-ink-100/60 p-2.5 text-xs shadow-card backdrop-blur-sm transition-all hover:-translate-y-0.5 hover:border-brand-400/40 hover:shadow-glow-soft;
   }
 
   /* ---------- message bubbles ---------- */
