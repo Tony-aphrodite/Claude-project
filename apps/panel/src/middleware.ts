@@ -6,7 +6,21 @@ import { type NextRequest, NextResponse } from "next/server";
 type CookieEntry = { name: string; value: string; options?: CookieOptions };
 
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  const { pathname, searchParams } = req.nextUrl;
+
+  // Supabase magic-link safety net: if a verification code lands on any path
+  // other than /auth/callback (e.g. an old email pointing at the project's
+  // Site URL root, or a redirect_to that wasn't set), forward it to the
+  // callback route so the session can be exchanged. Without this, a stray
+  // ?code= just gets stripped on a normal page load.
+  const code = searchParams.get("code");
+  if (code && !pathname.startsWith("/auth/callback")) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/auth/callback";
+    url.searchParams.set("next", pathname === "/" ? "/" : pathname);
+    return NextResponse.redirect(url);
+  }
+
   if (pathname.startsWith("/login") || pathname.startsWith("/auth")) {
     return NextResponse.next();
   }
