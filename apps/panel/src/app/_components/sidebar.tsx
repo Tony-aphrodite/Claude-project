@@ -94,6 +94,23 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/kb",
+    label: "Knowledge Base",
+    group: "config",
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+        <path
+          d="M4 4.5h9a2 2 0 012 2v9a1 1 0 01-1 1H6a2 2 0 01-2-2V4.5z"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+        <path d="M4 14.5h11" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <path d="M7.5 8h5M7.5 11h3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     href: "/regression",
     label: "Regression",
     group: "config",

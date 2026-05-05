@@ -21,6 +21,7 @@ import {
   errores,
   followUps,
   getDb,
+  kbDocuments,
   llamadasApi,
   mensajes,
   promptsVersiones,
@@ -171,6 +172,67 @@ export async function getActivePrompt(type: string, sedeId?: string | null) {
       ),
     )
     .orderBy(desc(promptsVersiones.versionNumber))
+    .limit(1);
+  return row ?? null;
+}
+
+// ── KB documents ────────────────────────────────────────────────────────────
+// One row per (sede, version). The active row's content is the source of
+// truth for the AI; older rows are kept so we can rollback. Content lives
+// in Supabase Storage at the path stored on the row; we lazy-load it from
+// the panel only when an editor actually opens a version.
+
+export async function listKbVersions(sedeId?: string) {
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: kbDocuments.id,
+      sedeId: kbDocuments.sedeId,
+      sedeName: sedes.nombre,
+      version: kbDocuments.version,
+      storagePath: kbDocuments.storagePath,
+      active: kbDocuments.active,
+      uploadedBy: kbDocuments.uploadedBy,
+      uploadedAt: kbDocuments.uploadedAt,
+    })
+    .from(kbDocuments)
+    .leftJoin(sedes, eq(sedes.id, kbDocuments.sedeId))
+    .where(sedeId ? eq(kbDocuments.sedeId, sedeId) : sql`TRUE`)
+    .orderBy(desc(kbDocuments.uploadedAt));
+  return rows;
+}
+
+export async function getKbVersionRow(id: string) {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: kbDocuments.id,
+      sedeId: kbDocuments.sedeId,
+      sedeName: sedes.nombre,
+      version: kbDocuments.version,
+      storagePath: kbDocuments.storagePath,
+      active: kbDocuments.active,
+      uploadedBy: kbDocuments.uploadedBy,
+      uploadedAt: kbDocuments.uploadedAt,
+    })
+    .from(kbDocuments)
+    .leftJoin(sedes, eq(sedes.id, kbDocuments.sedeId))
+    .where(eq(kbDocuments.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Look up the currently-active KB row for a sede. Used to compute the diff
+ * baseline when a draft is opened.
+ */
+export async function getActiveKbForSede(sedeId: string) {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(kbDocuments)
+    .where(and(eq(kbDocuments.sedeId, sedeId), eq(kbDocuments.active, true)))
+    .orderBy(desc(kbDocuments.version))
     .limit(1);
   return row ?? null;
 }
