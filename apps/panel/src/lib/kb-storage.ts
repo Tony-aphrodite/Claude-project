@@ -8,14 +8,23 @@
 
 const KB_BUCKET = "kb";
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(
-      `Missing env ${name} — set it in Vercel/Railway settings before saving KB content.`,
-    );
+function requireEnv(...names: string[]): string {
+  for (const name of names) {
+    const v = process.env[name];
+    if (v) return v;
   }
-  return value;
+  throw new Error(
+    `Missing env ${names.join(" / ")} — set it in Vercel/Railway settings before saving KB content.`,
+  );
+}
+
+/**
+ * Supabase URL. Public anyway, so we accept either NEXT_PUBLIC_SUPABASE_URL
+ * (the panel already has this for client auth) or SUPABASE_URL (server-only
+ * naming convention some deployments prefer).
+ */
+function supabaseBaseUrl(): string {
+  return requireEnv("NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_URL");
 }
 
 function authHeaders() {
@@ -28,7 +37,7 @@ function authHeaders() {
 
 /** Read a markdown blob given its `storage_path` column value. */
 export async function fetchKbBlob(storagePath: string): Promise<string> {
-  const url = `${requireEnv("SUPABASE_URL")}/storage/v1/object/${storagePath}`;
+  const url = `${supabaseBaseUrl()}/storage/v1/object/${storagePath}`;
   const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -50,7 +59,7 @@ export async function uploadKbBlob(args: {
   content: string;
 }): Promise<string> {
   const objectPath = `${KB_BUCKET}/${args.sedeSlug}/v${args.version}/kb-bundle.md`;
-  const url = `${requireEnv("SUPABASE_URL")}/storage/v1/object/${objectPath}`;
+  const url = `${supabaseBaseUrl()}/storage/v1/object/${objectPath}`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
