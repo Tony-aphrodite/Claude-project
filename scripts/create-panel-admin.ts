@@ -16,7 +16,35 @@
 //   SUPABASE_SERVICE_ROLE_KEY
 // ============================================================================
 
-import "dotenv/config";
+// Tiny standalone .env loader — avoids pulling in `dotenv` as a workspace
+// dependency just for one provisioning script. Reads .env from the current
+// working directory if present, parses KEY=VALUE lines (ignoring comments),
+// and assigns to process.env without overriding anything already set.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+(function loadDotenv() {
+  try {
+    const text = readFileSync(resolve(process.cwd(), ".env"), "utf-8");
+    for (const raw of text.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) continue;
+      const eq = line.indexOf("=");
+      if (eq < 0) continue;
+      const key = line.slice(0, eq).trim();
+      let value = line.slice(eq + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      if (key && process.env[key] === undefined) process.env[key] = value;
+    }
+  } catch {
+    // No .env present — that's fine if env vars are set externally.
+  }
+})();
 
 type Args = { email: string; password: string };
 
