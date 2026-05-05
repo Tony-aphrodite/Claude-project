@@ -1,6 +1,6 @@
 import { signInWithEmail } from "../actions/auth";
 
-// Bubble field — 14 particles scattered across the viewport with handpicked
+// Bubble field — 30 particles scattered across the viewport with handpicked
 // duration/size/x/drift so the deck looks organic without RNG in JS (which
 // would re-roll on every render). Tuned to feel ambient, not busy.
 const BUBBLES: Array<{
@@ -11,20 +11,36 @@ const BUBBLES: Array<{
   drift: number;
   opacity: number;
 }> = [
+  { x: "4%", size: 5, duration: 24, delay: 3, drift: 18, opacity: 0.40 },
   { x: "8%", size: 6, duration: 22, delay: 0, drift: 24, opacity: 0.45 },
+  { x: "12%", size: 8, duration: 19, delay: 13, drift: -22, opacity: 0.50 },
   { x: "14%", size: 4, duration: 28, delay: 6, drift: -18, opacity: 0.35 },
+  { x: "18%", size: 5, duration: 25, delay: 17, drift: 20, opacity: 0.40 },
   { x: "22%", size: 9, duration: 18, delay: 2, drift: 30, opacity: 0.55 },
-  { x: "31%", size: 5, duration: 26, delay: 10, drift: -22, opacity: 0.40 },
-  { x: "38%", size: 7, duration: 20, delay: 14, drift: 16, opacity: 0.50 },
-  { x: "47%", size: 4, duration: 30, delay: 4, drift: -12, opacity: 0.30 },
-  { x: "54%", size: 8, duration: 19, delay: 12, drift: 28, opacity: 0.55 },
-  { x: "62%", size: 5, duration: 25, delay: 8, drift: -24, opacity: 0.40 },
-  { x: "70%", size: 6, duration: 23, delay: 16, drift: 14, opacity: 0.45 },
-  { x: "78%", size: 10, duration: 17, delay: 1, drift: -30, opacity: 0.55 },
-  { x: "85%", size: 4, duration: 27, delay: 11, drift: 20, opacity: 0.35 },
-  { x: "91%", size: 7, duration: 21, delay: 5, drift: -16, opacity: 0.50 },
   { x: "26%", size: 3, duration: 32, delay: 18, drift: 10, opacity: 0.25 },
+  { x: "31%", size: 5, duration: 26, delay: 10, drift: -22, opacity: 0.40 },
+  { x: "34%", size: 7, duration: 20, delay: 7, drift: 16, opacity: 0.50 },
+  { x: "38%", size: 7, duration: 20, delay: 14, drift: 16, opacity: 0.50 },
+  { x: "42%", size: 4, duration: 29, delay: 21, drift: -14, opacity: 0.30 },
+  { x: "47%", size: 4, duration: 30, delay: 4, drift: -12, opacity: 0.30 },
+  { x: "50%", size: 11, duration: 16, delay: 9, drift: 26, opacity: 0.55 },
+  { x: "54%", size: 8, duration: 19, delay: 12, drift: 28, opacity: 0.55 },
+  { x: "58%", size: 5, duration: 24, delay: 19, drift: -20, opacity: 0.40 },
+  { x: "62%", size: 5, duration: 25, delay: 8, drift: -24, opacity: 0.40 },
   { x: "65%", size: 3, duration: 34, delay: 22, drift: -8, opacity: 0.25 },
+  { x: "68%", size: 6, duration: 22, delay: 15, drift: 22, opacity: 0.45 },
+  { x: "70%", size: 6, duration: 23, delay: 16, drift: 14, opacity: 0.45 },
+  { x: "74%", size: 4, duration: 28, delay: 23, drift: -16, opacity: 0.35 },
+  { x: "78%", size: 10, duration: 17, delay: 1, drift: -30, opacity: 0.55 },
+  { x: "82%", size: 5, duration: 26, delay: 11, drift: 20, opacity: 0.40 },
+  { x: "85%", size: 4, duration: 27, delay: 11, drift: 20, opacity: 0.35 },
+  { x: "88%", size: 7, duration: 21, delay: 25, drift: -18, opacity: 0.50 },
+  { x: "91%", size: 7, duration: 21, delay: 5, drift: -16, opacity: 0.50 },
+  { x: "94%", size: 5, duration: 23, delay: 19, drift: 14, opacity: 0.40 },
+  { x: "16%", size: 3, duration: 35, delay: 27, drift: 8, opacity: 0.20 },
+  { x: "44%", size: 3, duration: 33, delay: 14, drift: -10, opacity: 0.22 },
+  { x: "73%", size: 3, duration: 31, delay: 6, drift: 12, opacity: 0.22 },
+  { x: "97%", size: 4, duration: 30, delay: 24, drift: -16, opacity: 0.30 },
 ];
 
 export default async function LoginPage({
