@@ -244,18 +244,45 @@ select {
 }
 
 @layer utilities {
+  /*
+   * Auto-hiding scrollbar. Default state: thumb is fully transparent so the
+   * scrollbar is visually invisible (track always was). On hover or while
+   * actively scrolling the container, the thumb fades in as a subtle
+   * abyss-toned bar that blends with the canvas. Webkit (Chrome, Safari,
+   * Edge) and Gecko (Firefox) both supported.
+   */
   .scrollbar-thin {
     scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 200ms ease;
+  }
+  .scrollbar-thin:hover,
+  .scrollbar-thin:focus-within {
+    scrollbar-color: rgba(31, 49, 73, 0.6) transparent; /* ink-300 @ 60% */
   }
   .scrollbar-thin::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply bg-ink-300/70 rounded-full;
+    background-color: transparent;
+    border-radius: 9999px;
+    transition: background-color 200ms ease;
+  }
+  .scrollbar-thin:hover::-webkit-scrollbar-thumb,
+  .scrollbar-thin:focus-within::-webkit-scrollbar-thumb {
+    background-color: rgba(31, 49, 73, 0.6); /* ink-300 @ 60%, blends with abyss */
   }
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    @apply bg-ink-400;
+    background-color: rgba(31, 49, 73, 0.85);
+  }
+  /* Hide scrollbar buttons / corner so nothing pokes out at the edges. */
+  .scrollbar-thin::-webkit-scrollbar-button,
+  .scrollbar-thin::-webkit-scrollbar-corner {
+    display: none;
   }
   /* Hairline divider — used between hero and grid, etc. */
   .hairline {
