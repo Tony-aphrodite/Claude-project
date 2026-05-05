@@ -288,4 +288,53 @@ select {
   .hairline {
     @apply h-px w-full bg-gradient-to-r from-transparent via-ink-300/60 to-transparent;
   }
+
+  /*
+   * Ambient bubble particle, used on the login page (and any standalone
+   * full-bleed scene). Pure-CSS animation: drifts from below the viewport
+   * up past the top with slight horizontal sway. Each instance receives
+   * its own duration / delay / horizontal offset / size via CSS vars on
+   * the inline style, so the deck looks scattered without RNG in JS.
+   */
+  .bubble-particle {
+    position: absolute;
+    bottom: calc(var(--bubble-size, 6px) * -2);
+    left: var(--bubble-x, 50%);
+    width: var(--bubble-size, 6px);
+    height: var(--bubble-size, 6px);
+    border-radius: 9999px;
+    background: radial-gradient(
+      circle at 32% 30%,
+      rgba(255, 255, 255, 0.55),
+      rgba(34, 211, 238, 0.25) 55%,
+      transparent 100%
+    );
+    box-shadow:
+      inset 0 0 1px rgba(255, 255, 255, 0.5),
+      0 0 6px rgba(34, 211, 238, 0.25);
+    opacity: 0;
+    animation: bubble-rise var(--bubble-duration, 18s) linear var(--bubble-delay, 0s) infinite;
+    pointer-events: none;
+    will-change: transform, opacity;
+  }
+}
+
+@keyframes bubble-rise {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0;
+  }
+  8% {
+    opacity: var(--bubble-opacity, 0.55);
+  }
+  45% {
+    transform: translate3d(var(--bubble-drift, 18px), -50vh, 0) scale(0.96);
+  }
+  92% {
+    opacity: var(--bubble-opacity, 0.55);
+  }
+  100% {
+    transform: translate3d(calc(var(--bubble-drift, 18px) * -0.5), -110vh, 0) scale(0.85);
+    opacity: 0;
+  }
 }
