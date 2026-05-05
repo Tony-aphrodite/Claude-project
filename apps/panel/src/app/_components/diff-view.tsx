@@ -14,9 +14,17 @@ type DiffOp =
   | { kind: "add"; after: string; afterNo: number }
   | { kind: "del"; before: string; beforeNo: number };
 
+/** Normalize line endings so CRLF (browser textarea submits) and LF (file
+ *  on disk / Storage) compare equal line by line. Without this, every
+ *  unchanged line still shows up as both removed and added because
+ *  `"foo\r"` !== `"foo"`. */
+function normalizeNewlines(s: string): string {
+  return s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
 function lineDiff(before: string, after: string): DiffOp[] {
-  const a = before.split("\n");
-  const b = after.split("\n");
+  const a = normalizeNewlines(before).split("\n");
+  const b = normalizeNewlines(after).split("\n");
   const m = a.length;
   const n = b.length;
 
@@ -80,7 +88,7 @@ export function DiffView({
   const ops = lineDiff(before, after);
   const stats = classify(ops);
 
-  if (before === after) {
+  if (normalizeNewlines(before) === normalizeNewlines(after)) {
     return (
       <div className="card text-sm text-ink-500">
         Sin cambios respecto de la versión activa.

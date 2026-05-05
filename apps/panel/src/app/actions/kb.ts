@@ -23,7 +23,13 @@ import { sedeSlug, uploadKbBlob } from "~/lib/kb-storage";
 
 export async function saveKbDraft(formData: FormData) {
   const sedeId = String(formData.get("sedeId") ?? "");
-  const content = String(formData.get("content") ?? "");
+  // Browsers normalize textarea contents to CRLF on form submit even when the
+  // text was originally LF. Storing CRLF would make every diff against the
+  // previous version look fully replaced. Normalize to LF on the way in so
+  // every saved blob is consistent.
+  const content = String(formData.get("content") ?? "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
   if (!sedeId || !content.trim()) return;
 
   const db = getDb();
