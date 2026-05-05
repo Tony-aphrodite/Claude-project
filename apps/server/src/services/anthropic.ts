@@ -278,31 +278,81 @@ export function parseStructuredAnswer(raw: string): {
 } {
   if (!raw) return { text: "", fuentes: [] };
 
-  // Strip code fences if present.
+  // Strip outer code fences if present.
   const stripped = raw
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/```\s*$/i, "")
     .trim();
 
-  // Find the first balanced JSON object. The model occasionally adds a tiny
-  // pre-amble despite the instruction; we match the outermost {...} block.
-  const start = stripped.indexOf("{");
-  const end = stripped.lastIndexOf("}");
-  if (start < 0 || end <= start) return { text: stripped, fuentes: [] };
+  // The model can emit MULTIPLE JSON envelopes when it self-corrects mid-
+  // response (e.g. "{respuesta:'Hola'} Wait — let me retake: {respuesta:
+  // 'better answer'}"). We want the LAST envelope that has a usable
+  // `respuesta` string — that is the model's final intent.
+  //
+  // We scan all balanced top-level `{ ... }` blocks (depth-tracking, ignoring
+  // braces inside string literals) and JSON.parse each; the last one with a
+  // valid respuesta wins.
 
-  try {
-    const j = JSON.parse(stripped.slice(start, end + 1)) as Record<string, unknown>;
-    const text =
-      typeof j.respuesta === "string" && j.respuesta.length > 0
-        ? j.respuesta
-        : stripped;
-    const fuentes = Array.isArray(j.fuentes)
-      ? j.fuentes.filter((x): x is string => typeof x === "string")
-      : [];
-    return { text, fuentes };
-  } catch {
-    return { text: stripped, fuentes: [] };
+  const candidates = extractBalancedObjects(stripped);
+
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    const blob = candidates[i]!;
+    try {
+      const j = JSON.parse(blob) as Record<string, unknown>;
+      if (typeof j.respuesta === "string" && j.respuesta.length > 0) {
+        const fuentes = Array.isArray(j.fuentes)
+          ? j.fuentes.filter((x): x is string => typeof x === "string")
+          : [];
+        return { text: j.respuesta, fuentes };
+      }
+    } catch {
+      // Try the next candidate.
+    }
   }
+
+  return { text: stripped, fuentes: [] };
+}
+
+/**
+ * Extract every top-level balanced `{...}` substring from `s`. Ignores braces
+ * that appear inside string literals so a JSON value like `"a } b"` cannot
+ * close the object prematurely. Handles backslash-escaped quotes.
+ */
+function extractBalancedObjects(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        out.push(s.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+  return out;
 }
 
 function computeCost(model: AnthropicModel, usage: Anthropic.Message["usage"]): CostBreakdown {

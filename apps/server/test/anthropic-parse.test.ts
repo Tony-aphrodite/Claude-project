@@ -54,4 +54,40 @@ describe("parseStructuredAnswer", () => {
   it("handles empty input safely", () => {
     expect(parseStructuredAnswer("")).toEqual({ text: "", fuentes: [] });
   });
+
+  it("picks the LAST envelope when the model self-corrects mid-output", () => {
+    // Real artifact observed in production: model emits a first envelope,
+    // then says "Wait — retomo" and emits the corrected one. The final
+    // envelope is the model's true intent, so we keep that.
+    const raw =
+      '{"respuesta": "¡Hola! ¿En qué te puedo ayudar?", "fuentes": []}\n' +
+      "Wait — ya leí el mensaje del cliente. Retomo con la respuesta correcta:\n" +
+      "```json\n" +
+      '{"respuesta": "¡Hola! Qué buena elección el Open Water…", "fuentes": ["kb:ow"]}\n' +
+      "```";
+    const out = parseStructuredAnswer(raw);
+    expect(out.text).toBe("¡Hola! Qué buena elección el Open Water…");
+    expect(out.fuentes).toEqual(["kb:ow"]);
+  });
+
+  it("ignores braces inside string literals", () => {
+    const raw = JSON.stringify({
+      respuesta: "Te paso link } con llaves } adentro",
+      fuentes: [],
+    });
+    expect(parseStructuredAnswer(raw)).toEqual({
+      text: "Te paso link } con llaves } adentro",
+      fuentes: [],
+    });
+  });
+
+  it("falls back to last viable envelope even if a later one is malformed", () => {
+    const raw =
+      '{"respuesta": "good answer", "fuentes": []}\n' +
+      "And then garbage {not valid json:";
+    expect(parseStructuredAnswer(raw)).toEqual({
+      text: "good answer",
+      fuentes: [],
+    });
+  });
 });
