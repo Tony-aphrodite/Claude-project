@@ -107,7 +107,7 @@ export default async function KbDetailPage({
             name="content"
             rows={28}
             defaultValue={content}
-            className="w-full font-mono text-xs border border-ink-200 rounded p-3 bg-white"
+            className="w-full font-mono text-xs border border-ink-300/70 rounded p-3 bg-ink-100/70 text-ink-900 placeholder:text-ink-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30"
           />
           <div className="flex items-center justify-between">
             <div className="text-xs text-ink-500">
@@ -154,7 +154,7 @@ export default async function KbDetailPage({
             <li key={v.id}>
               <Link
                 href={`/kb/${v.id}`}
-                className={`flex items-center justify-between rounded-md px-2 py-1 hover:bg-ink-50 ${
+                className={`flex items-center justify-between rounded-md px-2 py-1 hover:bg-ink-200/50 ${
                   v.id === row.id ? "bg-brand-50" : ""
                 }`}
               >

@@ -50,7 +50,7 @@ export default async function NewKbPage({
           name="content"
           rows={28}
           defaultValue={STARTER_TEMPLATE}
-          className="w-full font-mono text-xs border border-ink-200 rounded p-3 bg-white"
+          className="w-full font-mono text-xs border border-ink-300/70 rounded p-3 bg-ink-100/70 text-ink-900 placeholder:text-ink-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30"
         />
         <div className="flex justify-end">
           <button className="btn-primary">Crear v1 inactiva</button>

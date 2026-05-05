@@ -142,10 +142,11 @@ export function Sidebar() {
   ];
 
   return (
-    <aside className="hidden md:flex w-60 shrink-0 flex-col bg-ocean-gradient text-white">
-      <div className="px-5 pt-6 pb-5 border-b border-white/10">
-        <Link href="/" className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 ring-1 ring-inset ring-white/20">
+    <aside className="hidden md:flex w-60 shrink-0 flex-col bg-abyss-rail border-r border-ink-200/70 text-ink-700">
+      {/* Brand block — diver mark with bioluminescent ring */}
+      <div className="px-5 pt-6 pb-5 border-b border-ink-200/70">
+        <Link href="/" className="flex items-center gap-2.5 group">
+          <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-brand-400/30 bg-brand-400/10 text-brand-300 shadow-glow-soft transition-all group-hover:shadow-glow">
             <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
               <path
                 d="M4 14c2.5-2 5.5-2 8 0s5.5 2 8 0M4 18c2.5-2 5.5-2 8 0s5.5 2 8 0"
@@ -156,17 +157,19 @@ export function Sidebar() {
               <circle cx="12" cy="7" r="3" stroke="currentColor" strokeWidth="1.8" />
             </svg>
           </div>
-          <div>
-            <div className="text-sm font-semibold leading-tight">DPM Diving</div>
-            <div className="text-[11px] text-white/60 leading-tight">Claude integration</div>
+          <div className="leading-tight">
+            <div className="text-sm font-semibold text-ink-900">DPM Diving</div>
+            <div className="text-[10px] uppercase tracking-[0.14em] text-ink-500">
+              Command Center
+            </div>
           </div>
         </Link>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+      <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-6 scrollbar-thin">
         {groups.map((g) => (
           <div key={g.id} className="space-y-1">
-            <div className="px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
+            <div className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-500">
               {g.label}
             </div>
             {NAV.filter((n) => n.group === g.id).map((n) => {
@@ -176,23 +179,23 @@ export function Sidebar() {
                   key={n.href}
                   href={n.href}
                   className={[
-                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all",
+                    "relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-all",
                     active
-                      ? "bg-white/15 text-white shadow-inner"
-                      : "text-white/75 hover:bg-white/8 hover:text-white",
+                      ? "bg-brand-400/10 text-ink-900 shadow-[inset_0_0_0_1px_rgba(34,211,238,0.20)]"
+                      : "text-ink-700 hover:bg-ink-200/50 hover:text-ink-900",
                   ].join(" ")}
                 >
-                  <span
-                    className={
-                      active ? "text-brand-200" : "text-white/60"
-                    }
-                  >
+                  {/* Active rail — vertical neon bar on the left edge */}
+                  {active && (
+                    <span
+                      className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-brand-400 shadow-[0_0_8px_0_rgba(34,211,238,0.7)]"
+                      aria-hidden
+                    />
+                  )}
+                  <span className={active ? "text-brand-300" : "text-ink-500"}>
                     {n.icon}
                   </span>
                   {n.label}
-                  {active && (
-                    <span className="ml-auto h-1.5 w-1.5 rounded-full bg-brand-300" />
-                  )}
                 </Link>
               );
             })}
@@ -200,10 +203,15 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-white/10 px-5 py-4">
-        <div className="flex items-center gap-2 text-[11px] text-white/60">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulseSoft" />
-          piloto: Gili Trawangan
+      {/* Status pill — pulsing emerald dot for the live pilot */}
+      <div className="border-t border-ink-200/70 px-5 py-4">
+        <div className="flex items-center gap-2 text-[11px]">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inset-0 rounded-full bg-ok-500 animate-pulseSoft" />
+            <span className="absolute inset-0 rounded-full bg-ok-500 blur-[3px] opacity-80" />
+          </span>
+          <span className="text-ink-600">piloto · </span>
+          <span className="text-ink-800 font-medium">Gili Trawangan</span>
         </div>
       </div>
     </aside>

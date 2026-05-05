@@ -105,7 +105,7 @@ export default async function PipelinePage({
                     />
                     {meta.label}
                   </h2>
-                  <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-ink-700 ring-1 ring-inset ring-ink-200">
+                  <span className="rounded-full bg-ink-100/80 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-ink-800 ring-1 ring-inset ring-ink-300/70">
                     {cards.length}
                   </span>
                 </div>
@@ -116,7 +116,7 @@ export default async function PipelinePage({
 
               <div className="space-y-2 flex-1 max-h-[60vh] overflow-y-auto pr-1 scrollbar-thin">
                 {cards.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-ink-300/70 bg-white/50 py-6 text-center text-[11px] text-ink-400">
+                  <div className="rounded-xl border border-dashed border-ink-300/70 bg-ink-100/40 py-6 text-center text-[11px] text-ink-500">
                     vacío
                   </div>
                 ) : (

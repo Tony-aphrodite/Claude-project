@@ -77,14 +77,14 @@ export default async function RegressionRunDetail({
               <div className="mt-3 space-y-2 text-sm">
                 <div>
                   <div className="metric-label">Respuesta generada</div>
-                  <div className="bg-white border border-ink-200 rounded p-2 whitespace-pre-wrap">
+                  <div className="bg-ink-100/70 border border-ink-200/70 rounded p-2 whitespace-pre-wrap">
                     {String(cc.generated_response ?? "")}
                   </div>
                 </div>
                 {!detPassed && (
                   <div>
                     <div className="metric-label">Failures determinísticas</div>
-                    <pre className="bg-white border border-ink-200 rounded p-2 text-xs overflow-x-auto">
+                    <pre className="bg-ink-100/70 border border-ink-200/70 rounded p-2 text-xs overflow-x-auto">
                       {JSON.stringify(cc.deterministic_failures, null, 2)}
                     </pre>
                   </div>
@@ -92,7 +92,7 @@ export default async function RegressionRunDetail({
                 {judge && (
                   <div>
                     <div className="metric-label">Judge</div>
-                    <pre className="bg-white border border-ink-200 rounded p-2 text-xs overflow-x-auto">
+                    <pre className="bg-ink-100/70 border border-ink-200/70 rounded p-2 text-xs overflow-x-auto">
                       {JSON.stringify(judge, null, 2)}
                     </pre>
                   </div>

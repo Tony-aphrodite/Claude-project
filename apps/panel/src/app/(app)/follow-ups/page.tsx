@@ -79,7 +79,7 @@ export default async function FollowUpsPage({
               className={
                 active
                   ? "rounded-lg bg-brand-600 px-3 py-1.5 text-white shadow-card"
-                  : "rounded-lg bg-white px-3 py-1.5 text-ink-700 ring-1 ring-inset ring-ink-200 hover:bg-ink-50"
+                  : "rounded-lg bg-ink-100/70 px-3 py-1.5 text-ink-700 ring-1 ring-inset ring-ink-300/70 hover:bg-ink-200/60 hover:text-ink-900"
               }
             >
               {t.label}
@@ -91,7 +91,7 @@ export default async function FollowUpsPage({
           className={
             !params.status
               ? "rounded-lg bg-brand-600 px-3 py-1.5 text-white shadow-card"
-              : "rounded-lg bg-white px-3 py-1.5 text-ink-700 ring-1 ring-inset ring-ink-200 hover:bg-ink-50"
+              : "rounded-lg bg-ink-100/70 px-3 py-1.5 text-ink-700 ring-1 ring-inset ring-ink-300/70 hover:bg-ink-200/60 hover:text-ink-900"
           }
         >
           Todos

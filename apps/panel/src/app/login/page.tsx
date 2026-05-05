@@ -7,8 +7,8 @@ export default async function LoginPage({
 }) {
   const params = await searchParams;
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-ocean-gradient">
-      <div className="absolute inset-0 bg-[radial-gradient(800px_400px_at_30%_20%,rgba(255,255,255,0.08),transparent)]" />
+    <div className="relative min-h-screen flex items-center justify-center px-4 bg-abyss-hero overflow-hidden">
+      <div className="absolute inset-0 bg-caustic animate-caustic pointer-events-none" />
       <form
         action={signInWithEmail}
         className="relative w-full max-w-sm space-y-5 rounded-2xl border border-white/10 bg-white/5 p-7 backdrop-blur-md shadow-card-elev"

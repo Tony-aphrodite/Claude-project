@@ -19,13 +19,14 @@ export function PageHeader({
     <header className="flex flex-wrap items-end justify-between gap-4 pb-4 border-b border-ink-200/60">
       <div className="space-y-1">
         {eyebrow && (
-          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-brand-600">
+          <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-brand-300">
+            <span className="h-1.5 w-1.5 rounded-full bg-brand-400 shadow-[0_0_8px_0_rgba(34,211,238,0.7)]" />
             {eyebrow}
           </div>
         )}
         <h1 className="h-page">{title}</h1>
         {description && (
-          <p className="max-w-2xl text-sm text-ink-500 leading-relaxed">
+          <p className="max-w-2xl text-sm text-ink-600 leading-relaxed">
             {description}
           </p>
         )}

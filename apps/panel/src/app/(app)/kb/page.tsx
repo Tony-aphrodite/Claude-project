@@ -80,7 +80,7 @@ export default async function KbListPage({
                       <li key={v.id}>
                         <Link
                           href={`/kb/${v.id}`}
-                          className="flex items-center justify-between rounded-md px-2 py-1 hover:bg-ink-50"
+                          className="flex items-center justify-between rounded-md px-2 py-1 hover:bg-ink-200/50"
                         >
                           <span className="font-mono tabular-nums">v{v.version}</span>
                           <span className="text-ink-500">
