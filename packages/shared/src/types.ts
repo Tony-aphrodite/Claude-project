@@ -175,37 +175,100 @@ export type FourBlockPrompt = {
 };
 
 // ── Tool use ────────────────────────────────────────────────────────────────
+//
+// consultar_disponibilidad — operates on Miguel's program-aware schedule.
+// The AI passes a program + start_date and the server expands which
+// (date, slot) pairs need actual boat capacity, then queries the Apps
+// Script and applies time-of-day bookability rules per `Lógica horaria`.
+//
+// Programs without a defined boat schedule (e.g. RescueDiver, DMT) fall
+// back to `reason: "program_not_scheduled"` so the AI can route to a
+// human instead of fabricating availability.
+
+export const AVAILABILITY_PROGRAMS = [
+  "TryScuba",
+  "ScubaDiver", // 1-day cert, NOT the same as TryScuba
+  "OW", // Open Water — 3 days
+  "AOW", // Advanced Open Water — 2 days
+  "Refresh", // Refresh + 2 fun dives — same day
+  "RefreshAdv", // Refresh + Advanced combo
+  "FunDive", // single fun dive — client picks AM or PM
+  "DeepAdvFD", // Deep Adventure + Fun Dive
+] as const;
+export type AvailabilityProgram = (typeof AVAILABILITY_PROGRAMS)[number];
+
+export const SLOT_KEYS = ["AM", "PM"] as const;
+export type SlotKey = (typeof SLOT_KEYS)[number];
+
 export const consultarDisponibilidadInputSchema = z.object({
   sede_id: z.string().uuid(),
-  curso: z.enum([
-    "TryScuba",
-    "OW", // Open Water
-    "AOW", // Advanced Open Water
-    "RescueDiver",
-    "DMT", // Divemaster Trainee
-    "FunDive",
-    "NightDive",
-    "Otro",
-  ]),
-  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "ISO date YYYY-MM-DD"),
-  horario: z.enum(["AM", "PM", "Night"]).optional(),
+  programa: z.enum(AVAILABILITY_PROGRAMS),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "ISO date YYYY-MM-DD"),
+  // Only meaningful for FunDive / DeepAdvFD where the client picks AM or PM.
+  // Ignored for fixed-schedule programs.
+  fundive_slot: z.enum(SLOT_KEYS).optional(),
 });
 
 export type ConsultarDisponibilidadInput = z.infer<typeof consultarDisponibilidadInputSchema>;
 
+/** Per-slot verdict the server returns to the AI for each required slot. */
+export type SlotVerdict = {
+  date: string; // YYYY-MM-DD
+  slot: SlotKey;
+  available: boolean;
+  espacios: number; // remaining seats
+  /** Why a slot is NOT available — only set when available=false. */
+  reason?: "full" | "past_today" | "missing_data";
+};
+
 export type ConsultarDisponibilidadResult =
   | {
       ok: true;
-      available: boolean;
-      slotsRemaining: number | null;
-      instructorName: string | null;
-      notes: string | null;
+      programa: AvailabilityProgram;
+      startDate: string;
+      horaActualWita: string; // server's source of truth for "today's cutoffs"
+      available: boolean; // true iff every required slot is available
+      slots: SlotVerdict[];
+      /** Suggested earlier/later start_date when current is blocked. */
+      alternativeStartDate?: string;
+      /** Free-form note for the model to surface (e.g. "AM ya zarpó"). */
+      notes?: string;
     }
   | {
       ok: false;
-      reason: "timeout" | "not_configured" | "upstream_error";
+      reason:
+        | "timeout"
+        | "not_configured"
+        | "upstream_error"
+        | "program_not_scheduled";
       message: string;
     };
+
+// ── Apps Script availability response (Miguel's schema, 2026-05-06) ─────────
+
+export type AvailabilitySlot = {
+  disponible: boolean;
+  espacios: number;
+  capacidad: number;
+};
+
+export type AvailabilityDay = {
+  fecha: string; // YYYY-MM-DD
+  disponible: boolean;
+  turno_manana: AvailabilitySlot;
+  turno_tarde: AvailabilitySlot;
+  turno_nocturno: AvailabilitySlot;
+};
+
+export type AvailabilityResponse = {
+  /** "HH:mm" 24h in WITA — fresh per request, used for time-cutoff logic. */
+  hora_actual_wita: string;
+  fecha_consultada: string;
+  disponible: boolean;
+  primer_dia_disponible: string;
+  resumen: string;
+  detalle: AvailabilityDay[];
+};
 
 // enviar_catalogo — invoked when the AI decides to send the customer a
 // native WhatsApp Business product card for a specific program. The visual
@@ -363,23 +426,9 @@ export type LeadMetadata = {
   }>;
 };
 
-// ── Roster (Apps Script response shape) ─────────────────────────────────────
-export type RosterDay = {
-  date: string; // YYYY-MM-DD in sede TZ
-  weekday: string;
-  courses: Array<{
-    code: string;
-    am: { capacity: number; booked: number } | null;
-    pm: { capacity: number; booked: number } | null;
-    night: { capacity: number; booked: number } | null;
-  }>;
-};
-
-export type RosterSnapshot = {
-  sedeId: string;
-  generatedAt: string; // ISO
-  days: RosterDay[];
-};
+// Roster types removed 2026-05-06 — Miguel's actual Apps Script returns a
+// per-slot (AM/PM/Night) shape rather than per-course. The new shape is
+// `AvailabilityResponse` defined above. Use that.
 
 // ── Outbound message to Respond.io ─────────────────────────────────────────
 export type OutboundTextMessage = {

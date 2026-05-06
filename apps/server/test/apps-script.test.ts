@@ -72,7 +72,24 @@ function makeSede(rosterUrl?: string): Sede {
   } as unknown as Sede;
 }
 
-describe("AppsScriptService.getRoster", () => {
+const SAMPLE: import("@dpm/shared").AvailabilityResponse = {
+  hora_actual_wita: "10:30",
+  fecha_consultada: "2026-05-14",
+  disponible: true,
+  primer_dia_disponible: "2026-05-14",
+  resumen: "Disponibilidad confirmada",
+  detalle: [
+    {
+      fecha: "2026-05-14",
+      disponible: true,
+      turno_manana: { disponible: true, espacios: 20, capacidad: 20 },
+      turno_tarde: { disponible: true, espacios: 18, capacidad: 20 },
+      turno_nocturno: { disponible: true, espacios: 20, capacidad: 20 },
+    },
+  ],
+};
+
+describe("AppsScriptService.fetchAvailability", () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
@@ -87,14 +104,14 @@ describe("AppsScriptService.getRoster", () => {
 
   it("returns null when sede has no rosterConfig.url", async () => {
     const svc = new AppsScriptService();
-    const result = await svc.getRoster(makeSede());
+    const result = await svc.fetchAvailability(makeSede(), {
+      date: "2026-05-14",
+      days: 1,
+    });
     expect(result).toBe(null);
   });
 
   it("returns null and does not throw when fetch aborts past the deadline", async () => {
-    // fetch resolves only after 200ms; AbortController fires at 50ms (mocked
-    // env). The service must observe AbortError and return null, never
-    // bubble it out to the caller.
     global.fetch = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
       return new Promise((_resolve, reject) => {
         const signal = init.signal as AbortSignal;
@@ -103,21 +120,22 @@ describe("AppsScriptService.getRoster", () => {
           (err as Error & { name: string }).name = "AbortError";
           reject(err);
         });
-        // Never resolves on its own — only aborts via signal.
       });
     }) as typeof fetch;
 
     const svc = new AppsScriptService();
-    const promise = svc.getRoster(makeSede("https://script.google.com/exec"));
+    const promise = svc.fetchAvailability(
+      makeSede("https://script.google.com/exec"),
+      { date: "2026-05-14", days: 1 },
+    );
 
-    // Advance timers past the timeout to fire the abort.
     await vi.advanceTimersByTimeAsync(60);
     const result = await promise;
     expect(result).toBe(null);
     expect(global.fetch).toHaveBeenCalledOnce();
   });
 
-  it("returns null on non-2xx response (does not parse body)", async () => {
+  it("returns null on non-2xx response", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
@@ -126,40 +144,63 @@ describe("AppsScriptService.getRoster", () => {
     } as unknown as Response) as typeof fetch;
 
     const svc = new AppsScriptService();
-    const result = await svc.getRoster(makeSede("https://script.google.com/exec"));
+    const result = await svc.fetchAvailability(
+      makeSede("https://script.google.com/exec"),
+      { date: "2026-05-14", days: 1 },
+    );
     expect(result).toBe(null);
   });
 
-  it("returns null when the response body is malformed (no days array)", async () => {
+  it("returns null when the response body is malformed (missing detalle)", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ generatedAt: "2026-05-04T00:00:00Z" }), // missing days
+      json: async () => ({ hora_actual_wita: "10:00", fecha_consultada: "2026-05-14" }),
     } as unknown as Response) as typeof fetch;
 
     const svc = new AppsScriptService();
-    const result = await svc.getRoster(makeSede("https://script.google.com/exec"));
+    const result = await svc.fetchAvailability(
+      makeSede("https://script.google.com/exec"),
+      { date: "2026-05-14", days: 1 },
+    );
     expect(result).toBe(null);
   });
 
-  it("returns the snapshot on a well-formed 200", async () => {
-    const days = [
-      {
-        date: "2026-05-12",
-        weekday: "lun",
-        courses: [{ code: "OW", am: { capacity: 6, booked: 4 }, pm: null, night: null }],
-      },
-    ];
+  it("returns the parsed AvailabilityResponse on a well-formed 200", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ generatedAt: "2026-05-04T00:00:00Z", days }),
+      json: async () => SAMPLE,
     } as unknown as Response) as typeof fetch;
 
     const svc = new AppsScriptService();
-    const result = await svc.getRoster(makeSede("https://script.google.com/exec"));
+    const result = await svc.fetchAvailability(
+      makeSede("https://script.google.com/exec"),
+      { date: "2026-05-14", days: 1 },
+    );
     expect(result).not.toBe(null);
-    expect(result!.days).toEqual(days);
-    expect(result!.sedeId).toBe("sede-1");
+    expect(result!.hora_actual_wita).toBe("10:30");
+    expect(result!.detalle).toHaveLength(1);
+    expect(result!.detalle[0]!.turno_manana.espacios).toBe(20);
+  });
+
+  it("appends ?date=…&days=… to the URL", async () => {
+    let captured = "";
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      captured = url;
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => SAMPLE,
+      } as unknown as Response);
+    }) as typeof fetch;
+
+    const svc = new AppsScriptService();
+    await svc.fetchAvailability(makeSede("https://script.google.com/exec"), {
+      date: "2026-05-14",
+      days: 3,
+    });
+    expect(captured).toContain("?date=2026-05-14");
+    expect(captured).toContain("&days=3");
   });
 });

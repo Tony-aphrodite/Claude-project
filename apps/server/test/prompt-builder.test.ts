@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Mensaje, Sede } from "@dpm/db";
-import type { RosterSnapshot } from "@dpm/shared";
+import type { AvailabilityResponse } from "@dpm/shared";
 
 import {
   buildFourBlockPrompt,
@@ -29,21 +29,19 @@ const SEDE: Sede = {
   updatedAt: new Date("2026-04-29T00:00:00Z"),
 };
 
-const ROSTER: RosterSnapshot = {
-  sedeId: SEDE.id,
-  generatedAt: "2026-04-29T00:00:00Z",
-  days: [
+const ROSTER: AvailabilityResponse = {
+  hora_actual_wita: "08:00",
+  fecha_consultada: "2026-04-30",
+  disponible: true,
+  primer_dia_disponible: "2026-04-30",
+  resumen: "Disponibilidad confirmada",
+  detalle: [
     {
-      date: "2026-04-30",
-      weekday: "Thursday",
-      courses: [
-        {
-          code: "OW",
-          am: { capacity: 6, booked: 4 },
-          pm: null,
-          night: null,
-        },
-      ],
+      fecha: "2026-04-30",
+      disponible: true,
+      turno_manana: { disponible: true, espacios: 2, capacidad: 6 },
+      turno_tarde: { disponible: true, espacios: 5, capacidad: 6 },
+      turno_nocturno: { disponible: true, espacios: 6, capacidad: 6 },
     },
   ],
 };
@@ -100,7 +98,9 @@ describe("formatDynamicBlock", () => {
     expect(text).toContain("Gili Trawangan");
     expect(text).toContain("Asia/Makassar");
     expect(text).toContain("IDR");
-    expect(text).toContain("OW: AM 4/6");
+    expect(text).toContain("hora_actual_wita: 08:00");
+    expect(text).toContain("2026-04-30: AM 2/6");
+    expect(text).toContain("PM 5/6");
     expect(text).toContain("¿Tenés plaza el 30?");
     expect(text).toContain("español");
   });

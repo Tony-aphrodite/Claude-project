@@ -33,6 +33,7 @@ import type {
   EnviarCatalogoResult,
   LeadMetadata,
   RespondIoIncomingMessage,
+  SlotVerdict,
   SolicitarDepositoInput,
   SolicitarDepositoResult,
 } from "@dpm/shared";
@@ -43,12 +44,18 @@ import { errores, getDb } from "@dpm/db";
 import { loadEnv } from "../env.js";
 import { callClaude } from "../services/anthropic.js";
 import { appsScriptService } from "../services/apps-script.js";
+import { bookableSlots } from "../services/bookable-slots.js";
 import {
   describeMissingCatalog,
   getCatalogEntry,
 } from "../services/catalog-registry.js";
 import { chatContactsService } from "../services/chat-contacts.js";
 import { conversationService } from "../services/conversation.js";
+import {
+  addDays,
+  getRequiredSlots,
+  maxDayOffset,
+} from "../services/program-schedule.js";
 import {
   buildPaymentInstructions,
   sedeHasAutomaticGateway,
@@ -221,10 +228,16 @@ export async function processIncomingMessage(
     promptsService.loadSedeKb(sede),
   ]);
 
-  // Step 6 (preview): roster fetch is conditional but we eagerly start it in
-  // parallel with prompt build because it's bounded at 2s and Bloque 4 needs
-  // it. If it fails, we just embed a "no roster" note.
-  const rosterPromise = appsScriptService.getRoster(sede);
+  // Step 6 (preview): availability fetch — we eagerly start a 7-day window
+  // starting today so Bloque 4 can show the AI a snapshot for context. The
+  // tool handler will refetch with a narrower window when the AI commits to
+  // a specific start_date. Cache TTL is 30s so this prefetch is essentially
+  // free for the tool call that follows seconds later.
+  const todayWita = wITAYmd();
+  const rosterPromise = appsScriptService.fetchAvailability(sede, {
+    date: todayWita,
+    days: 7,
+  });
 
   // Step 6: dynamic block + 5: 4-block prompt
   const detectedLanguage = detectLanguage(incomingText) ?? contact.language ?? undefined;
@@ -253,67 +266,88 @@ export async function processIncomingMessage(
         "tool_use sede_id mismatch — overriding",
       );
     }
+
+    // Resolve which (date, slot) pairs need boat capacity for this program.
+    const required = getRequiredSlots(input.programa, input.fundive_slot);
+    if (!required) {
+      return {
+        ok: false,
+        reason: "program_not_scheduled",
+        message: `${input.programa} no tiene un patrón de barco definido — derivar a humano para confirmar disponibilidad.`,
+      };
+    }
+
+    // Fetch a window covering the highest dayOffset.
+    const windowDays = maxDayOffset(required) + 1;
+    const fresh = await appsScriptService.fetchAvailability(sede, {
+      date: input.start_date,
+      days: windowDays,
+    });
+    if (!fresh) {
+      return {
+        ok: false,
+        reason: "timeout",
+        message: "El sistema de disponibilidad no respondió en el plazo permitido. Verificá con el equipo manualmente.",
+      };
+    }
+
+    const detalleByDate = new Map(fresh.detalle.map((d) => [d.fecha, d]));
+    // The Apps Script's "today" is whatever date matches its WITA clock —
+    // we infer it from fecha_consultada which is the first day in the
+    // requested window. If hora_actual_wita is on the same date, that's
+    // today; if start_date is in the future, no time-cutoff needed.
+    const todayWitaStr = wITAYmd();
+
+    const slots: SlotVerdict[] = [];
+    let allAvailable = true;
+
+    for (const req of required) {
+      const date = addDays(input.start_date, req.dayOffset);
+      const dayDetail = detalleByDate.get(date);
+      if (!dayDetail) {
+        slots.push({ date, slot: req.slot, available: false, espacios: 0, reason: "missing_data" });
+        allAvailable = false;
+        continue;
+      }
+      const slotData =
+        req.slot === "AM" ? dayDetail.turno_manana : dayDetail.turno_tarde;
+      const espacios = slotData.espacios ?? 0;
+
+      const bookable = bookableSlots(fresh.hora_actual_wita, todayWitaStr, date);
+      if (!bookable.has(req.slot)) {
+        slots.push({ date, slot: req.slot, available: false, espacios, reason: "past_today" });
+        allAvailable = false;
+        continue;
+      }
+      if (!slotData.disponible || espacios <= 0) {
+        slots.push({ date, slot: req.slot, available: false, espacios, reason: "full" });
+        allAvailable = false;
+        continue;
+      }
+      slots.push({ date, slot: req.slot, available: true, espacios });
+    }
+
+    // Move pipeline forward — the AI is actively proposing dates.
     void leadStageService
       .transition({
         conversacionId: conversation.id,
         to: "proposed",
         by: "ai",
-        note: `consultar_disponibilidad ${input.curso} ${input.fecha}`,
+        note: `consultar_disponibilidad ${input.programa} ${input.start_date}`,
       })
       .catch(() => {});
 
-    const fresh = await appsScriptService.getRoster(sede);
-    if (!fresh) {
-      return {
-        ok: false,
-        reason: "timeout",
-        message: "Apps Script no respondió en el plazo permitido",
-      };
-    }
-    const day = fresh.days.find((d) => d.date === input.fecha) ?? null;
-    if (!day) {
-      return {
-        ok: true,
-        available: false,
-        slotsRemaining: 0,
-        instructorName: null,
-        notes: `No hay datos para ${input.fecha} en el roster cargado`,
-      };
-    }
-    const course = day.courses.find((c) => c.code === input.curso) ?? null;
-    if (!course) {
-      return {
-        ok: true,
-        available: false,
-        slotsRemaining: 0,
-        instructorName: null,
-        notes: `No hay franjas de ${input.curso} ese día`,
-      };
-    }
-    const slot =
-      input.horario === "AM"
-        ? course.am
-        : input.horario === "PM"
-          ? course.pm
-          : input.horario === "Night"
-            ? course.night
-            : (course.am ?? course.pm ?? course.night);
-    if (!slot) {
-      return {
-        ok: true,
-        available: false,
-        slotsRemaining: 0,
-        instructorName: null,
-        notes: `No hay franja ${input.horario ?? "ninguna"} ese día`,
-      };
-    }
-    const remaining = Math.max(slot.capacity - slot.booked, 0);
     return {
       ok: true,
-      available: remaining > 0,
-      slotsRemaining: remaining,
-      instructorName: null,
-      notes: null,
+      programa: input.programa,
+      startDate: input.start_date,
+      horaActualWita: fresh.hora_actual_wita,
+      available: allAvailable,
+      slots,
+      ...(fresh.primer_dia_disponible &&
+      fresh.primer_dia_disponible !== input.start_date
+        ? { alternativeStartDate: fresh.primer_dia_disponible }
+        : {}),
     };
   };
 
@@ -521,4 +555,19 @@ export async function processIncomingMessage(
     cacheHitRate: claudeResult.cost.cacheHitRate,
     costUsd: claudeResult.cost.totalUsd,
   };
+}
+
+/**
+ * Today's date as YYYY-MM-DD in Asia/Makassar (WITA, UTC+8). The Apps
+ * Script reports `hora_actual_wita` in this zone, so the time-cutoff logic
+ * needs the matching calendar date for the same wall clock.
+ */
+function wITAYmd(): string {
+  // Use Intl in en-CA which produces YYYY-MM-DD.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Makassar",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }

@@ -1,0 +1,72 @@
+// ============================================================================
+// Time-of-day bookability for Gili Trawangan boat slots. Owner spec
+// (Miguel, 2026-05-06, "Lógica horaria"):
+//
+//   Antes de 07:15 WITA   → AM y PM mismo día
+//   07:15 — 12:30 WITA    → AM ya zarpó → solo PM hoy
+//   12:30 — 17:00 WITA    → PM en curso → solo mañana
+//   Después de 17:00 WITA → todo cerrado hoy → solo mañana
+//
+// `hora_actual_wita` is the source of truth (always fresh from the Apps
+// Script — never cached). Future days (date != today) are unaffected: any
+// slot is technically reservable in advance.
+//
+// Returning a *Set* of slot keys instead of booleans keeps the calling
+// site readable: `bookable.has("AM")` reads correctly for both today's
+// cutoffs and future-day full availability.
+// ============================================================================
+
+import type { SlotKey } from "@dpm/shared";
+
+/**
+ * Parse "HH:mm" in 24h to a minute-of-day count. Returns null on malformed
+ * input so the caller can be defensive (`null` is treated as "we don't
+ * know — be conservative").
+ */
+function parseHHMM(hhmm: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+}
+
+const AM_CUTOFF = 7 * 60 + 15; // 07:15 — AM boat departs
+const PM_CUTOFF = 12 * 60 + 30; // 12:30 — PM boat departs
+const DAY_END = 17 * 60; // 17:00 — nothing more bookable today
+
+/**
+ * Decide which slot keys are still bookable on `dateStr` given the current
+ * `horaActualWita`. Future days return both AM and PM. Today's set narrows
+ * by the cutoffs above. Past dates return an empty set.
+ *
+ * `todayStr` is the date in WITA that corresponds to `horaActualWita` —
+ * the caller normally derives it from the Apps Script's
+ * `fecha_consultada` or computes it from the server's TZ-aware clock.
+ */
+export function bookableSlots(
+  horaActualWita: string,
+  todayStr: string,
+  dateStr: string,
+): Set<SlotKey> {
+  // Past day in WITA → nothing.
+  if (dateStr < todayStr) return new Set();
+  // Future day → no time-of-day constraint.
+  if (dateStr > todayStr) return new Set(["AM", "PM"]);
+
+  // Same day — apply cutoffs.
+  const minutes = parseHHMM(horaActualWita);
+  if (minutes === null) {
+    // Malformed time string — be conservative: treat as already too late
+    // for AM (the most common cutoff to miss) but still allow PM until we
+    // can confirm. The AI prompt will surface a "no pude verificar la
+    // hora" note in that case.
+    return new Set(["PM"]);
+  }
+  if (minutes >= DAY_END) return new Set();
+  if (minutes >= PM_CUTOFF) return new Set();
+  if (minutes >= AM_CUTOFF) return new Set(["PM"]);
+  return new Set(["AM", "PM"]);
+}

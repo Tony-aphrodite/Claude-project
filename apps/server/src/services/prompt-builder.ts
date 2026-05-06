@@ -21,14 +21,14 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
 import type { Mensaje, Sede } from "@dpm/db";
-import type { RosterSnapshot } from "@dpm/shared";
+import type { AvailabilityResponse } from "@dpm/shared";
 
 export type BuildPromptInput = {
   systemPrompt: string; // Bloque 1 content (system prompt + playbook + few-shots)
   sedeKb: string; // Bloque 2 content (sede knowledge base)
   history: Mensaje[]; // Bloque 3 source (sliding window)
   sede: Sede;
-  roster: RosterSnapshot | null;
+  roster: AvailabilityResponse | null;
   incomingMessage: string;
   detectedLanguage?: string | undefined;
 };
@@ -134,7 +134,7 @@ export function formatHistoryForPrompt(history: Mensaje[]): string {
  */
 export function formatDynamicBlock(input: {
   sede: Sede;
-  roster: RosterSnapshot | null;
+  roster: AvailabilityResponse | null;
   incomingMessage: string;
   detectedLanguage?: string | undefined;
 }): string {
@@ -216,20 +216,19 @@ REGLAS PARA "fuentes":
   reformulá la respuesta para no afirmar ese dato.`;
 }
 
-function formatRoster(roster: RosterSnapshot): string {
-  if (roster.days.length === 0) return "(roster vacío)";
-  return roster.days
+function formatRoster(roster: AvailabilityResponse): string {
+  if (!Array.isArray(roster.detalle) || roster.detalle.length === 0) {
+    return "(roster vacío)";
+  }
+  const header = `hora_actual_wita: ${roster.hora_actual_wita} · primer_dia_disponible: ${roster.primer_dia_disponible}`;
+  const days = roster.detalle
     .map((d) => {
-      const courseLines = d.courses
-        .map((c) => {
-          const slots: string[] = [];
-          if (c.am) slots.push(`AM ${c.am.booked}/${c.am.capacity}`);
-          if (c.pm) slots.push(`PM ${c.pm.booked}/${c.pm.capacity}`);
-          if (c.night) slots.push(`Night ${c.night.booked}/${c.night.capacity}`);
-          return `  ${c.code}: ${slots.join(" | ") || "sin franjas"}`;
-        })
-        .join("\n");
-      return `${d.date} (${d.weekday}):\n${courseLines}`;
+      const am = d.turno_manana;
+      const pm = d.turno_tarde;
+      return `  ${d.fecha}: AM ${am.espacios}/${am.capacidad}${
+        am.disponible ? "" : " (cerrado)"
+      } | PM ${pm.espacios}/${pm.capacidad}${pm.disponible ? "" : " (cerrado)"}`;
     })
-    .join("\n\n");
+    .join("\n");
+  return `${header}\n${days}`;
 }
