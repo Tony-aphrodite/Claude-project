@@ -3,6 +3,9 @@
 # Touched 2026-05-04 to invalidate Railway's "Watch Paths" cache after the
 # packages/db and packages/shared package.json fixes (main → dist/index.js)
 # that were not picked up by repeated CLI uploads.
+# Touched again 2026-05-06: Railway kept reusing a stale build layer for the
+# packages/shared TypeScript output even on SUCCESS deploys, so the
+# nullish-coalescing fix on the webhook schema wasn't actually live.
 
 # ── Stage 1: install deps for the whole workspace ────────────────────────────
 FROM node:20-alpine AS deps
