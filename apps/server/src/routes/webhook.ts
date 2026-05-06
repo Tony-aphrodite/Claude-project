@@ -60,8 +60,13 @@ export async function webhookRoutes(app: FastifyInstance) {
     }
 
     // We only act on text-message events. Other events (typing, read, etc.)
-    // are acknowledged but ignored.
+    // are acknowledged but ignored. Respond.io's "Send Test" ping omits the
+    // event field entirely — return 200 so the dashboard can activate the
+    // webhook.
     const event = parsed.data.event;
+    if (!event) {
+      return reply.send({ ok: true, ignored: "missing_event" });
+    }
     if (!isMessageEvent(event)) {
       return reply.send({ ok: true, ignored: event });
     }

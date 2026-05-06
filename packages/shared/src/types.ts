@@ -26,7 +26,12 @@ const customFieldsBag = z.record(z.unknown());
 const sentByTypeSchema = z.enum(["agent", "bot", "contact", "user", "system"]);
 
 export const respondIoIncomingMessageSchema = z.object({
-  event: z.string(),
+  // Respond.io's "Send Test" UI fires a sample payload that omits `event`,
+  // and we want that test to return 200 so the operator can activate the
+  // webhook from the dashboard. The route layer treats a missing event as
+  // `ignored: "missing_event"` and returns 200 — real production events
+  // always carry the field.
+  event: z.string().optional(),
   channelId: z.string().optional(),
   // "incoming" — client→DPM. "outgoing" — DPM→client (agent or bot reply).
   // Older payloads omit this; we treat absence as "incoming" to preserve the
