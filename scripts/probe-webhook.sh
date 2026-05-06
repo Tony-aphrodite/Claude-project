@@ -13,7 +13,7 @@
 # Reads from the project's .env (RESPOND_IO_WEBHOOK_SECRET). Override with
 # WEBHOOK_SECRET=... on the command line.
 # ============================================================================
-
+ 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
