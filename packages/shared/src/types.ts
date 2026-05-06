@@ -2,6 +2,10 @@
 // Cross-cutting domain types. The DB schema (packages/db) is the source of
 // truth for persisted entities; types here cover the request/response shapes
 // flowing between Respond.io, the server, Anthropic, and the panel.
+//
+// Build-cache marker (2026-05-06): Railway's Docker layer cache kept reusing
+// stale compilations even after content edits to this file. Bumping this
+// banner whenever the schema changes meaningfully forces a fresh build.
 // ============================================================================
 
 import { z } from "zod";

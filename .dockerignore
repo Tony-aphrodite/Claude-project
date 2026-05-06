@@ -1,0 +1,27 @@
+# Files to exclude from any Docker build context for this repo.
+
+# Node + pnpm artifacts
+node_modules
+.pnpm-store
+
+# TypeScript build state — must NEVER end up in the image, otherwise tsc
+# inside the container reuses a previous host-side incremental decision and
+# skips actually compiling the new source. Caused at least one Railway
+# "SUCCESS deploy that ran old code" incident on 2026-05-06.
+**/*.tsbuildinfo
+**/tsconfig.tsbuildinfo
+
+# Build outputs (Docker rebuilds these)
+**/dist
+**/.next
+
+# Local secrets and tooling
+.env
+.env.local
+.git
+.github
+
+# Editor / OS noise
+.vscode
+.idea
+.DS_Store
