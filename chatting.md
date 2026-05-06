@@ -206,3 +206,53 @@ there you have the access to all catalogs in respond.io
 - No requiere cambio de código inmediato — la integración del lado
   servidor ya está lista y solo necesita los `productSetId` reales
   de cada catálogo cuando Miguel los confirme por sede.
+
+---
+
+## 9. Miguel — Apps Script `days` parameter fix + URL por sede — 2026-05-06
+
+> Respuesta a la observación de Steve sobre que el Apps Script
+> ignoraba el parámetro `days` y devolvía siempre un solo día en
+> `detalle`. Miguel parchó el `doGet` y confirmó que ahora respeta
+> el rango pedido. Además aclara la arquitectura multi-sede: cada
+> centro tiene su propio Apps Script.
+
+Apps Script bug fixed ✅
+I just patched the doGet function — the days parameter now works
+correctly. URL stays the same, no change needed on your side.
+
+Verified with 3-day query:
+GET …/exec?date=2026-05-08&days=3
+Returns the 3 days as expected:
+
+  2026-05-08
+  2026-05-09
+  2026-05-10
+
+Each with their full turno_manana, turno_tarde, turno_nocturno data.
+Numbers match the live Sheets.
+
+Your server-side workaround should keep working — and now your code
+path that detects "if N days come back in one call, don't make N
+requests" should kick in automatically.
+Let me know once you've verified.
+
+This is only for Gili Trawangan; each location has a different one.
+
+**Verificación / acciones tomadas (2026-05-06):**
+
+- Confirmé con `curl …?date=2026-05-08&days=3` → `detalle.length === 3`
+  con las 3 fechas pedidas (2026-05-08, 2026-05-09, 2026-05-10) y
+  los 3 turnos completos en cada día. `hora_actual_wita` sigue
+  llegando fresco (00:11 al momento de la verificación).
+- El `fetchFresh` de `apps-script.ts` ya tenía la guardia
+  `if (missing.length === 0) return first` — con la respuesta
+  completa el set `have` cubre todas las fechas y NO se disparan
+  llamadas extra. La fan-out queda como red de seguridad, sin
+  costo en el camino feliz.
+- **Arquitectura multi-sede confirmada**: cada sede tiene su propio
+  Apps Script URL. El schema ya lo soporta vía `sedes.roster_config.url`
+  (JSONB), así que cuando Miguel decida activar otra sede solo hay
+  que correr un UPDATE sobre esa fila — no hay cambio de código.
+  El piloto sigue siendo solo Gili Trawangan; los otros 4 URLs
+  se piden cuando el alcance se extienda.

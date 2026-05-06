@@ -18,6 +18,20 @@ https://script.google.com/macros/s/AKfycbzmSetuWdCOEIIbO8T7YS6ZP9kHCO9YI0ZT-QfF_
 - Verificada contra 3 fechas distintas con Sheets reales — los números
   coinciden. Live data, real-time.
 
+> **Multi-sede**: cada sede tiene su propio Apps Script URL. Miguel
+> entrega los URLs uno a uno cuando se activa cada centro. Hoy solo
+> está Gili Trawangan; los otros 4 (Koh Tao, Koh Phi Phi, Gili Air,
+> Nusa Penida) se cargan en `sedes.roster_config.url` cuando llegue
+> el momento — sin cambio de código.
+
+> **Patch del `days` (2026-05-06)**: la primera deploy del Apps Script
+> ignoraba el parámetro `days` y siempre devolvía un único día en
+> `detalle`. Miguel parchó el `doGet` el mismo día y verificamos que
+> ahora respeta el rango. Nuestro `apps-script.ts` mantiene la
+> fan-out per-day como red de seguridad: si en algún momento la
+> respuesta vuelve a ser parcial, el servidor llena los días faltantes
+> en paralelo y la AI sigue funcionando.
+
 ### Sample response
 
 ```json
