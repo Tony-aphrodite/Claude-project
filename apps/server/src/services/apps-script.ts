@@ -16,6 +16,13 @@
 // Script, but anything older than 30 s is refetched. Setting the cache
 // row uses the SAME (date, days) tuple as cache key so different windows
 // don't collide.
+//
+// Multi-day fan-out (workaround for current Apps Script behavior, 2026-05-06):
+// Miguel's deployed Apps Script ignores the `days` parameter and always
+// returns a single day in `detalle`. We compensate by issuing one call per
+// missing date in parallel and merging. When Miguel ships the fix that
+// returns the full window in one call, the first response will already
+// cover all dates and the per-day fan-out becomes a no-op.
 // ============================================================================
 
 import { and, desc, eq, gt, sql } from "drizzle-orm";
@@ -25,6 +32,7 @@ import type { AvailabilityResponse } from "@dpm/shared";
 
 import { loadEnv } from "../env.js";
 import { getLogger } from "../logger.js";
+import { addDays } from "./program-schedule.js";
 
 const FRESHNESS_MS = 30_000; // 30 seconds — short enough that hora_actual_wita stays accurate.
 
@@ -99,12 +107,61 @@ export class AppsScriptService {
     const url = (sede.rosterConfig as { url?: string } | null)?.url;
     if (!url) return null;
 
+    // Always start with a single call for the requested window. If Miguel's
+    // Apps Script returns the full window we're done; otherwise we fan out.
+    const first = await this.fetchOne(sede, url, opts.date, opts.days);
+    if (!first) return null;
+
+    if (opts.days <= 1) return first;
+
+    const have = new Set(first.detalle.map((d) => d.fecha));
+    const missing: string[] = [];
+    for (let i = 0; i < opts.days; i++) {
+      const d = addDays(opts.date, i);
+      if (!have.has(d)) missing.push(d);
+    }
+    if (missing.length === 0) return first;
+
+    // Fan out one call per missing date. Each call still asks days=1 — the
+    // Apps Script returns just that day. We then merge into a single response.
+    const log = getLogger();
+    log.info(
+      { sede: sede.nombre, requested: opts.days, returned: first.detalle.length, missing: missing.length },
+      "apps_script returned partial window — filling in per-day",
+    );
+
+    const extras = await Promise.all(missing.map((d) => this.fetchOne(sede, url, d, 1)));
+    const merged = [...first.detalle];
+    for (const r of extras) {
+      if (r && Array.isArray(r.detalle)) merged.push(...r.detalle);
+    }
+    merged.sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+    const firstAvailable = merged.find((d) => d.disponible);
+    return {
+      ...first,
+      detalle: merged,
+      disponible: merged.some((d) => d.disponible),
+      primer_dia_disponible: firstAvailable?.fecha ?? first.primer_dia_disponible,
+    };
+  }
+
+  /**
+   * One Apps Script call. Returns the parsed body or null on any failure
+   * (timeout / non-2xx / malformed). Owns its own AbortController so
+   * concurrent fan-out calls each get their own deadline.
+   */
+  private async fetchOne(
+    sede: Sede,
+    url: string,
+    date: string,
+    days: number,
+  ): Promise<AvailabilityResponse | null> {
     const env = loadEnv();
     const log = getLogger();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), env.APPS_SCRIPT_TIMEOUT_MS);
-
-    const fullUrl = `${url}?date=${encodeURIComponent(opts.date)}&days=${opts.days}`;
+    const fullUrl = `${url}?date=${encodeURIComponent(date)}&days=${days}`;
 
     try {
       const res = await fetch(fullUrl, {
@@ -114,7 +171,7 @@ export class AppsScriptService {
       });
       if (!res.ok) {
         log.warn(
-          { sede: sede.nombre, status: res.status, date: opts.date, days: opts.days },
+          { sede: sede.nombre, status: res.status, date, days },
           "apps_script returned non-2xx",
         );
         return null;
@@ -128,7 +185,7 @@ export class AppsScriptService {
         !Array.isArray(json.detalle)
       ) {
         log.warn(
-          { sede: sede.nombre, date: opts.date },
+          { sede: sede.nombre, date },
           "apps_script returned malformed availability",
         );
         return null;
@@ -137,7 +194,7 @@ export class AppsScriptService {
     } catch (err) {
       const aborted = (err as { name?: string }).name === "AbortError";
       log.warn(
-        { sede: sede.nombre, aborted, err: aborted ? "timeout" : err, date: opts.date },
+        { sede: sede.nombre, aborted, err: aborted ? "timeout" : err, date },
         "apps_script fetch failed",
       );
       return null;

@@ -184,10 +184,10 @@ describe("AppsScriptService.fetchAvailability", () => {
     expect(result!.detalle[0]!.turno_manana.espacios).toBe(20);
   });
 
-  it("appends ?date=…&days=… to the URL", async () => {
-    let captured = "";
+  it("appends ?date=…&days=… to the URL on the first call", async () => {
+    const calls: string[] = [];
     global.fetch = vi.fn().mockImplementation((url: string) => {
-      captured = url;
+      calls.push(url);
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -200,7 +200,104 @@ describe("AppsScriptService.fetchAvailability", () => {
       date: "2026-05-14",
       days: 3,
     });
-    expect(captured).toContain("?date=2026-05-14");
-    expect(captured).toContain("&days=3");
+    // First call must request the full window — verifies forward
+    // compatibility for when Miguel's Apps Script honors `days` natively.
+    expect(calls[0]).toContain("?date=2026-05-14");
+    expect(calls[0]).toContain("&days=3");
+  });
+
+  it("fans out per-day when Apps Script returns a single-day window", async () => {
+    // Reproduces Miguel's current Apps Script behavior: ignores `days` and
+    // always returns one day. Our service must compensate by issuing extra
+    // per-day calls and merging them into a multi-day detalle.
+    const calls: string[] = [];
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      calls.push(url);
+      const m = /date=([0-9-]{10})/.exec(url);
+      const date = m![1]!;
+      const body: import("@dpm/shared").AvailabilityResponse = {
+        hora_actual_wita: "10:00",
+        fecha_consultada: date,
+        disponible: true,
+        primer_dia_disponible: date,
+        resumen: "ok",
+        detalle: [
+          {
+            fecha: date,
+            disponible: true,
+            turno_manana: { disponible: true, espacios: 5, capacidad: 10 },
+            turno_tarde: { disponible: true, espacios: 8, capacidad: 10 },
+            turno_nocturno: { disponible: true, espacios: 10, capacidad: 10 },
+          },
+        ],
+      };
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => body,
+      } as unknown as Response);
+    }) as typeof fetch;
+
+    const svc = new AppsScriptService();
+    const result = await svc.fetchAvailability(
+      makeSede("https://script.google.com/exec"),
+      { date: "2026-05-14", days: 3 },
+    );
+
+    expect(result).not.toBe(null);
+    expect(result!.detalle).toHaveLength(3);
+    expect(result!.detalle.map((d) => d.fecha)).toEqual([
+      "2026-05-14",
+      "2026-05-15",
+      "2026-05-16",
+    ]);
+    // 1 initial call + 2 fan-out calls (since first returned only day 0).
+    expect(calls).toHaveLength(3);
+  });
+
+  it("does not fan out when the first response already covers the window", async () => {
+    // Simulates Miguel's eventual fix: a single call returns the full window.
+    // Our merge logic must short-circuit and never issue extra calls.
+    let count = 0;
+    global.fetch = vi.fn().mockImplementation((_url: string) => {
+      count++;
+      const body: import("@dpm/shared").AvailabilityResponse = {
+        hora_actual_wita: "10:00",
+        fecha_consultada: "2026-05-14",
+        disponible: true,
+        primer_dia_disponible: "2026-05-14",
+        resumen: "ok",
+        detalle: [
+          {
+            fecha: "2026-05-14",
+            disponible: true,
+            turno_manana: { disponible: true, espacios: 1, capacidad: 1 },
+            turno_tarde: { disponible: true, espacios: 1, capacidad: 1 },
+            turno_nocturno: { disponible: true, espacios: 1, capacidad: 1 },
+          },
+          {
+            fecha: "2026-05-15",
+            disponible: true,
+            turno_manana: { disponible: true, espacios: 1, capacidad: 1 },
+            turno_tarde: { disponible: true, espacios: 1, capacidad: 1 },
+            turno_nocturno: { disponible: true, espacios: 1, capacidad: 1 },
+          },
+        ],
+      };
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => body,
+      } as unknown as Response);
+    }) as typeof fetch;
+
+    const svc = new AppsScriptService();
+    const result = await svc.fetchAvailability(
+      makeSede("https://script.google.com/exec"),
+      { date: "2026-05-14", days: 2 },
+    );
+
+    expect(result!.detalle).toHaveLength(2);
+    expect(count).toBe(1);
   });
 });

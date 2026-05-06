@@ -181,3 +181,28 @@ business logic in the VBA modules, those are the trickiest part.
 
 Thanks,
 Miguel
+
+---
+
+## 8. Miguel — acceso a catálogos WhatsApp en Respond.io — 2026-05-06
+
+> Mensaje breve de Miguel apuntando a la consola de Respond.io donde
+> se administran los catálogos de WhatsApp Business que ya están
+> dados de alta para DPM Diving.
+
+https://app.respond.io/space/216239/settings/channels/274637/whatsapp-catalog
+
+there you have the access to all catalogs in respond.io
+
+**Contexto / acción tomada:**
+
+- El AI ya tiene la herramienta `enviar_catalogo` implementada con
+  fallback a texto cuando el catálogo no está configurado para la
+  sede. Este link permite a Steve (y al panel) inspeccionar qué
+  catálogos / product sets existen y mapearlos por sede en
+  `sede_catalog_config` cuando llegue el momento de activarlos.
+- Workspace ID: `216239` · Channel ID: `274637`. Guardado como
+  referencia en memoria para no tener que hurgar la URL otra vez.
+- No requiere cambio de código inmediato — la integración del lado
+  servidor ya está lista y solo necesita los `productSetId` reales
+  de cada catálogo cuando Miguel los confirme por sede.
