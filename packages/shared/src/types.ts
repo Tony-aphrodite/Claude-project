@@ -40,22 +40,30 @@ export const respondIoIncomingMessageSchema = z.object({
   contact: z
     .object({
       id: z.union([z.string(), z.number()]).transform(String),
-      phone: z.string().optional(),
-      name: z.string().optional(),
-      language: z.string().optional(),
-      tags: z.array(z.string()).default([]),
-      // Respond.io variants we have seen across event payloads. Order of
-      // preference inside the resolver is: customFields → fields → custom_fields.
-      customFields: customFieldsBag.optional(),
-      fields: customFieldsBag.optional(),
-      custom_fields: customFieldsBag.optional(),
+      // Respond.io serializes empty optional fields as `null`, not omitted —
+      // accept null/undefined and treat both as absent. Apply to every
+      // optional string field on the contact + message envelopes.
+      phone: z.string().nullish().transform((v) => v ?? undefined),
+      name: z.string().nullish().transform((v) => v ?? undefined),
+      language: z.string().nullish().transform((v) => v ?? undefined),
+      tags: z.array(z.string()).nullish().transform((v) => v ?? []),
+      customFields: customFieldsBag.nullish().transform((v) => v ?? undefined),
+      fields: customFieldsBag.nullish().transform((v) => v ?? undefined),
+      custom_fields: customFieldsBag.nullish().transform((v) => v ?? undefined),
     })
     .passthrough(),
   message: z.object({
-    messageId: z.union([z.string(), z.number()]).transform(String).optional(),
-    type: z.string().default("text"),
-    text: z.string().optional(),
-    timestamp: z.union([z.string(), z.number()]).optional(),
+    messageId: z
+      .union([z.string(), z.number()])
+      .transform(String)
+      .nullish()
+      .transform((v) => v ?? undefined),
+    type: z.string().nullish().transform((v) => v ?? "text"),
+    text: z.string().nullish().transform((v) => v ?? undefined),
+    timestamp: z
+      .union([z.string(), z.number()])
+      .nullish()
+      .transform((v) => v ?? undefined),
     // For outgoing messages, identifies who sent the reply. We accept several
     // shapes Respond.io has been observed to use.
     direction: z.enum(["incoming", "outgoing"]).optional(),
