@@ -207,6 +207,53 @@ export type ConsultarDisponibilidadResult =
       message: string;
     };
 
+// enviar_catalogo — invoked when the AI decides to send the customer a
+// native WhatsApp Business product card for a specific program. The visual
+// card is loaded from Respond.io's catalog (Meta-approved) and dramatically
+// boosts conversion vs plain text. Use BEFORE giving a long text answer
+// about a program; the prompt instructs the model to follow the card with a
+// short contextual line ("éste es el indicado para tu caso, te paso el
+// detalle 👆"), not to repeat the same data the card already contains.
+//
+// programa is the canonical product key the server resolves to a sede-
+// specific Respond.io content/template ID via catalog-registry. If the
+// registry has no mapping for (sede, programa), the handler returns
+// reason="not_configured" and the AI degrades gracefully to text.
+export const CATALOG_PROGRAMS = [
+  "TryScuba",
+  "OW", // Open Water
+  "OW30", // Open Water 30 (3-day intensive)
+  "AOW", // Advanced Open Water
+  "Refresh",
+  "FunDive",
+  "RescueDiver",
+  "DMT", // Divemaster Trainee
+] as const;
+export type CatalogProgram = (typeof CATALOG_PROGRAMS)[number];
+
+export const enviarCatalogoInputSchema = z.object({
+  sede_id: z.string().uuid(),
+  programa: z.enum(CATALOG_PROGRAMS),
+});
+
+export type EnviarCatalogoInput = z.infer<typeof enviarCatalogoInputSchema>;
+
+export type EnviarCatalogoResult =
+  | {
+      ok: true;
+      sent: true;
+      programa: CatalogProgram;
+      // Identifier the registry mapped to (returned for audit so the panel
+      // can show which catalog entry was sent).
+      catalogRef: string;
+    }
+  | {
+      ok: false;
+      reason: "not_configured" | "send_failed" | "sede_unknown";
+      message: string;
+      programa?: CatalogProgram;
+    };
+
 // solicitar_deposito — invoked when the AI detects clear booking intent. The
 // server generates a unique reference code (or reuses the conversation's
 // existing one), marks the conversation as deposit_pending, and returns

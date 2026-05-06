@@ -33,6 +33,11 @@ import {
   type ConsultarDisponibilidadHandler,
 } from "../tools/consultar-disponibilidad.js";
 import {
+  enviarCatalogoTool,
+  parseEnviarCatalogoInput,
+  type EnviarCatalogoHandler,
+} from "../tools/enviar-catalogo.js";
+import {
   parseSolicitarDepositoInput,
   solicitarDepositoTool,
   type SolicitarDepositoHandler,
@@ -54,6 +59,7 @@ function getClient(): Anthropic {
 export type ToolHandlers = {
   consultar_disponibilidad: ConsultarDisponibilidadHandler;
   solicitar_deposito: SolicitarDepositoHandler;
+  enviar_catalogo: EnviarCatalogoHandler;
 };
 
 export type CallClaudeInput = {
@@ -92,9 +98,11 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
   // Mutable copy — we may push tool_use / tool_result turns and re-call.
   let messages: Anthropic.MessageParam[] = [...input.messages];
 
-  // We allow at most one tool_use round-trip per request to keep latency
-  // bounded. The system prompt instructs Claude to call the tool at most once.
-  const MAX_TOOL_ROUNDS = 1;
+  // We allow up to two tool_use round-trips per request. Two is enough for
+  // common combos (e.g. enviar_catalogo + solicitar_deposito on the same
+  // turn) without unbounded latency. The system prompt still encourages
+  // at most one functional tool per turn.
+  const MAX_TOOL_ROUNDS = 2;
 
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
     let response: Anthropic.Message;
@@ -103,7 +111,11 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         model,
         max_tokens: maxTokens,
         system: input.system,
-        tools: [consultarDisponibilidadTool, solicitarDepositoTool],
+        tools: [
+          consultarDisponibilidadTool,
+          solicitarDepositoTool,
+          enviarCatalogoTool,
+        ],
         messages,
       });
     } catch (err) {
@@ -253,6 +265,33 @@ async function dispatchTool(
         type: "tool_result",
         tool_use_id: tu.id,
         content: `Error solicitando depósito: ${(err as Error).message}`,
+        is_error: true,
+      };
+    }
+  }
+
+  if (tu.name === "enviar_catalogo") {
+    const parsed = parseEnviarCatalogoInput(tu.input);
+    if (!parsed.ok) {
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: parsed.message,
+        is_error: true,
+      };
+    }
+    try {
+      const result = await handlers.enviar_catalogo(parsed.value);
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: JSON.stringify(result),
+      };
+    } catch (err) {
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: `Error enviando catalog: ${(err as Error).message}`,
         is_error: true,
       };
     }

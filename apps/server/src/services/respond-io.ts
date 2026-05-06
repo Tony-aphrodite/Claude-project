@@ -30,6 +30,22 @@ export type SendMessageInput = {
   contactId?: string | undefined;
 };
 
+export type SendCatalogInput = {
+  conversationId: string;
+  contactId?: string | undefined;
+  /** Payload object built by catalog-registry; forwarded as the message body. */
+  payload:
+    | { type: "fragment"; fragmentId: string }
+    | { type: "product"; product_retailer_id: string; catalog_id?: string }
+    | {
+        type: "template";
+        name: string;
+        language: string;
+        components?: unknown[];
+      }
+    | { type: "raw"; payload: Record<string, unknown> };
+};
+
 export type SendTemplateInput = {
   conversationId: string;
   templateName: string;
@@ -161,6 +177,131 @@ export class RespondIoClient {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Send a native WhatsApp Business product card / template / fragment from
+   * the operator's Respond.io catalog. Shape is decided per-payload because
+   * Respond.io accepts several flavors:
+   *   • product       → interactive product card from Meta Commerce catalog
+   *   • template      → Meta-approved WhatsApp Business template
+   *   • fragment      → Respond.io "Fragmento" (snippet) with rich content
+   *   • raw           → escape hatch — forwarded verbatim under `message`
+   *
+   * Same conversation-vs-contact fallback as sendMessage.
+   */
+  async sendCatalogMessage(input: SendCatalogInput): Promise<void> {
+    const env = loadEnv();
+    const log = getLogger();
+
+    const useContactFallback =
+      isUnresolvedTemplate(input.conversationId) && !!input.contactId;
+
+    const url = useContactFallback
+      ? `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId!)}/message`
+      : `${env.RESPOND_IO_API_BASE_URL}/conversation/${encodeURIComponent(
+          input.conversationId,
+        )}/message`;
+
+    const messageBody = buildCatalogMessageBody(input.payload);
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+
+    try {
+      const res = await undiciFetch(url, {
+        method: "POST",
+        dispatcher: keepAliveAgent,
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+        },
+        body: JSON.stringify(messageBody),
+      });
+
+      if (!res.ok) {
+        const bodyText = await res.text().catch(() => "");
+        log.warn(
+          {
+            status: res.status,
+            body: bodyText.slice(0, 500),
+            payloadType: input.payload.type,
+            via: useContactFallback ? "contact" : "conversation",
+          },
+          "respond_io send_catalog non-2xx",
+        );
+        throw new UpstreamError(
+          "respond_io",
+          `Respond.io catalog send returned ${res.status}`,
+          {
+            status: res.status,
+            payloadType: input.payload.type,
+            conversationId: input.conversationId,
+            contactId: input.contactId ?? null,
+          },
+        );
+      }
+      log.info(
+        {
+          payloadType: input.payload.type,
+          via: useContactFallback ? "contact" : "conversation",
+        },
+        "respond_io send_catalog ok",
+      );
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        throw new UpstreamError("respond_io", "Catalog send timed out", {
+          timeoutMs: TIMEOUTS.RESPOND_IO_MS,
+        });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/**
+ * Translate a registry catalog payload into the JSON body Respond.io's send
+ * endpoint expects. The body shape is intentionally close to Meta's
+ * WhatsApp Business message schema since Respond.io passes that through.
+ * Operators can override the wire shape by storing a `raw` payload — that
+ * one is forwarded verbatim.
+ */
+function buildCatalogMessageBody(
+  payload: SendCatalogInput["payload"],
+): Record<string, unknown> {
+  switch (payload.type) {
+    case "fragment":
+      return {
+        message: { type: "fragment", fragmentId: payload.fragmentId },
+      };
+    case "product":
+      return {
+        message: {
+          type: "interactive",
+          interactive: {
+            type: "product",
+            ...(payload.catalog_id ? { catalog_id: payload.catalog_id } : {}),
+            product_retailer_id: payload.product_retailer_id,
+          },
+        },
+      };
+    case "template":
+      return {
+        message: {
+          type: "template",
+          template: {
+            name: payload.name,
+            language: { code: payload.language },
+            ...(payload.components ? { components: payload.components } : {}),
+          },
+        },
+      };
+    case "raw":
+    default:
+      return { message: payload.payload };
   }
 }
 

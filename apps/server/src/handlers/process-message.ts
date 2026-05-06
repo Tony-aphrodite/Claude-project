@@ -29,6 +29,8 @@ import type {
   ConsultarDisponibilidadInput,
   ConsultarDisponibilidadResult,
   DepositCurrency,
+  EnviarCatalogoInput,
+  EnviarCatalogoResult,
   LeadMetadata,
   RespondIoIncomingMessage,
   SolicitarDepositoInput,
@@ -41,6 +43,10 @@ import { errores, getDb } from "@dpm/db";
 import { loadEnv } from "../env.js";
 import { callClaude } from "../services/anthropic.js";
 import { appsScriptService } from "../services/apps-script.js";
+import {
+  describeMissingCatalog,
+  getCatalogEntry,
+} from "../services/catalog-registry.js";
 import { chatContactsService } from "../services/chat-contacts.js";
 import { conversationService } from "../services/conversation.js";
 import {
@@ -392,12 +398,81 @@ export async function processIncomingMessage(
     };
   };
 
+  const enviarCatalogoHandler = async (
+    input: EnviarCatalogoInput,
+  ): Promise<EnviarCatalogoResult> => {
+    if (input.sede_id !== sede.id) {
+      log.warn(
+        { claimed: input.sede_id, actual: sede.id },
+        "enviar_catalogo sede_id mismatch — overriding to active sede",
+      );
+    }
+
+    const entry = getCatalogEntry(sede.nombre, input.programa);
+    if (!entry) {
+      const message = describeMissingCatalog(sede.nombre, input.programa);
+      log.info(
+        { sede: sede.nombre, programa: input.programa },
+        "enviar_catalogo: not configured — degrading to text",
+      );
+      return {
+        ok: false,
+        reason: "not_configured",
+        message,
+        programa: input.programa,
+      };
+    }
+
+    try {
+      await respondIoClient.sendCatalogMessage({
+        conversationId:
+          payload.conversation?.id ?? conversation.respondIoConversationId,
+        contactId: payload.contact.id,
+        payload: entry.payload,
+      });
+
+      // Mark the lead as proposed once the AI sends a specific program
+      // card — this is the same intent signal as consultar_disponibilidad.
+      void leadStageService
+        .transition({
+          conversacionId: conversation.id,
+          to: "proposed",
+          by: "ai",
+          note: `enviar_catalogo ${input.programa}`,
+        })
+        .catch(() => {});
+
+      return {
+        ok: true,
+        sent: true,
+        programa: input.programa,
+        catalogRef: entry.label,
+      };
+    } catch (err) {
+      log.warn(
+        {
+          err: (err as Error).message,
+          sede: sede.nombre,
+          programa: input.programa,
+        },
+        "enviar_catalogo: send failed — AI will degrade to text",
+      );
+      return {
+        ok: false,
+        reason: "send_failed",
+        message: (err as Error).message,
+        programa: input.programa,
+      };
+    }
+  };
+
   const claudeResult = await callClaude({
     system,
     messages,
     toolHandlers: {
       consultar_disponibilidad: consultarDisponibilidadHandler,
       solicitar_deposito: solicitarDepositoHandler,
+      enviar_catalogo: enviarCatalogoHandler,
     },
     conversacionId: conversation.id,
     sedeId: sede.id,
