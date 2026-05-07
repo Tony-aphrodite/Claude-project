@@ -416,6 +416,15 @@ export type LeadMetadata = {
   deposit_currency?: DepositCurrency;
   payment_instructions_snapshot?: string;
   requires_human_verification?: boolean;
+  /**
+   * Booking detail captured the last time the AI committed to a specific
+   * (program, start_date) via consultar_disponibilidad. Used by the panel
+   * deposit-confirmation handoff to fill [PROGRAMA] / [FECHA] in the spec
+   * message (INSTRUCCIONES_PAGO §7 mensaje-deposito-confirmado). Optional —
+   * the panel falls back to a shorter message when these are missing.
+   */
+  programa?: string;
+  start_date?: string;
   // Free-form audit trail of the last 10 transitions: { from, to, at, by }.
   history?: Array<{
     from: LeadStage;

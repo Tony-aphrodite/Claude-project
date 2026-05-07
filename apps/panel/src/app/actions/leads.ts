@@ -68,15 +68,10 @@ async function applyForceTransition(
   return { from, to };
 }
 
-const HANDOFF_TEXT_BY_LANG: Record<string, string> = {
-  es: "¡Pago recibido! Mi compañero/a del equipo te escribe en breve para coordinar los próximos pasos.",
-  en: "Payment received! A team member from the school will write to you shortly to coordinate the next steps.",
-};
-
-function pickHandoffText(language: string | null | undefined): string {
-  const lang = (language ?? "es").slice(0, 2).toLowerCase();
-  return HANDOFF_TEXT_BY_LANG[lang] ?? HANDOFF_TEXT_BY_LANG.es!;
-}
+// Handoff text now lives in ~/lib/handoff-text so it can be unit-tested
+// without spinning up vitest in the panel package. "use server" files only
+// export server actions, so the helper has to live elsewhere.
+import { buildHandoffText } from "~/lib/handoff-text";
 
 /**
  * Confirm that the deposit landed on Wise/Revolut/bank. The action:
@@ -114,7 +109,11 @@ export async function confirmDepositReceived(formData: FormData) {
 
   await applyForceTransition(conversacionId, "deposit_paid", "panel:confirm_deposit");
 
-  const text = pickHandoffText(row.contact?.language);
+  const meta = (row.conv.leadMetadata ?? null) as LeadMetadata | null;
+  const text = buildHandoffText(row.contact?.language, {
+    programa: meta?.programa ?? null,
+    fecha: meta?.start_date ?? null,
+  });
 
   // Best-effort outbound send.
   let sent = false;

@@ -333,12 +333,20 @@ export async function processIncomingMessage(
     }
 
     // Move pipeline forward — the AI is actively proposing dates.
+    // Stamp programa + start_date onto lead_metadata so when the operator
+    // later confirms the deposit, the panel handoff message can fill the
+    // [PROGRAMA] / [FECHA] placeholders from the latest proposal
+    // (INSTRUCCIONES_PAGO §7).
     void leadStageService
       .transition({
         conversacionId: conversation.id,
         to: "proposed",
         by: "ai",
         note: `consultar_disponibilidad ${input.programa} ${input.start_date}`,
+        metadataPatch: {
+          programa: input.programa,
+          start_date: input.start_date,
+        },
       })
       .catch(() => {});
 
