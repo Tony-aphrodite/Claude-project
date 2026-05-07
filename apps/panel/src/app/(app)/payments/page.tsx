@@ -13,6 +13,43 @@ const TONE_PILL: Record<"ok" | "warn" | "bad", string> = {
   bad: "bg-bad-50 text-bad-700 ring-bad-500/30",
 };
 
+// Compact OCR result chip surfacing the AI's pre-flight verdict on a
+// payment receipt. Helps the operator decide whether to click Confirm
+// without opening the conversation thread.
+function OcrChip({ result }: { result: NonNullable<LeadMetadata["ocr_result"]> }) {
+  if (!result.ok) {
+    const reasonLabel: Record<string, string> = {
+      screenshot_rejected: "Screenshot — pidió PDF",
+      fetch_failed: "No se pudo leer",
+      model_failed: "Modelo falló",
+      no_anthropic_key: "OCR no configurado",
+      missing_attachment_url: "Sin adjunto",
+    };
+    const label = reasonLabel[result.reason ?? ""] ?? result.reason ?? "OCR error";
+    return <span className="badge-warn" title={`OCR: ${label}`}>{label}</span>;
+  }
+  if (result.validated) {
+    const ext = result.extraction;
+    const tooltip = ext
+      ? `Monto: ${ext.amount} ${ext.currency} · Ref: ${ext.refCode} · Beneficiario: ${ext.beneficiary ?? "—"}`
+      : "AI verificó";
+    return <span className="badge-ok" title={tooltip}>AI ✓</span>;
+  }
+  // Mismatch case — show the failed field(s) succinctly.
+  const mismatchLabels: Record<string, string> = {
+    amount_mismatch: "monto",
+    amount_missing: "monto",
+    currency_mismatch: "moneda",
+    currency_missing: "moneda",
+    ref_code_mismatch: "ref",
+    ref_code_missing: "ref",
+  };
+  const summary = (result.mismatches ?? [])
+    .map((m) => mismatchLabels[m] ?? m)
+    .join(", ");
+  return <span className="badge-warn" title={`No coincide: ${summary || "varios campos"}`}>AI ⚠ {summary || "?"}</span>;
+}
+
 export default async function PaymentsPage() {
   const rows = await listDepositPending();
   const total = rows.length;
@@ -77,6 +114,7 @@ export default async function PaymentsPage() {
                 <th>Referencia</th>
                 <th>Monto</th>
                 <th>Esperando</th>
+                <th>OCR</th>
                 <th>Verificación</th>
                 <th className="pr-5"></th>
               </tr>
@@ -130,6 +168,9 @@ export default async function PaymentsPage() {
                       >
                         {formatElapsed(hours)}
                       </span>
+                    </td>
+                    <td className="text-xs whitespace-nowrap">
+                      {meta.ocr_result ? <OcrChip result={meta.ocr_result} /> : <span className="text-ink-400">—</span>}
                     </td>
                     <td className="text-xs">
                       {requiresHuman ? (

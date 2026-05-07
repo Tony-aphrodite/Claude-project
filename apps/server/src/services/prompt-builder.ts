@@ -239,7 +239,10 @@ function formatRoster(roster: AvailabilityResponse): string {
   if (!Array.isArray(roster.detalle) || roster.detalle.length === 0) {
     return "(roster vacío)";
   }
-  const header = `hora_actual_wita: ${roster.hora_actual_wita} · primer_dia_disponible: ${roster.primer_dia_disponible}`;
+  const horaPart = roster.hora_actual_wita
+    ? `hora_actual_wita: ${roster.hora_actual_wita}`
+    : "hora_actual_wita: no provista por la sede";
+  const header = `${horaPart} · primer_dia_disponible: ${roster.primer_dia_disponible}`;
   const days = roster.detalle
     .map((d) => {
       const am = d.turno_manana;

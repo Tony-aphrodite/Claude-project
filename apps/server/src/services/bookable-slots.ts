@@ -47,7 +47,7 @@ const DAY_END = 17 * 60; // 17:00 — nothing more bookable today
  * `fecha_consultada` or computes it from the server's TZ-aware clock.
  */
 export function bookableSlots(
-  horaActualWita: string,
+  horaActualWita: string | null | undefined,
   todayStr: string,
   dateStr: string,
 ): Set<SlotKey> {
@@ -57,6 +57,13 @@ export function bookableSlots(
   if (dateStr > todayStr) return new Set(["AM", "PM"]);
 
   // Same day — apply cutoffs.
+  if (horaActualWita == null) {
+    // Sede that doesn't return hora_actual_wita (Nusa Penida, Koh Tao,
+    // Koh Phi Phi as of 2026-05-06). Conservative fallback: only PM is
+    // bookable today since AM almost always departs before the operator
+    // can react. Better to miss a sale than oversell a boat that left.
+    return new Set(["PM"]);
+  }
   const minutes = parseHHMM(horaActualWita);
   if (minutes === null) {
     // Malformed time string — be conservative: treat as already too late

@@ -52,6 +52,8 @@ import {
 import { chatContactsService } from "../services/chat-contacts.js";
 import { conversationService } from "../services/conversation.js";
 import { detectCurrencyFromPhone } from "../services/currency-detection.js";
+import { runOcrOnAttachment, type OcrVerdict } from "../services/ocr-comprobante.js";
+import { pickFirstAttachment } from "../services/respond-io-attachment.js";
 import {
   addDays,
   getRequiredSlots,
@@ -185,36 +187,110 @@ export async function processIncomingMessage(
     sedeId: sede.id,
   });
 
-  // Non-text handling. Owner spec INSTRUCCIONES_PAGO §7
-  // (mensaje-comprobante-recibido) — when the client sends an image / PDF
-  // (typically a payment proof) while the lead is in deposit_pending, the AI
-  // must acknowledge so the customer doesn't go silent. We skip OCR
-  // validation for now; an operator confirms manually from the panel.
+  // Non-text handling. Owner spec INSTRUCCIONES_PAGO §5 + §7. When the
+  // client sends an image / PDF (typically a payment proof) while the
+  // lead is in deposit_pending we:
+  //   1. Run OCR (Anthropic Vision) to extract amount/currency/refCode.
+  //   2. Reject screenshots in foreign currencies up-front (§5 rule).
+  //   3. Persist verdict in lead_metadata.ocr_result for the panel.
+  //   4. Acknowledge the customer with the §7 wording.
+  // The operator still has the final word — a green AI verdict is a hint,
+  // not an auto-confirm.
   if (!incomingText) {
     if (conversation.leadStage === "deposit_pending") {
-      const ackText = pickComprobanteAck(contact.language ?? null);
+      const meta = (conversation.leadMetadata as LeadMetadata | null) ?? null;
+      const expected =
+        meta?.ref_code && meta.deposit_amount && meta.deposit_currency
+          ? {
+              refCode: meta.ref_code,
+              amount: meta.deposit_amount,
+              currency: meta.deposit_currency,
+            }
+          : null;
+
+      const attachment = pickFirstAttachment(payload.message);
+
+      let ocrVerdict: OcrVerdict | null = null;
+      if (attachment && expected) {
+        ocrVerdict = await runOcrOnAttachment({
+          attachmentUrl: attachment.url,
+          attachmentMime: attachment.mimeType,
+          expected,
+        });
+      }
+
+      // Pick the customer-facing message:
+      //   - If we know we'll reject the screenshot for a foreign currency,
+      //     send the §5 "ask for PDF" message instead of the generic ACK.
+      //   - Otherwise use the §7 mensaje-comprobante-recibido.
+      const language = contact.language ?? null;
+      const screenshotRejected =
+        ocrVerdict !== null && !ocrVerdict.ok && ocrVerdict.reason === "screenshot_rejected";
+      const replyText = screenshotRejected
+        ? pickScreenshotRejection(language)
+        : pickComprobanteAck(language);
+
       try {
         await respondIoClient.sendMessage({
           conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
           contactId: payload.contact.id,
-          text: ackText,
+          text: replyText,
         });
       } catch (err) {
-        log.error({ err }, "respond_io send failed during comprobante ack");
+        log.error({ err }, "respond_io send failed during comprobante reply");
       }
-      // Persist the AI message so the panel + history reflect what the
-      // customer saw. Mark synthetic so the regression suite can filter it.
+
       await getDb()
         .insert(mensajes)
         .values({
           conversacionId: conversation.id,
           sender: "ai",
-          content: ackText,
-          metadata: { synthetic: true, reason: "comprobante_received_ack" },
+          content: replyText,
+          metadata: {
+            synthetic: true,
+            reason: screenshotRejected
+              ? "comprobante_screenshot_rejected"
+              : "comprobante_received_ack",
+            ocr: ocrVerdict ?? undefined,
+          },
         })
         .catch((err) =>
-          log.warn({ err }, "failed to persist comprobante ack mensaje"),
+          log.warn({ err }, "failed to persist comprobante reply mensaje"),
         );
+
+      // Stamp the OCR verdict onto lead_metadata so the panel can show it.
+      // We DO NOT auto-transition to deposit_paid even on a green verdict —
+      // human confirmation is the spec. We just hand the operator a
+      // pre-flight result.
+      if (ocrVerdict) {
+        const ocrSummary = ocrVerdict.ok
+          ? {
+              at: new Date().toISOString(),
+              ok: true,
+              validated: ocrVerdict.validated,
+              mismatches: ocrVerdict.mismatches,
+              extraction: ocrVerdict.extraction,
+              attachmentMime: ocrVerdict.attachmentMime,
+            }
+          : {
+              at: new Date().toISOString(),
+              ok: false,
+              reason: ocrVerdict.reason,
+              attachmentMime: ocrVerdict.attachmentMime ?? null,
+            };
+        await leadStageService
+          .forceTransition({
+            conversacionId: conversation.id,
+            to: "deposit_pending", // no stage change; just patch metadata
+            by: "system",
+            note: `ocr_${ocrVerdict.ok ? (ocrVerdict.validated ? "validated" : "mismatched") : ocrVerdict.reason}`,
+            metadataPatch: { ocr_result: ocrSummary },
+          })
+          .catch((err) =>
+            log.warn({ err }, "ocr_result metadata patch failed"),
+          );
+      }
+
       return {
         ok: true,
         acknowledgedAttachment: true,
@@ -631,9 +707,8 @@ function wITAYmd(): string {
 /**
  * Owner spec INSTRUCCIONES_PAGO §7 mensaje-comprobante-recibido. Sent the
  * moment a non-text message lands while the lead is in deposit_pending —
- * typically the customer's bank receipt. The actual OCR validation is not
- * implemented yet (Pieza 1 v1 launches with manual operator verification),
- * so this is a polite "wait while we check" placeholder.
+ * typically the customer's bank receipt. OCR runs in parallel; the verdict
+ * lands in the panel for the operator to act on.
  */
 export function pickComprobanteAck(language: string | null): string {
   const lang = (language ?? "es").slice(0, 2).toLowerCase();
@@ -641,4 +716,17 @@ export function pickComprobanteAck(language: string | null): string {
     return "Got it, thanks 🙏 Let me confirm the transfer with the team and I'll get back to you in a few minutes.";
   }
   return "¡Recibido, gracias 🙏! Déjame confirmar la transferencia con el equipo y te aviso en unos minutos.";
+}
+
+/**
+ * Owner spec INSTRUCCIONES_PAGO §5 §screenshot-rechazo. Sent when the
+ * customer attaches an image (screenshot) but the deposit currency is
+ * EUR/GBP/AUD/USD — for foreign transfers the bank must produce a real PDF.
+ */
+export function pickScreenshotRejection(language: string | null): string {
+  const lang = (language ?? "es").slice(0, 2).toLowerCase();
+  if (lang === "en") {
+    return 'Thanks 🙏 Could you share the bank confirmation as a PDF instead of a screenshot? Most banks have a "Download" or "Export PDF" option in the transaction details. We need the PDF to validate the transfer properly.';
+  }
+  return 'Gracias 🙏 ¿Podés compartir la confirmación del banco en PDF en vez de captura? La mayoría de los bancos tienen una opción "Descargar" o "Exportar PDF" en los detalles de la transacción. Necesitamos el PDF para validar la transferencia correctamente.';
 }

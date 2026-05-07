@@ -255,6 +255,39 @@ describe("AppsScriptService.fetchAvailability", () => {
     expect(calls).toHaveLength(3);
   });
 
+  it("accepts responses without hora_actual_wita (multi-sede activation)", async () => {
+    // Nusa Penida, Koh Tao, Koh Phi Phi return hora_actual_wita = null.
+    // The validator must not reject these; downstream code degrades.
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        hora_actual_wita: null,
+        fecha_consultada: "2026-05-14",
+        disponible: true,
+        primer_dia_disponible: "2026-05-14",
+        resumen: "ok",
+        detalle: [
+          {
+            fecha: "2026-05-14",
+            disponible: true,
+            turno_manana: { disponible: true, espacios: 5, capacidad: 10 },
+            turno_tarde: { disponible: true, espacios: 8, capacidad: 10 },
+          },
+        ],
+      }),
+    } as unknown as Response) as typeof fetch;
+
+    const svc = new AppsScriptService();
+    const result = await svc.fetchAvailability(
+      makeSede("https://script.google.com/exec"),
+      { date: "2026-05-14", days: 1 },
+    );
+    expect(result).not.toBe(null);
+    expect(result!.detalle).toHaveLength(1);
+    expect(result!.hora_actual_wita).toBeUndefined();
+  });
+
   it("does not fan out when the first response already covers the window", async () => {
     // Simulates Miguel's eventual fix: a single call returns the full window.
     // Our merge logic must short-circuit and never issue extra calls.

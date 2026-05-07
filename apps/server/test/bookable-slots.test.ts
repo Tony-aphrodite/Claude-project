@@ -75,3 +75,25 @@ describe("bookableSlots — malformed time", () => {
     expect(set.has("PM")).toBe(true);
   });
 });
+
+describe("bookableSlots — sede without hora_actual_wita (multi-sede)", () => {
+  const TODAY = "2026-05-06";
+
+  it("returns PM-only when null (Nusa Penida / Koh Tao / Koh Phi Phi)", () => {
+    const set = bookableSlots(null, TODAY, TODAY);
+    expect(set.has("AM")).toBe(false);
+    expect(set.has("PM")).toBe(true);
+  });
+
+  it("returns PM-only when undefined", () => {
+    const set = bookableSlots(undefined, TODAY, TODAY);
+    expect(set.has("AM")).toBe(false);
+    expect(set.has("PM")).toBe(true);
+  });
+
+  it("future days still allow AM and PM even without hora_actual_wita", () => {
+    const set = bookableSlots(null, TODAY, "2026-05-10");
+    expect(set.has("AM")).toBe(true);
+    expect(set.has("PM")).toBe(true);
+  });
+});

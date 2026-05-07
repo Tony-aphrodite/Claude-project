@@ -180,7 +180,6 @@ export class AppsScriptService {
       if (
         typeof json !== "object" ||
         json === null ||
-        typeof json.hora_actual_wita !== "string" ||
         typeof json.fecha_consultada !== "string" ||
         !Array.isArray(json.detalle)
       ) {
@@ -189,6 +188,12 @@ export class AppsScriptService {
           "apps_script returned malformed availability",
         );
         return null;
+      }
+      // hora_actual_wita is optional — sedes outside WITA (Koh Tao,
+      // Koh Phi Phi) and Nusa Penida currently omit it. Coerce non-strings
+      // (null) to undefined so downstream type-narrowing works.
+      if (typeof json.hora_actual_wita !== "string") {
+        json.hora_actual_wita = undefined;
       }
       return json as AvailabilityResponse;
     } catch (err) {

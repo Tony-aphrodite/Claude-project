@@ -87,6 +87,21 @@ export const respondIoIncomingMessageSchema = z.object({
       })
       .passthrough()
       .optional(),
+    /**
+     * Attachments forwarded by Respond.io for image / document / voice
+     * messages. Shape varies by Meta channel + Respond.io version, so we
+     * accept several common forms via passthrough and normalize at use
+     * site (see services/respond-io-attachment.ts). The fields we look
+     * for are `url` (or `link`) and `mimeType` (or `mime_type` / `type`).
+     */
+    attachments: z
+      .array(z.object({}).passthrough())
+      .nullish()
+      .transform((v) => v ?? []),
+    // Some Respond.io payloads bubble a single attachment up to the
+    // message itself rather than nesting under `attachments`. We capture
+    // both spellings and the helper picks whichever is non-empty.
+    attachment: z.object({}).passthrough().nullish().transform((v) => v ?? undefined),
   }),
   conversation: z
     .object({
@@ -226,7 +241,14 @@ export type ConsultarDisponibilidadResult =
       ok: true;
       programa: AvailabilityProgram;
       startDate: string;
-      horaActualWita: string; // server's source of truth for "today's cutoffs"
+      /**
+       * Sede-local "now" used for today's cutoff decisions. Optional —
+       * sedes whose Apps Script does not return the field (Nusa Penida,
+       * Koh Tao, Koh Phi Phi as of 2026-05-06) leave this undefined and
+       * the bookable-slots logic falls back to a conservative "PM only"
+       * for same-day requests.
+       */
+      horaActualWita?: string;
       available: boolean; // true iff every required slot is available
       slots: SlotVerdict[];
       /** Suggested earlier/later start_date when current is blocked. */
@@ -257,12 +279,22 @@ export type AvailabilityDay = {
   disponible: boolean;
   turno_manana: AvailabilitySlot;
   turno_tarde: AvailabilitySlot;
-  turno_nocturno: AvailabilitySlot;
+  /**
+   * Some sedes don't operate night dives (Nusa Penida) — their Apps Script
+   * omits this field entirely. Treat as "no nocturno operation" rather than
+   * malformed.
+   */
+  turno_nocturno?: AvailabilitySlot;
 };
 
 export type AvailabilityResponse = {
-  /** "HH:mm" 24h in WITA — fresh per request, used for time-cutoff logic. */
-  hora_actual_wita: string;
+  /**
+   * "HH:mm" 24h in the sede's local time. Field is named `wita` for legacy
+   * reasons (the first sede live was Gili Trawangan in WITA). Other sedes
+   * may omit it or return a different timezone; consumers should treat
+   * absence as "no time-of-day cutoff data — be conservative".
+   */
+  hora_actual_wita?: string;
   fecha_consultada: string;
   disponible: boolean;
   primer_dia_disponible: string;
@@ -425,6 +457,26 @@ export type LeadMetadata = {
    */
   programa?: string;
   start_date?: string;
+  /**
+   * Latest OCR verdict from comprobante-comprobante.ts (INSTRUCCIONES_PAGO
+   * §5). Surfaces in the panel's payments page so the operator can see at a
+   * glance what the AI extracted before clicking Confirm.
+   */
+  ocr_result?: {
+    at: string; // ISO timestamp
+    ok: boolean;
+    validated?: boolean;
+    mismatches?: string[];
+    extraction?: {
+      amount: number | null;
+      currency: string | null;
+      beneficiary: string | null;
+      refCode: string | null;
+      date: string | null;
+    };
+    reason?: string;
+    attachmentMime?: string | null;
+  };
   // Free-form audit trail of the last 10 transitions: { from, to, at, by }.
   history?: Array<{
     from: LeadStage;
