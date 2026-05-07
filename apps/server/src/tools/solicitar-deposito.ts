@@ -84,21 +84,44 @@ export function parseSolicitarDepositoInput(raw: unknown): {
 }
 
 /**
- * Generate a 6-char alphanumeric reference code with a `DPM-` prefix.
- * Excludes ambiguous chars (0/O, 1/I/L) so a sede agent reading it off a
- * Wise transfer can match it without errors.
+ * Generate a reference code in the owner-specified format
+ * `DPM-GT-MMDD-XXXXXX` (DPM_AI_LAUNCH doc, 2026-05-07):
+ *   - `DPM-GT` identifies the brand + sede (Gili Trawangan)
+ *   - `MMDD` is the local-date month/day so an operator scanning Wise
+ *     transfers can quickly bucket by week
+ *   - `XXXXXX` is 6 random alphanumeric chars (ambiguous chars 0/O/1/I/L
+ *     excluded) so the customer can't mis-key it
+ *
+ * The MMDD prefix is computed in the sede's local timezone (Asia/Makassar
+ * for Gili Trawangan) so the bucket matches the operator's wall clock.
  */
-export function generateRefCode(): string {
+export function generateRefCode(now: Date = new Date()): string {
   const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-  let code = "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Makassar",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const month = parts.find((p) => p.type === "month")?.value ?? "00";
+  const day = parts.find((p) => p.type === "day")?.value ?? "00";
+  let suffix = "";
   for (let i = 0; i < 6; i++) {
     const idx = Math.floor(Math.random() * ALPHABET.length);
-    code += ALPHABET[idx];
+    suffix += ALPHABET[idx];
   }
-  return `DPM-${code}`;
+  return `DPM-GT-${month}${day}-${suffix}`;
 }
 
-/** Validate that an externally-stored ref_code still matches our shape. */
+/**
+ * Validate that an externally-stored ref_code still matches our shape.
+ * Accepts both the legacy `DPM-XXXXXX` (issued before 2026-05-07) and the
+ * current `DPM-GT-MMDD-XXXXXX` format so leads created with the old code
+ * keep working on the panel's confirm flow.
+ */
 export function isValidRefCode(code: string): boolean {
-  return /^DPM-[A-HJKMNPQRSTUVWXYZ23456789]{6}$/.test(code);
+  const ALPHA = "[A-HJKMNPQRSTUVWXYZ23456789]";
+  return (
+    new RegExp(`^DPM-GT-\\d{4}-${ALPHA}{6}$`).test(code) ||
+    new RegExp(`^DPM-${ALPHA}{6}$`).test(code)
+  );
 }

@@ -12,17 +12,24 @@ import {
   sedeHasAutomaticGateway,
 } from "../src/services/deposit-instructions.js";
 
-describe("generateRefCode", () => {
-  it("starts with DPM- and contains 6 alphanumerics", () => {
+describe("generateRefCode — DPM-GT-MMDD-XXXXXX format (DPM_AI_LAUNCH 2026-05-07)", () => {
+  it("emits DPM-GT-<mmdd>-<6 alpha>", () => {
     const code = generateRefCode();
-    expect(code).toMatch(/^DPM-[A-HJKMNPQRSTUVWXYZ23456789]{6}$/);
+    expect(code).toMatch(/^DPM-GT-\d{4}-[A-HJKMNPQRSTUVWXYZ23456789]{6}$/);
+  });
+
+  it("uses month/day from Asia/Makassar (sede timezone)", () => {
+    // Pick a UTC instant where Makassar (UTC+8) is on a different day.
+    // 2026-05-07 18:00 UTC === 2026-05-08 02:00 WITA → MMDD = 0508.
+    const code = generateRefCode(new Date("2026-05-07T18:00:00Z"));
+    expect(code.startsWith("DPM-GT-0508-")).toBe(true);
   });
 
   it("avoids ambiguous characters (0/O, 1/I/L)", () => {
     for (let i = 0; i < 50; i++) {
       const code = generateRefCode();
-      const body = code.slice(4);
-      expect(body).not.toMatch(/[0O1IL]/);
+      const suffix = code.slice(-6);
+      expect(suffix).not.toMatch(/[0O1IL]/);
     }
   });
 
@@ -40,13 +47,23 @@ describe("isValidRefCode", () => {
     }
   });
 
-  it("rejects malformed strings (legacy or hand-typed)", () => {
+  it("accepts the new DPM-GT-MMDD-XXXXXX format", () => {
+    expect(isValidRefCode("DPM-GT-0512-A7B3K2")).toBe(true);
+    expect(isValidRefCode("DPM-GT-1231-XYZK24")).toBe(true);
+  });
+
+  it("still accepts legacy DPM-XXXXXX (issued before 2026-05-07)", () => {
     expect(isValidRefCode("DPM-A7B3K2")).toBe(true);
-    expect(isValidRefCode("DPM-A7B3K")).toBe(false); // too short
-    expect(isValidRefCode("DPM-A7B3K20")).toBe(false); // too long
-    expect(isValidRefCode("dpm-a7b3k2")).toBe(false); // lowercase
-    expect(isValidRefCode("DPM-O0I1L4")).toBe(false); // ambiguous chars
-    expect(isValidRefCode("XYZ-A7B3K2")).toBe(false); // wrong prefix
+  });
+
+  it("rejects malformed strings", () => {
+    expect(isValidRefCode("DPM-GT-0512-A7B3K")).toBe(false); // suffix too short
+    expect(isValidRefCode("DPM-GT-051-A7B3K2")).toBe(false); // 3-digit MMDD
+    expect(isValidRefCode("DPM-GT-05122-A7B3K2")).toBe(false); // 5-digit MMDD
+    expect(isValidRefCode("dpm-gt-0512-a7b3k2")).toBe(false); // lowercase
+    expect(isValidRefCode("DPM-GT-0512-O0I1L4")).toBe(false); // ambiguous chars
+    expect(isValidRefCode("DPM-XX-0512-A7B3K2")).toBe(false); // wrong sede prefix
+    expect(isValidRefCode("DPM-A7B3K")).toBe(false); // legacy too short
     expect(isValidRefCode("")).toBe(false);
   });
 });

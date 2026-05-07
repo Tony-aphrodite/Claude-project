@@ -355,3 +355,113 @@ UPDATE sedes SET roster_source='apps_script_url',
 WHERE nombre='Koh Phi Phi';
 ```
 
+
+---
+
+## 11. Miguel — DPM_AI_LAUNCH_GT_DOCUMENTO_COMPLETO.md (response to launch queries) — 2026-05-07
+
+> Respuesta integral a los dos mensajes que Steve mandó pidiendo
+> contenido y confirmaciones para activar el AI con clientes
+> reales. Miguel adjunta un documento maestro
+> `DPM_AI_LAUNCH_GT_DOCUMENTO_COMPLETO.md` (todavía pendiente de
+> upload al repo al momento de este registro).
+
+### Mensaje original
+
+```
+Steve, here's the full document with everything you asked for to
+activate the AI with real clients:
+
+📎 DPM_AI_LAUNCH_GT_DOCUMENTO_COMPLETO.md
+
+The document covers:
+
+✅ The 5 short confirmations (programs not offered, handoff,
+   24/7 AI schedule, catalog, launch)
+
+✅ Frente 1 — Complete KB content:
+  - Pricing for all 14 programs (includes Rescue, Nitrox, Deep
+    Specialty and React Right that I had missed mentioning before)
+  - Detailed day-by-day schedules
+  - Full cancellation + refund policy
+  - Discount policy (10% is the AI's hard limit, anything above
+    transfers to human)
+  - Updated schedules: AM Boat 7:15-11:00, PM Boat 12:15-16:00
+  - Detailed medical requirements (important: epilepsy NOT
+    allowed to dive with DPM, strict rule)
+  - 10 FAQ with DPM tone
+  - Instructor policy: AI does not mention names
+
+✅ Frente 2 — Tone and rules:
+  - Casual using 'tú' (not 'vos'), max 2 emojis
+  - 15 prohibited topics
+  - New time logic: after 12:15 we can offer to start course
+    with theory+pool today and dives next day
+  - AI phrases marked with EN/ES in both versions
+  - Authorized to use real conversations as few-shots
+
+✅ Frente 3 — Wise/Deposit:
+  - Correct amount: 40 EUR/GBP/AUD/USD or 700,000 IDR (fixes the
+    current prompt bug)
+  - 5 complete bank accounts (EUR, GBP, AUD, USD via KT account, IDR)
+  - Reference code: DPM-GT-MMDD-XXXXXX
+  - AUTOMATIC AI confirmation when receiving PDF that matches
+    expected amount (no manual action)
+  - Post-booking workflow with 3 automated messages
+  - Notifications to gilit@dpmdiving.com
+
+⏳ Pending - I'll send you later:
+  - The 3 exact texts of the post-booking workflow (Maps link,
+    personal data form, recommendations). I'll get them from the
+    GT team and send them this week.
+
+One important note: the document has several items where I
+reviewed the previous responses I had loaded (pricing, schedules,
+medical policy) and corrected them. If anything doesn't make
+sense or you need more info, let me know.
+
+Goal: Monday 11/5 internal day with the center team testing,
+Tuesday 12/5 we open to real clients.
+
+Looking forward to your feedback.
+```
+
+### Cambios identificados que afectan código (orden de impacto)
+
+**Cambios "seguros" — implementables solo con el resumen
+(precisión 100%):**
+
+| # | Item | Antes | Después |
+|---|------|-------|---------|
+| A | PM cutoff time-of-day | 12:30 WITA | **12:15 WITA** |
+| B | Reference code format | `DPM-XXXXXX` | **`DPM-GT-MMDD-XXXXXX`** |
+| C | Launch date | Lunes 11/5 todo abierto | **Lunes 11/5 interno (equipo) + Martes 12/5 clientes reales** |
+| D | Handoff alert channel | sin definir (panel only) | **email a `gilit@dpmdiving.com`** |
+
+**Cambios que requieren el documento completo** (los textos
+literales son críticos y no se pueden inferir del resumen):
+
+| # | Item | Necesita del documento |
+|---|------|------------------------|
+| 1 | 14 programas (vs 8 actuales) | Lista exacta + cronogramas |
+| 2 | Tono `tú` (vs `vos` actual en system prompt) | Frases EN/ES literales aprobadas |
+| 3 | Max 2 emojis (vs 1 actual) | Confirmación |
+| 4 | 15 prohibited topics | Lista literal |
+| 5 | New time logic post-12:15 (theory+pool today) | Texto del system prompt |
+| 6 | Auto-confirmation cuando PDF matches | Threshold de match exacto |
+| 7 | Discount policy 10% AI hard limit | Frase literal de transferencia |
+| 8 | Medical policy (epilepsia) | Texto literal de rechazo |
+| 9 | 10 FAQ con tono DPM | Q&A literales |
+| 10 | 5 bank accounts actualizados | IBAN/SWIFT/account # de cada uno |
+| 11 | 3 automated messages post-booking | **Pendiente — Miguel los manda en la semana** |
+
+### Acción tomada (2026-05-07)
+
+1. **Mensaje guardado** en este archivo (sección 11).
+2. **Cambios seguros A-D implementados** sin esperar al documento.
+3. **Cambios 1-11 esperando** el upload de
+   `DPM_AI_LAUNCH_GT_DOCUMENTO_COMPLETO.md` al directorio
+   `information/`.
+4. La fecha del lanzamiento real con clientes pasa al
+   **martes 2026-05-12** (no lunes 11). Steve actualiza
+   memoria y procedimiento de gate-removal en consecuencia.

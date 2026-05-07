@@ -17,18 +17,23 @@ describe("bookableSlots — same-day cutoffs", () => {
     expect(set.has("PM")).toBe(true);
   });
 
-  it("between 07:15 and 12:30: only PM", () => {
+  it("between 07:15 and 12:15: only PM", () => {
     const set = bookableSlots("10:00", TODAY, TODAY);
     expect(set.has("AM")).toBe(false);
     expect(set.has("PM")).toBe(true);
   });
 
-  it("right at 12:30: nothing bookable today", () => {
-    const set = bookableSlots("12:30", TODAY, TODAY);
+  it("right at 12:15: nothing bookable today (PM boat departs)", () => {
+    const set = bookableSlots("12:15", TODAY, TODAY);
     expect(set.size).toBe(0);
   });
 
-  it("between 12:30 and 17:00: nothing today (PM in progress)", () => {
+  it("at 12:20 (just past PM cutoff): nothing today", () => {
+    const set = bookableSlots("12:20", TODAY, TODAY);
+    expect(set.size).toBe(0);
+  });
+
+  it("between 12:15 and 17:00: nothing today (PM in progress)", () => {
     const set = bookableSlots("14:00", TODAY, TODAY);
     expect(set.size).toBe(0);
   });

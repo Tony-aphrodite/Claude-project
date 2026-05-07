@@ -1,11 +1,15 @@
 // ============================================================================
-// Time-of-day bookability for Gili Trawangan boat slots. Owner spec
-// (Miguel, 2026-05-06, "Lógica horaria"):
+// Time-of-day bookability for Gili Trawangan boat slots. Owner spec:
 //
 //   Antes de 07:15 WITA   → AM y PM mismo día
-//   07:15 — 12:30 WITA    → AM ya zarpó → solo PM hoy
-//   12:30 — 17:00 WITA    → PM en curso → solo mañana
+//   07:15 — 12:15 WITA    → AM ya zarpó → solo PM hoy
+//   12:15 — 17:00 WITA    → PM en curso → solo mañana
 //   Después de 17:00 WITA → todo cerrado hoy → solo mañana
+//
+// Cutoff history:
+//   2026-05-06 (initial): 07:15 / 12:30 / 17:00
+//   2026-05-07 (DPM_AI_LAUNCH doc): PM cutoff moved to 12:15 because
+//     PM Boat now departs at 12:15-16:00 (not 12:30-16:00).
 //
 // `hora_actual_wita` is the source of truth (always fresh from the Apps
 // Script — never cached). Future days (date != today) are unaffected: any
@@ -33,8 +37,8 @@ function parseHHMM(hhmm: string): number | null {
   return h * 60 + min;
 }
 
-const AM_CUTOFF = 7 * 60 + 15; // 07:15 — AM boat departs
-const PM_CUTOFF = 12 * 60 + 30; // 12:30 — PM boat departs
+const AM_CUTOFF = 7 * 60 + 15; // 07:15 — AM boat departs (7:15-11:00 schedule)
+const PM_CUTOFF = 12 * 60 + 15; // 12:15 — PM boat departs (12:15-16:00 schedule)
 const DAY_END = 17 * 60; // 17:00 — nothing more bookable today
 
 /**

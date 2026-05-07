@@ -16,6 +16,7 @@ import { revalidatePath } from "next/cache";
 import {
   chatContacts,
   conversaciones,
+  errores,
   getDb,
   mensajes,
   sedes,
@@ -141,6 +142,35 @@ export async function confirmDepositReceived(formData: FormData) {
   });
 
   await applyForceTransition(conversacionId, "handed_off", "panel:auto_handoff_after_deposit");
+
+  // Owner spec DPM_AI_LAUNCH 2026-05-07: notify gilit@dpmdiving.com on
+  // every handoff. Email transport (Resend / SMTP) is not yet configured;
+  // we queue the intent in `errores` with type `handoff_email_pending`
+  // so the operator can replay them once the transport lands.
+  const targetEmail = process.env.HANDOFF_NOTIFICATION_EMAIL ?? "gilit@dpmdiving.com";
+  await db
+    .insert(errores)
+    .values({
+      source: "internal",
+      conversacionId,
+      errorType: "handoff_email_pending",
+      errorMessage: `Notify ${targetEmail}: deposit confirmed and lead handed off`,
+      context: {
+        targetEmail,
+        sede: row.sedeName ?? null,
+        contactName: row.contact?.name ?? null,
+        contactPhone: row.contact?.phone ?? null,
+        respondIoConversationId: row.conv.respondIoConversationId,
+        refCode: (row.conv.leadMetadata as LeadMetadata | null)?.ref_code ?? null,
+        program: (row.conv.leadMetadata as LeadMetadata | null)?.programa ?? null,
+        startDate: (row.conv.leadMetadata as LeadMetadata | null)?.start_date ?? null,
+        currency: (row.conv.leadMetadata as LeadMetadata | null)?.deposit_currency ?? null,
+        amount: (row.conv.leadMetadata as LeadMetadata | null)?.deposit_amount ?? null,
+      },
+    })
+    .catch((err) =>
+      console.error("failed to queue handoff email notification", err),
+    );
 
   revalidatePath("/payments");
   revalidatePath("/pipeline");

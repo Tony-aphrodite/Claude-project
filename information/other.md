@@ -519,3 +519,235 @@ operando con un system prompt y KB vacíos/placeholder y por eso
 nuestras respuestas anteriores serían genéricas. **Esta es LA
 tarea bloqueante para el lanzamiento del lunes**, no las
 "informaciones que faltan pedirle a Miguel" como dije antes.
+
+**Verificado el 2026-05-07**: el seeder corrió correctamente, KB
++ system prompt están cargados en prod (hashes f3f23cfc0cd6 y
+c88ef9cbfc42).
+
+---
+
+## 4. Miguel — sube `BubbleManager_fe.accdb` — 2026-05-07
+
+> Miguel mandó el front-end del split database — el archivo que
+> contiene formularios, queries, reports y módulos VBA. Es la
+> capa con la lógica de negocio operativa real.
+
+### Archivo recibido
+
+- **Path**: `information/BubbleManager_fe.accdb`
+- **Tamaño**: 6,029,312 bytes (5.75 MB) — **8x el `_be`**
+- **Tipo**: Microsoft Access ACE v3 (Access 2007+), no encriptado
+- **Sufijo `_fe`**: front-end. Los módulos VBA, formularios y
+  queries SQL viven todos acá.
+
+### Strings extraídas
+
+| Categoría | Cantidad | Notas |
+|-----------|----------|-------|
+| Strings totales | 49,667 | _be tenía 407 — diferencia de **120x** |
+| Strings únicas a `_fe` | 21,424 | el resto coincide con tablas/columnas referenciadas |
+| **Formularios** (`frm*`, `Form_*`) | **143 únicos** (~130 dedup case-insensitive) | toda la UI |
+| **Botones** (`btn*`) | 174 | acciones discretas |
+| **Labels** (`lbl*`) | 84 | campos visibles |
+| **Reports** (`rpt*`) | 14+ | impresiones legales |
+| **Queries SQL embebidas** (SELECT/UPDATE/INSERT/DELETE) | **521** | la mayoría de la lógica vive en SQL |
+
+### Inventario de formularios por dominio (~130 pantallas)
+
+**Clientes**
+frmCustomer, frmCustomers, frmCustomerSimple, frmCustomersSub,
+frmAddOnlineCustomers, frmFinishCustomers, frmAddBooking
+
+**Cursos y certificación**
+frmCourse, frmCourses, frmCourseSub, frmCourseType,
+frmCourseTimeLine, frmCourseTimeLineSub, frmCourseTypeActivity,
+frmReviewCourse, frmAddNewClass, frmDivePADI, frmDiveRAID,
+frmDiveSSI, frmDiveLevelR, frmDiveSite, frmConEdMatch,
+frmRAIDDisclaimer, frmMissingCert, frmSisterShopUpload
+
+**Operación día a día**
+frmEndOfDay, frmShopDuty, frmActivity, frmTours, frmTourTypes,
+frmBoat, frmBoatList, frmBoatListSub, frmBoatTimer,
+frmAccomodationReport, frmAccomodationSub
+
+**Pagos / facturación**
+frmPayment, frmPaymentType, frmPaysheet (payroll output!),
+frmBank, frmBankDeposit, frmBankWithdrawal, frmRefund,
+frmAdvances, frmAdvancesSub, frmWalkInPayment, frmRoctoInvoices,
+frmTaxCompany, frmTaxCompanyR
+
+**Cuentas con empresas**
+frmBusinessBulkPay, frmBusinessPayableAdd,
+frmBusinessReceivableAdd, frmEditBusiness, frmIncomeExpenseCategory
+
+**Equipamiento (catálogo + inventario por unidad)**
+frmStylesBCD, frmStylesBoot, frmStylesComputer, frmStylesFin,
+frmStylesMask, frmStylesRegulator, frmStylesWetsuit,
+frmIdsBag, frmIdsBCD, frmIdsBoots, frmIdsComputer, frmIdsFins,
+frmIdsMask, frmIdsRegulator, frmIdsWetsuit, frmTankPrice,
+frmTankTypes, frmRetailItem, frmRetailItemEditor,
+frmRetailItemFinder, frmRetailItemType, frmRetailSale,
+frmEquipmentSub
+
+**Personal / agencias**
+frmEmployeeRole, frmAgent, frmAgentReport, frmVendor
+
+**Configuración / utilidades**
+frmGlobalSettings, frmLocalSettings, frmSettings,
+frmEmailSettings, frmRegisterFormSections, frmHowHear,
+frmHowHearReport, frmPassword, frmTerms, frmThankYou,
+frmCannotConnect, frmDatabaseTools, frmBackupManager,
+frmQuickButton, frmQuickCountry, frmCountry, frmLanguage,
+frmRoom, frmWhereStay, frmEditor, frmImageEditor,
+frmEmailReport, frmSwitchboard (menú principal)
+
+**Reports (impresiones legales y resúmenes)**
+rptDailyReport, rptCustomerInvoice, rptPaymentReceipt,
+rptPaymentLedger, rptPaymentsIn, rptBalanceReport,
+rptBusinessReceivable, rptBreakdownReport, rptAgentReport,
+rptAccomodationReport, rptHowHearReport, rptFullReport,
+rptPhoenixCheckIn, rptRoctoInvoices
+
+### Lógica de negocio descubierta (extraída de SQL embebido)
+
+#### 1. Comisión de instructor con co-teaching split (la pieza más delicada)
+
+Encontrada literalmente en una query interna:
+
+```sql
+IIF(InstructorID = AssignedInstructor2ID,
+    InstWage * Inst2Percent,
+    IIF(InstructorID = AssignedInstructor3ID,
+        InstWage * Inst3Percent,
+        InstWage * (1
+                    - IIF(IsNull(Inst2Percent), 0, Inst2Percent)
+                    - IIF(IsNull(Inst3Percent), 0, Inst3Percent))
+    )
+) AS myInstWage
+```
+
+Comportamiento:
+- Cada curso permite **un instructor principal + hasta 2 co-teachers**
+  (`AssignedInstructor2ID`, `AssignedInstructor3ID`).
+- Inst 2 e Inst 3 reciben un porcentaje del salario base del curso
+  (`Inst2Percent`, `Inst3Percent`).
+- El instructor principal se queda con `1 - Inst2% - Inst3%`.
+- Si solo hay 1 co-teacher, el resto va al principal automáticamente.
+- NULLs en porcentajes se tratan como 0.
+
+**Esta fórmula hay que clonarla EXACTAMENTE en DPM Cloud.**
+Cualquier desviación se traduce en pago erróneo a personal.
+
+#### 2. DMT (Divemaster Trainee) excluido de comisiones
+
+```sql
+WHERE DoNotCountToCommission = False AND IsDMTCourse = False
+```
+
+- `IsDMTCourse` por curso → si true, los co-teachers no
+  generan comisión por ese alumno.
+- `DoNotCountToCommission` flag adicional para casos especiales.
+- Existe rol `EmployeeRole = 'Dmt Mentor'` con conteo separado.
+
+#### 3. Retail commission por SKU
+
+Cada `RetailItem` tiene su propio campo `Commission` y un
+`SalesPersonID` (linkado a Instructor). La query inserta en
+`Payment` con esa comisión calculada por venta. **No hay ratio
+global** — es por SKU.
+
+#### 4. State machine del alumno
+
+Tabla `StudentStatus` mapea `StudentStatusID → studentstatus`
+(string "Certified", "In Progress", etc.). El sentinel `-1` se
+usa como "no asignado".
+
+#### 5. Integración PADI Online (PIC Online) — área de riesgo
+
+URLs hardcodeadas en el VBA:
+
+```
+https://apps.padi.com/Pros/PICOnline/Account/TempCardBatchQueue
+https://apps.padi.com/Pros/PICOnline/POLCommon/GetPhotoByNBK?...
+https://apps.padi.com/Pros/PICOnline/POLCommon/GetPhotoByIDView
+https://apps.padi.com/.../pic-processing-report/Default.aspx
+```
+
+El último es **scraping con form-encoded POST** — PADI no tiene
+API abierta, así que el sistema simula sesiones de browser. Esto
+va a ser la pieza **más dolorosa de migrar** a la versión cloud
+y depende del acceso PADI de DPM.
+
+#### 6. Stack VBA / librerías importadas
+
+- **VBA-JSON** (Tim Hall, github.com/VBA-tools/VBA-JSON)
+- **VBA-UtcConverter** (Tim Hall) — manejo de timezone
+- **MSXML / WinHTTP / Microsoft.XMLHTTP** — clientes HTTP
+- **Allen Browne utility code** (allenbrowne.com)
+
+### Mensajes de error / UI strings (sample)
+
+```
+"Already Certified! Continue with rest of class?"
+"Already Registered"
+"Cannot Assign Instructor!"
+"Cannot connect to internet. Please check the internet connection."
+"Could Not Upload Photo"
+"Error. Database not backed up"
+"BAD ID: <FirstName> <LastName>: <ascii>, <memberID>, <RAIDcode>"
+```
+
+UI principal está en inglés.
+
+### Implicancias para la cotización Pieza 2
+
+#### Estimación de alcance
+
+- **130 formularios** → 130 vistas en DPM Cloud
+- **174 botones** → ~50-80 server actions / mutations después de
+  deduplicar
+- **521 SQL queries** → ~200-300 endpoints/queries únicas en
+  Drizzle/Postgres después de dedup
+- **PADI integration**: módulo aparte, complejo
+- **Comisiones (co-teaching + DMT)**: módulo crítico
+- **Retail commission por SKU**: módulo aparte
+- **Reports legales** (Rocto, comprobantes): mantener formato exacto
+
+#### Áreas de riesgo identificadas
+
+1. **PADI scraping**: pedir a Miguel las credenciales PADI bajo
+   NDA cuando empiece la cotización.
+2. **Comisiones**: la fórmula `IIF(...)` con NULLs implícitos —
+   pedir a Miguel walkthrough de edge cases.
+3. **Sister-shop sync** (`frmSisterShopUpload`): walkthrough
+   con Miguel sobre datos cruzados (instructor que rota entre
+   sedes).
+4. **Inventario por unidad** (`idsBCD`, `idsRegulator`, etc.):
+   confirmar con Miguel si lo quiere conservar item-level.
+
+#### Estimación preliminar Pieza 2 (full-time dev)
+
+| Bloque | Semanas |
+|--------|---------|
+| MVP funcional (cliente + curso + pago + barco + agenda) | 4-6 |
+| Comisiones + payroll completo (co-teaching, DMT, retail) | 2-3 |
+| PADI integration (depende del acceso) | 2-3 |
+| Reports + facturación legal | 2-3 |
+| Multi-sede + sister-shop sync | 1-2 |
+| QA + paridad funcional vs Bubble | 3-4 |
+| **Total preliminar** | **14-21** |
+
+~3.5-5 meses full-time. **Pieza 2 es claramente un contrato
+separado del actual de $4,800.**
+
+### Lo que sigue sin extraer
+
+- **Código VBA fuente completo**: Access compila a P-code; legible
+  solo al abrir con Office (Windows) o usando `oletools` (Python).
+  Para cotización lo extraído por strings es suficiente.
+- **Estructura de relaciones** (FKs, ON DELETE, índices) — visible
+  solo desde dentro de Access.
+- **Form layouts / orden de campos** — útil para clonar UX, no
+  crítico para cotización.
+- **Reports template / paper layout** — relevante solo para
+  reports legales (Rocto invoices, customer invoices).

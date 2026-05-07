@@ -41,6 +41,27 @@ const envSchema = z.object({
   // Leave empty in production to process all gated contacts.
   PILOT_REQUIRE_TAG: z.string().optional().or(z.literal("")),
 
+  /**
+   * Address that receives "lead handed off to human" notifications. Defined
+   * in DPM_AI_LAUNCH (2026-05-07) as gilit@dpmdiving.com for Gili
+   * Trawangan. Until SMTP / Resend credentials are wired in (Miguel has not
+   * provided them at the time of this commit), the server logs a structured
+   * `handoff_email_pending` entry and the actual send happens when the
+   * email transport is configured.
+   */
+  HANDOFF_NOTIFICATION_EMAIL: z
+    .string()
+    .email()
+    .optional()
+    .default("gilit@dpmdiving.com"),
+  /**
+   * Optional: API key for the email transport (e.g. Resend). When unset,
+   * notifications stay queued in `errores`/`notifications` with type
+   * `handoff_email_pending` so an operator can replay them once SMTP is
+   * configured.
+   */
+  RESEND_API_KEY: z.string().optional().or(z.literal("")),
+
   APPS_SCRIPT_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
 
   SENTRY_DSN: z.string().url().optional().or(z.literal("")),
