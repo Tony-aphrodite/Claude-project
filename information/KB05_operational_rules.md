@@ -1,160 +1,233 @@
 # KB-05 — Reglas Operativas — Gili Trawangan
 
+> Fuente: `DPM_AI_LAUNCH_GT_DOCUMENTO_COMPLETO4.md` §1.5 + §1.6 + §2.3
+> (2026-05-07).
+
 **Sede:** Gili Trawangan
 **Hora local:** WITA (UTC+8)
+**Última actualización:** 2026-05-07
 
 ---
 
 ## Horarios {#horarios}
 
-| Turno | Horario | Sitios |
-|---|---|---|
-| Barco mañana | 7:15–11am | Shark Point + Bounty Wreck |
-| Barco tarde | 12:30–4pm | Turtle Heaven + Halik |
-| Advanced día 2 tarde | 12:30–2:30pm (regreso máx 3pm) | — |
+### Centro (oficina)
+- **Apertura:** 8:00 AM
+- **Cierre:** 6:00 PM
+- **Días:** todos los días, todo el año (excepto fuerza mayor)
 
-- **Horario oficina:** 8am–6pm temporada baja | 8am–7pm temporada alta
-- **Registro:** día anterior al programa, antes de las 6pm
+### Barcos
+- **Barco mañana (AM):** salida **7:15 AM** — regreso ~11:00 AM (2 buceos)
+- **Barco tarde (PM):** salida **12:15 PM** — regreso ~4:00 PM (2 buceos)
+- **NO hay buceo nocturno en Gili Trawangan.** Si el cliente lo pide,
+  derivar a Gili Air (Colomba).
 
----
+### Hora de llegada del cliente al centro
+- **Salidas AM (7:15):** llegar 6:45 AM
+- **Salidas PM (12:15):** llegar 12:00 PM
+- **Cursos con teoría matutina:** llegar 15 min antes del horario indicado
 
-## Grupo mixto — certificado + principiante {#grupo-mixto}
-
-Cualquier buceador certificado (OW, Advanced o superior) puede bucear junto al alumno de Try Scuba con el mismo instructor, **limitándose a los 12m máximos del programa**.
-
-- EN: "You can both dive together with the same instructor — you'll just stay at 12m, your partner's max depth, so you're together the whole time 😊"
-- ES: "Pueden bucear juntos con el mismo instructor — vos te limitás a los 12m que es la profundidad máxima de tu pareja, así van juntos todo el tiempo 😊"
-
----
-
-## Refresh — regla de gancho {#refresh-regla-gancho}
-
-El Refresh incluye piscina por la mañana y los buceos son **SIEMPRE en el turno de tarde 12:30–4pm**.
-
-- **Gancho para Refresh:** SIEMPRE tortugas (tarde). NUNCA Shark Point (mañana).
-
-Frases:
-- EN: "Pool session at 9am, then afternoon boat goes to Turtle Heaven — huge green turtles, pretty much guaranteed every dive 🐢"
-- ES: "Piscina a las 9am y el barco de la tarde va a Turtle Heaven — tortugas verdes enormes, prácticamente garantizadas en cada inmersión 🐢"
+### Duración de la piscina
+~2 horas para todos los programas con piscina (Try Scuba, Scuba
+Diver, Open Water, Refresh).
 
 ---
 
-## Ferries para llegar a Gili Trawangan {#ferries}
+## Lógica horaria — qué puede ofrecer John según la hora actual {#logica-horaria}
 
-| Origen | Tiempo | Regla |
-|---|---|---|
-| Lombok (Bangsal) | 30 min | Puede hacer PM el mismo día si llega antes de las 12:30 |
-| Bali (Padangbai) | 2+ horas | Preguntar hora exacta de llegada antes de confirmar |
-| Nusa Penida | 2+ horas | Preguntar hora exacta de llegada antes de confirmar |
+El campo `hora_actual_wita` del Apps Script es la fuente de verdad
+para esta lógica. Si está ausente (otra sede en el futuro), default
+a "solo PM" para no oversell el barco AM.
 
-- Si llega tarde → ofrecer para el día siguiente.
-- **Preguntar siempre** de dónde viene y a qué hora llega ANTES de confirmar cualquier turno del día de llegada.
+| Hora actual WITA | Qué puede ofrecer hoy |
+|------------------|----------------------|
+| Antes de 7:15 | Mañana (AM) o tarde (PM) |
+| 7:15 — 12:15 | Solo tarde (PM) — el barco AM ya zarpó |
+| 12:15 — 17:00 | NO hay barco hoy. Pero **sí puede empezar curso con teoría + piscina hoy** y dejar los buceos para mañana en programas que lo permiten (ver abajo) |
+| Después de 17:00 | Día siguiente directamente |
 
----
+### Programas que admiten "empezar hoy con teoría + piscina"
 
-## Advanced — logística ferry {#advanced-logistica-ferry}
+- **Try Scuba** (teoría + piscina hoy → buceos mañana)
+- **Refresh** (teoría + piscina hoy → buceos mañana)
+- **Open Water** (Día 1 = teoría + piscina hoy → Día 2 buceos mañana)
+- **Open Water 30** (igual que OW estándar)
 
-- Último buceo del Advanced termina a las **2:30pm**.
-- Ferry de las **3:15pm cabe perfectamente**.
-- Calcular SIEMPRE antes de decir que no encaja con el horario de salida del cliente.
+### Programas que NO admiten esto (arrancan directo con buceos)
 
----
-
-## Buceo nocturno {#buceo-nocturno}
-
-No es regular en GT. Depende de condiciones del mar.
-
-Si el cliente lo pide → consultar con la escuela antes de confirmar. **Nunca confirmar por cuenta propia.**
-
----
-
-## Equipamiento {#equipamiento}
-
-- **Wetsuit:** 3mm short
-- **Tanques:** 12L
-- **DIN y YOKE:** disponibles para buceadores pro con equipo propio
-- **Computadora:** incluida en OW y Advanced. En Fun Dive → alquiler 150,000 IDR (sujeto a disponibilidad)
-- **Nitrox individual en Fun Dive:** no hacemos. Solo grupos
-- **Snacks a bordo:** frutas, galletitas, agua, café y té
+- Advanced Adventurer
+- Fun Dive
+- Deep Adventure + Fun Dive
+- Deep Specialty
+- Rescue Diver
+- Nitrox Specialty
 
 ---
 
-## Grupos {#grupos}
+## Requisitos {#requisitos}
 
-- **Máximo 4 alumnos por instructor**
-- **Indios o no nadadores:** 2 alumnos por instructor
-- **Grupos de más de 8 personas** → [TRANSFERIR AL EQUIPO]
+### Edad
+- **Mínima general:** 10 años
+- **8-9 años:** Try Scuba con profundidad máx 5 m (consultar oficina)
+- **Menores de 15:** Junior OW (máx 12 m hasta los 15, después
+  upgrade automático a 18 m)
+- **Mayor de 45 años:** completar formulario médico al llegar
 
----
-
-## Menores {#menores}
-
-- **Mínimo 10 años** para todos los programas
-- **10 a 14 años** → Junior Open Water (máx 12m hasta los 15, se actualiza automáticamente)
-- **Menor de 10 años** → consultar con la escuela antes de confirmar
-
----
-
-## Certificaciones {#certificaciones}
-
-- **SSI = PADI:** misma validez vitalicia internacional. **No explicar diferencias, igualar y cerrar.**
-- **Upgrades** aplican SOLO a certificaciones SSI
+### Saber nadar
+- **Open Water y cursos de certificación:** sí, requisito básico
+  (poder flotar, sostenerse en el agua)
+- **Try Scuba / Scuba Diver:** NO obligatorio nadador experto. El
+  programa está diseñado para personas que no saben nadar bien.
+- Para Try Scuba o si el cliente menciona miedo, preguntar si se
+  siente cómodo en el agua.
 
 ---
 
 ## Condiciones médicas {#condiciones-medicas}
 
-- **Nunca preguntar condiciones médicas proactivamente.**
-- Si el cliente menciona una condición específica → [TRANSFERIR AL EQUIPO]
-- **Mayores de 45 años** completan formulario médico al llegar al centro.
+### Regla general
+**DPM nunca pregunta sobre condiciones médicas proactivamente.**
+
+Si el cliente menciona alguna condición → **escalar a humano** + decir:
+- 🇪🇸 ES: "Te pedimos que completes el formulario médico al llegar al centro"
+- 🇬🇧 EN: "We'll ask you to fill out a medical form when you arrive"
+
+### Condiciones que requieren consulta médica antes de bucear
+
+- Cardíaca (cualquier tipo)
+- Diabetes (especialmente insulino-dependiente)
+- Asma (incluso ocasional)
+- Cirugía reciente (últimos 6 meses)
+- Hipertensión no controlada
+- Problemas de oído crónicos (perforación timpánica, cirugía oído reciente)
+- Trastornos psiquiátricos en tratamiento
+
+### Condiciones que NO permiten bucear con DPM (regla estricta) {#condiciones-no-permitidas}
+
+- **Epilepsia:** NO se puede bucear con DPM, aunque el cliente
+  tenga certificado médico. Es una condición impredecible y la
+  seguridad va primero. **Regla estricta DPM, sin excepciones.**
+- **Embarazo** (cualquier trimestre)
+- **Resfriado fuerte / sinusitis activa con congestión**
+- **Fiebre alta o diarrea intensa** el día del dive
+
+### Condiciones que NO impiden bucear
+
+- Mocos leves (si el cliente se siente bien en general)
+- Migrañas leves controladas
+- Edad avanzada (con formulario médico OK)
+- Lentes de contacto (recomendar blandas)
+- Necesidad de máscara con graduación (DPM tiene gratis disponibles)
 
 ---
 
-## Divemaster / Instructor {#divemaster-instructor}
+## Equipamiento {#equipamiento}
 
-No disponible en GT → referir a Gili Air: **+6282266153697**
+### Incluido en todos los programas
+- Equipo completo: traje neopreno 3mm corto, BCD, regulador, aletas,
+  máscara, tanque 12L
+- Instructor profesional certificado
+- Seguro de buceo
+- Snacks a bordo
+- Toalla en el centro
+- Certificación digital SSI (cuando aplique)
+- Material teórico digital
+
+### NO incluido (cargos separados)
+- **Marine Park Fee:** 100.000 IDR por buceador, cash en oficina,
+  válido 1 semana, cubre las 3 Gilis (Air, Trawangan, Meno).
+  Mencionar SOLO al confirmar programa + fecha, NO al inicio de la
+  conversación.
+- **Computadora de buceo:** alquiler 150.000 IDR
+- **GoPro:** no en el centro. Para principiantes NO se permite
+  GoPro durante inmersiones (distracción de seguridad). Para
+  certificados, pueden traer la suya propia.
+- **Trajes 5 mm / 7 mm:** no necesarios (agua 26-29°C, 3 mm es
+  suficiente)
+- **Almuerzo:** NO incluido. Hay restaurantes cerca del centro.
+- **Traslado al hotel:** NO incluido. La isla no tiene motos ni
+  coches. Cliente viene caminando, en cidomo (coche caballo) o
+  bicicleta.
+
+### Disponible GRATIS en el centro
+- **Máscaras con graduación:** disponibles SIEMPRE, gratis
+- También se puede bucear con lentes de contacto blandas
+
+---
+
+## Acompañantes en el barco {#acompanantes}
+
+NO se permiten acompañantes no buceadores en el barco (por seguro y
+seguridad). Solo personas que participan activamente.
+
+---
+
+## Política de cancelación y reembolso {#cancelacion}
+
+### Depósito
+- **NO REEMBOLSABLE** bajo ninguna circunstancia
+- **SÍ TRANSFERIBLE** a otra fecha o a otra sede DPM (Koh Tao, Phi
+  Phi, Gili Air, Nusa Penida) sin cargo
+- **Plazo de rebooking:** hasta 6 meses después de la fecha original
+- **Mal clima:** se reprograma sin cargo
+
+### Saldo restante (resto del pago en el centro)
+- **Cliente cancela antes del primer dive:** se devuelve el saldo
+  (NO el depósito)
+- **No-show sin avisar:** pierde depósito + saldo no se cobra
+- **Cliente abandona el curso a mitad por motivos personales:** no
+  hay reembolso del saldo, pero puede continuar en otra fecha o
+  sede DPM hasta 6 meses
+- **DPM cancela por causa propia (instructor enfermo, etc.):**
+  reembolso completo o reprogramación, a elección del cliente
+
+---
+
+## Descuentos {#descuentos}
+
+### Descuentos automáticos
+- **Grupo 2+ personas en Try Scuba, Open Water o Advanced:** 5 %
+  automático
+
+### Política general
+- John **NO ofrece descuentos proactivamente**. Solo si el cliente
+  pregunta.
+- **Solo 1 descuento por reserva** (no acumulan)
+- **Hasta 10 % es el límite duro del AI.** Si el cliente pide
+  descuento mayor → escalar a humano. John NO tiene autoridad para
+  aprobar > 10 %.
+
+### Frase de John ante pedido de descuento
+- 🇪🇸 ES: "Normalmente no hacemos descuentos — somos más de 1.000
+  instructores de buceo, 13 años en el mercado. Vas a tener una
+  experiencia increíble 🙂 Asegurá tu lugar ya."
+- 🇬🇧 EN: "We usually don't do discounts — 1,000+ dive instructors,
+  13 years. You'll have an amazing time 🙂 Lock it in now."
+
+### Descuentos que NO existen
+- NO hay descuentos de temporada baja activos
+- NO hay descuentos por bookear 2+ programas combinados (excepto
+  Refresh+Advanced que ya está armado como combo)
+- NO hay descuentos por estadía larga
+- Si el cliente persiste pidiendo → derivar a humano
+
+---
+
+## Ferries para llegar a Gili Trawangan {#ferries}
+
+- **Desde Bali (Padangbai):** mínimo 2 hs de fast boat. Para
+  Advanced Día 1 (12:15 PM) tiene que salir antes de las 10:00 AM.
+- **Desde Lombok (Bangsal):** ~30 min. Más flexible.
+- **Desde Nusa Penida:** mínimo 2 hs.
+
+Para Día 1 con teoría a la tarde (1:30 PM), cliente que recién
+llega a la isla ese día tiene que salir temprano del puerto de
+origen.
 
 ---
 
 ## Clima y cancelaciones {#clima-cancelaciones}
 
-- EN: "We always choose the best dive sites for the day — sites protected from wind and waves 😊"
-- ES: "Siempre elegimos los mejores sitios del día — protegidos del viento y las olas 😊"
-
----
-
-## Alojamiento {#alojamiento}
-
-- **QUMA Hotel & Restaurant:** al lado del centro, 50m de la playa — **recomendar como primera opción**
-- Otras opciones → guiar a Booking.com o Agoda
-
----
-
-## Upselling {#upselling}
-
-| Cliente actual | Upsell recomendado |
-|---|---|
-| Try Scuba (con 2+ días disponibles) | Scuba Diver u Open Water |
-| Scuba Diver | Open Water (siempre al cerrar) |
-| Open Water (interesado) | Open Water 30 (siempre) |
-| OW certificado | Advanced |
-| OW sin tiempo para Advanced | Deep Adventure + Fun Dive (certifica hasta 30m en un día) |
-
----
-
-## Etapas del contacto en Respond.io {#etapas-contacto-respondio}
-
-| Etapa | Cuándo |
-|---|---|
-| New Lead | Primer mensaje recibido |
-| In process | Se compartió info de un programa |
-| Payment | Se enviaron datos bancarios |
-| Customer | Se recibió el comprobante de depósito |
-
----
-
-## Datos de contacto humano {#contactos-humanos}
-
-- **Teléfono escuela GT:** +6281239786575
-- **Gili Air (para derivaciones de Divemaster/Instructor):** +6282266153697
-- **Ubicación escuela:** https://maps.app.goo.gl/9e7PLpg1WU8b8S9R9
+- Si DPM cancela por mal clima → reprogramación sin cargo
+- Si el cliente no quiere reprogramar y prefiere reembolso del
+  saldo → derivar a humano

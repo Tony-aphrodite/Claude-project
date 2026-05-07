@@ -259,9 +259,11 @@ export async function processIncomingMessage(
         );
 
       // Stamp the OCR verdict onto lead_metadata so the panel can show it.
-      // We DO NOT auto-transition to deposit_paid even on a green verdict —
-      // human confirmation is the spec. We just hand the operator a
-      // pre-flight result.
+      // Owner spec DPM_AI_LAUNCH §3.4 (2026-05-07): when OCR validates the
+      // PDF (ref + currency + amount within ±2% / ≤+10%), the AI auto-
+      // confirms — no manual operator click. Mismatches (suspect amounts,
+      // wrong ref, screenshot rejection) stay in deposit_pending and the
+      // operator handles them through the panel.
       if (ocrVerdict) {
         const ocrSummary = ocrVerdict.ok
           ? {
@@ -278,17 +280,98 @@ export async function processIncomingMessage(
               reason: ocrVerdict.reason,
               attachmentMime: ocrVerdict.attachmentMime ?? null,
             };
+
+        const autoConfirmed =
+          ocrVerdict.ok === true && ocrVerdict.validated === true;
+
+        const targetStage = autoConfirmed ? "deposit_paid" : "deposit_pending";
+
         await leadStageService
           .forceTransition({
             conversacionId: conversation.id,
-            to: "deposit_pending", // no stage change; just patch metadata
+            to: targetStage,
             by: "system",
-            note: `ocr_${ocrVerdict.ok ? (ocrVerdict.validated ? "validated" : "mismatched") : ocrVerdict.reason}`,
+            note: autoConfirmed
+              ? "ocr_auto_confirmed"
+              : `ocr_${ocrVerdict.ok ? "mismatched" : ocrVerdict.reason}`,
             metadataPatch: { ocr_result: ocrSummary },
           })
           .catch((err) =>
             log.warn({ err }, "ocr_result metadata patch failed"),
           );
+
+        // On auto-confirm we replace the §7 ack already sent above with a
+        // proper confirmation by chaining a second outbound message —
+        // the customer sees: ACK ("Got it") then immediate confirmation.
+        // Then we move to handed_off so the human team takes the thread.
+        if (autoConfirmed) {
+          const meta = (conversation.leadMetadata as LeadMetadata | null) ?? null;
+          const ctx = {
+            programa: meta?.programa ?? null,
+            fecha: meta?.start_date ?? null,
+            language: contact.language ?? null,
+          };
+          const confirmedText = buildAutoConfirmedText(ctx);
+          try {
+            await respondIoClient.sendMessage({
+              conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
+              contactId: payload.contact.id,
+              text: confirmedText,
+            });
+          } catch (err) {
+            log.error({ err }, "respond_io send failed during auto-confirm");
+          }
+          await getDb()
+            .insert(mensajes)
+            .values({
+              conversacionId: conversation.id,
+              sender: "ai",
+              content: confirmedText,
+              metadata: {
+                synthetic: true,
+                reason: "ocr_auto_confirmed_message",
+              },
+            })
+            .catch((err) =>
+              log.warn({ err }, "failed to persist auto-confirm mensaje"),
+            );
+          // Hand off to humans — the GT team picks up from here.
+          await leadStageService
+            .forceTransition({
+              conversacionId: conversation.id,
+              to: "handed_off",
+              by: "system",
+              note: "ocr_auto_handoff_after_deposit",
+            })
+            .catch((err) =>
+              log.warn({ err }, "auto handoff transition failed"),
+            );
+          // Queue the gilit@dpmdiving.com notification (transport may not
+          // be configured yet — entries replay when it lands).
+          const targetEmail =
+            loadEnv().HANDOFF_NOTIFICATION_EMAIL ?? "gilit@dpmdiving.com";
+          await getDb()
+            .insert(errores)
+            .values({
+              source: "internal",
+              conversacionId: conversation.id,
+              errorType: "handoff_email_pending",
+              errorMessage: `Notify ${targetEmail}: deposit auto-confirmed by OCR`,
+              context: {
+                targetEmail,
+                trigger: "ocr_auto_confirm",
+                refCode: meta?.ref_code ?? null,
+                program: meta?.programa ?? null,
+                startDate: meta?.start_date ?? null,
+                currency: meta?.deposit_currency ?? null,
+                amount: meta?.deposit_amount ?? null,
+                ocrExtraction: ocrVerdict.ok ? ocrVerdict.extraction : null,
+              },
+            })
+            .catch((err) =>
+              log.warn({ err }, "failed to queue ocr handoff email"),
+            );
+        }
       }
 
       return {
@@ -398,6 +481,32 @@ export async function processIncomingMessage(
         ok: false,
         reason: "program_not_scheduled",
         message: `${input.programa} no tiene un patrón de barco definido — derivar a humano para confirmar disponibilidad.`,
+      };
+    }
+
+    // Programs that don't need any boat capacity (e.g. ReactRight, theory
+    // only) skip the roster check entirely. Returning available=true with
+    // empty slots tells the AI it can confirm any date.
+    if (required.length === 0) {
+      void leadStageService
+        .transition({
+          conversacionId: conversation.id,
+          to: "proposed",
+          by: "ai",
+          note: `consultar_disponibilidad ${input.programa} ${input.start_date} (no boat)`,
+          metadataPatch: {
+            programa: input.programa,
+            start_date: input.start_date,
+          },
+        })
+        .catch(() => {});
+      return {
+        ok: true,
+        programa: input.programa,
+        startDate: input.start_date,
+        available: true,
+        slots: [],
+        notes: "Programa sin requerimiento de barco — cualquier fecha funciona, confirmá horario con la sede.",
       };
     }
 
@@ -716,6 +825,58 @@ export function pickComprobanteAck(language: string | null): string {
     return "Got it, thanks 🙏 Let me confirm the transfer with the team and I'll get back to you in a few minutes.";
   }
   return "¡Recibido, gracias 🙏! Déjame confirmar la transferencia con el equipo y te aviso en unos minutos.";
+}
+
+/**
+ * Owner spec DPM_AI_LAUNCH §3.4 (2026-05-07): auto-confirmation message
+ * sent when OCR validates the receipt. We chain it after the §7 ACK so the
+ * customer sees "Got it" → "Confirmed". Mirrors the panel handoff text
+ * structure (program + date + sizing + maps + check-in time + handoff
+ * line) so the auto-flow matches what the operator would manually trigger.
+ */
+export function buildAutoConfirmedText(ctx: {
+  programa: string | null;
+  fecha: string | null;
+  language: string | null;
+}): string {
+  const lang = (ctx.language ?? "es").slice(0, 2).toLowerCase();
+  const isEn = lang === "en";
+  const SCHOOL_MAPS_URL = "https://maps.app.goo.gl/9e7PLpg1WU8b8S9R9";
+  const lead =
+    ctx.programa && ctx.fecha
+      ? isEn
+        ? `Deposit confirmed ✅ Your spot is locked in for ${ctx.programa} on ${ctx.fecha}.`
+        : `¡Depósito confirmado ✅! Tu lugar está reservado para ${ctx.programa} el ${ctx.fecha}.`
+      : isEn
+        ? "Deposit confirmed ✅ Your spot is locked in."
+        : "¡Depósito confirmado ✅! Tu lugar está reservado.";
+
+  if (isEn) {
+    return [
+      lead,
+      "",
+      "To finish your booking, please share:",
+      "• Full name (as on your ID)",
+      "• T-shirt size (XS to 4XL)",
+      "• European shoe size",
+      "",
+      `Also, please drop by the school the day before your program between 8am and 6pm for registration. Here's the location: ${SCHOOL_MAPS_URL}`,
+      "",
+      "My colleague from Gili Trawangan will message you shortly to coordinate the rest 🤿",
+    ].join("\n");
+  }
+  return [
+    lead,
+    "",
+    "Para terminar la reserva, mandame por favor:",
+    "• Nombre completo (como figura en tu documento)",
+    "• Talla de camiseta (XS a 4XL)",
+    "• Talla de calzado europeo",
+    "",
+    `Además, pasá por la escuela el día anterior a tu programa entre 8am y 6pm para el registro. La ubicación: ${SCHOOL_MAPS_URL}`,
+    "",
+    "Mi compañero/a de Gili Trawangan te escribe en breve para coordinar el resto 🤿",
+  ].join("\n");
 }
 
 /**

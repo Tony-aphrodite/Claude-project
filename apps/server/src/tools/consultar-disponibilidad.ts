@@ -48,21 +48,32 @@ export const consultarDisponibilidadTool: Anthropic.Tool = {
           "TryScuba",
           "ScubaDiver",
           "OW",
+          "OW30",
           "AOW",
           "Refresh",
           "RefreshAdv",
           "FunDive",
           "DeepAdvFD",
+          "DeepSpecialty",
+          "RescueDiver",
+          "NitroxSpecialty",
+          "ReactRight",
         ],
         description:
           "Programa que el cliente quiere reservar. " +
-          "TryScuba = Try Scuba Diving (no certificación). " +
-          "ScubaDiver = Scuba Diver 1 día (certificación hasta 12m). " +
-          "OW = Open Water 3 días. AOW = Advanced 2 días. " +
-          "Refresh = Refresh + 2 fun dives mismo día. " +
-          "RefreshAdv = combo Refresh + Advanced. " +
+          "TryScuba = Try Scuba Diving / Bautizo (no certificación, máx 12m). " +
+          "ScubaDiver = Scuba Diver 1 día (certificación SSI, máx 12m). " +
+          "OW = Open Water 18m (3 días). " +
+          "OW30 = Open Water 30m (3 días, 6 inmersiones, premium). " +
+          "AOW = Advanced Adventurer (2 días, 5 inmersiones, requiere OW). " +
+          "Refresh = Refresh + 2 fun dives mismo día (requiere certificación previa). " +
+          "RefreshAdv = combo Refresh + Advanced (2 días). " +
           "FunDive = un fun dive (cliente elige AM o PM). " +
-          "DeepAdvFD = combo Deep Adventure + Fun Dive (cliente elige slot).",
+          "DeepAdvFD = combo Deep Adventure + Fun Dive (cliente elige slot). " +
+          "DeepSpecialty = Deep Specialty 40m (deriva a humano para cronograma). " +
+          "RescueDiver = Rescue Diver (deriva a humano). " +
+          "NitroxSpecialty = Nitrox specialty (deriva a humano). " +
+          "ReactRight = React Right (1 clase de teoría, sin barco — cualquier fecha funciona).",
       },
       start_date: {
         type: "string",

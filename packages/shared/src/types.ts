@@ -203,12 +203,17 @@ export type FourBlockPrompt = {
 export const AVAILABILITY_PROGRAMS = [
   "TryScuba",
   "ScubaDiver", // 1-day cert, NOT the same as TryScuba
-  "OW", // Open Water — 3 days
-  "AOW", // Advanced Open Water — 2 days
+  "OW", // Open Water 18m — 3 days
+  "OW30", // Open Water 30 (premium) — 3 days, 6 dives
+  "AOW", // Advanced Adventurer — 2 days, 5 dives
   "Refresh", // Refresh + 2 fun dives — same day
-  "RefreshAdv", // Refresh + Advanced combo
-  "FunDive", // single fun dive — client picks AM or PM
-  "DeepAdvFD", // Deep Adventure + Fun Dive
+  "RefreshAdv", // Refresh + Advanced combo — 2 days
+  "FunDive", // single fun dive (2 dives) — client picks AM or PM
+  "DeepAdvFD", // Deep Adventure + Fun Dive — client picks AM or PM
+  "DeepSpecialty", // 40m Deep Specialty — derives to human for full schedule
+  "RescueDiver", // GT-specific Rescue program — derives to human
+  "NitroxSpecialty", // Nitrox specialty — derives to human
+  "ReactRight", // Emergency First Response (theory only, no boat)
 ] as const;
 export type AvailabilityProgram = (typeof AVAILABILITY_PROGRAMS)[number];
 

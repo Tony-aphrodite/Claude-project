@@ -136,8 +136,12 @@ const FOREIGN_CURRENCIES = new Set<DepositCurrency>(["EUR", "GBP", "AUD", "USD"]
 
 /**
  * Cross-check extracted fields against what we know the deposit should be.
- * The owner spec uses ±0.50 unit tolerance on amount; ref code must match
- * exactly (case-insensitive after normalization).
+ * Owner spec DPM_AI_LAUNCH §3.4 (2026-05-07):
+ *   - Amount tolerance: ±2 % to absorb bank fees on international SWIFT.
+ *   - Amount must NOT be > expected + 10 % (catches duplicate / wrong-amount
+ *     transfers that need human review).
+ *   - Ref code must match exactly (case-insensitive, whitespace-stripped).
+ *   - Currency must match exactly.
  */
 export function reconcile(
   extraction: OcrExtraction,
@@ -162,8 +166,14 @@ export function reconcile(
 
   if (extraction.amount == null) {
     mismatches.push("amount_missing");
-  } else if (Math.abs(extraction.amount - expected.amount) > 0.5) {
-    mismatches.push("amount_mismatch");
+  } else {
+    const lowerBound = expected.amount * 0.98; // -2% tolerance
+    const overpaymentBound = expected.amount * 1.1; // >+10% looks suspicious
+    if (extraction.amount < lowerBound) {
+      mismatches.push("amount_too_low");
+    } else if (extraction.amount > overpaymentBound) {
+      mismatches.push("amount_too_high");
+    }
   }
 
   return { mismatches, validated: mismatches.length === 0 };

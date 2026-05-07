@@ -23,20 +23,51 @@ export type RequiredSlot = {
   slot: SlotKey;
 };
 
-const TRY_SCUBA: readonly RequiredSlot[] = [{ dayOffset: 0, slot: "PM" }];
-const SCUBA_DIVER: readonly RequiredSlot[] = [{ dayOffset: 0, slot: "PM" }];
-const REFRESH: readonly RequiredSlot[] = [{ dayOffset: 0, slot: "PM" }];
+// Owner spec DPM_AI_LAUNCH §1.1 (2026-05-07).
+//
+// Day-by-day boat-needing slots per program. dayOffset 0 = start_date.
+// Programs that start with theory + pool DON'T consume boat capacity on
+// day 1 — those days are intentionally absent from the array. The AI uses
+// this fact to offer "start theory+pool today, dives tomorrow" when the
+// requested same-day boat has already departed.
+const TRY_SCUBA: readonly RequiredSlot[] = [
+  // Pool morning (no boat) → 12:30 PM 2 dives
+  { dayOffset: 0, slot: "PM" },
+];
+const SCUBA_DIVER: readonly RequiredSlot[] = [
+  // Pool morning (no boat) → 12:30 PM 2 dives
+  { dayOffset: 0, slot: "PM" },
+];
+const REFRESH: readonly RequiredSlot[] = [
+  // Pool 9 AM (no boat) → 12:30 PM 2 dives
+  { dayOffset: 0, slot: "PM" },
+];
 const OW: readonly RequiredSlot[] = [
+  // Day 1: 1:30 PM theory+pool (no boat)
+  // Day 2: 12:30 PM 2 dives
   { dayOffset: 1, slot: "PM" },
+  // Day 3: 7:15 AM 2 dives
   { dayOffset: 2, slot: "AM" },
 ];
+const OW30: readonly RequiredSlot[] = [
+  // Day 1: 1:30 PM theory+pool (no boat)
+  // Day 2: 12:30 PM 2 dives
+  { dayOffset: 1, slot: "PM" },
+  // Day 3: 7:15 AM 2 dives + 12:30 PM 2 extra dives (Deep + Fun)
+  { dayOffset: 2, slot: "AM" },
+  { dayOffset: 2, slot: "PM" },
+];
 const AOW: readonly RequiredSlot[] = [
+  // Day 1: 12:15 PM 2 dives (Navegación + Flotabilidad)
   { dayOffset: 0, slot: "PM" },
+  // Day 2: 7:30 AM 2 dives + 12:30 PM 1 dive
   { dayOffset: 1, slot: "AM" },
   { dayOffset: 1, slot: "PM" },
 ];
 const REFRESH_ADV: readonly RequiredSlot[] = [
+  // Day 1: 9 AM Refresh pool (no boat) + 12:15 PM 2 AOW dives
   { dayOffset: 0, slot: "PM" },
+  // Day 2: same as AOW Day 2
   { dayOffset: 1, slot: "AM" },
   { dayOffset: 1, slot: "PM" },
 ];
@@ -60,6 +91,8 @@ export function getRequiredSlots(
       return REFRESH;
     case "OW":
       return OW;
+    case "OW30":
+      return OW30;
     case "AOW":
       return AOW;
     case "RefreshAdv":
@@ -68,6 +101,17 @@ export function getRequiredSlots(
     case "DeepAdvFD":
       if (!fundiveSlot) return null;
       return [{ dayOffset: 0, slot: fundiveSlot }];
+    case "ReactRight":
+      // Theory-only emergency response course — no boat required at all.
+      // Empty array signals "schedule-able any day, no roster check".
+      return [];
+    case "DeepSpecialty":
+    case "RescueDiver":
+    case "NitroxSpecialty":
+      // Per DPM_AI_LAUNCH §1.1: cronograma derives to human. Returning null
+      // surfaces `program_not_scheduled` to the AI which then routes to the
+      // GT team rather than fabricating a schedule.
+      return null;
     default:
       return null;
   }

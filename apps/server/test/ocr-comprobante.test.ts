@@ -18,7 +18,15 @@ describe("reconcile — owner spec INSTRUCCIONES_PAGO §5 validation rules", () 
     expect(r.mismatches).toEqual([]);
   });
 
-  it("accepts amount within ±0.50 tolerance (high)", () => {
+  it("accepts amount within -2% tolerance (bank fees absorbed)", () => {
+    const r = reconcile(
+      { amount: 39.21, currency: "EUR", beneficiary: null, refCode: "DPM-A1B2C3", date: null },
+      expected,
+    );
+    expect(r.validated).toBe(true);
+  });
+
+  it("accepts amount slightly over expected", () => {
     const r = reconcile(
       { amount: 40.5, currency: "EUR", beneficiary: null, refCode: "DPM-A1B2C3", date: null },
       expected,
@@ -26,21 +34,22 @@ describe("reconcile — owner spec INSTRUCCIONES_PAGO §5 validation rules", () 
     expect(r.validated).toBe(true);
   });
 
-  it("accepts amount within ±0.50 tolerance (low)", () => {
+  it("flags amount_too_low when client paid less than expected -2%", () => {
     const r = reconcile(
-      { amount: 39.5, currency: "EUR", beneficiary: null, refCode: "DPM-A1B2C3", date: null },
-      expected,
-    );
-    expect(r.validated).toBe(true);
-  });
-
-  it("rejects amount above tolerance", () => {
-    const r = reconcile(
-      { amount: 41, currency: "EUR", beneficiary: null, refCode: "DPM-A1B2C3", date: null },
+      { amount: 38, currency: "EUR", beneficiary: null, refCode: "DPM-A1B2C3", date: null },
       expected,
     );
     expect(r.validated).toBe(false);
-    expect(r.mismatches).toContain("amount_mismatch");
+    expect(r.mismatches).toContain("amount_too_low");
+  });
+
+  it("flags amount_too_high when client paid more than +10% (possible duplicate)", () => {
+    const r = reconcile(
+      { amount: 50, currency: "EUR", beneficiary: null, refCode: "DPM-A1B2C3", date: null },
+      expected,
+    );
+    expect(r.validated).toBe(false);
+    expect(r.mismatches).toContain("amount_too_high");
   });
 
   it("rejects mismatched currency", () => {
@@ -78,23 +87,26 @@ describe("reconcile — owner spec INSTRUCCIONES_PAGO §5 validation rules", () 
     expect(r.validated).toBe(false);
   });
 
-  it("treats IDR amounts the same way (700,000 ±0.50)", () => {
+  it("scales tolerance with amount (IDR 700,000 ±2% = ±14,000)", () => {
     const idrExpected: ExpectedDeposit = { refCode: "DPM-IDR123", currency: "IDR", amount: 700_000 };
+    // exact match
     expect(
       reconcile(
         { amount: 700_000, currency: "IDR", beneficiary: null, refCode: "DPM-IDR123", date: null },
         idrExpected,
       ).validated,
     ).toBe(true);
+    // -1.5% — within tolerance
     expect(
       reconcile(
-        { amount: 699_999.5, currency: "IDR", beneficiary: null, refCode: "DPM-IDR123", date: null },
+        { amount: 689_500, currency: "IDR", beneficiary: null, refCode: "DPM-IDR123", date: null },
         idrExpected,
       ).validated,
     ).toBe(true);
+    // -3% — under tolerance
     expect(
       reconcile(
-        { amount: 700_001, currency: "IDR", beneficiary: null, refCode: "DPM-IDR123", date: null },
+        { amount: 679_000, currency: "IDR", beneficiary: null, refCode: "DPM-IDR123", date: null },
         idrExpected,
       ).validated,
     ).toBe(false);

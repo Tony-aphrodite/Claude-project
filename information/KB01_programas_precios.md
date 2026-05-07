@@ -1,229 +1,283 @@
 # KB-01 — Programas y Precios — Gili Trawangan
 
+> Fuente: `DPM_AI_LAUNCH_GT_DOCUMENTO_COMPLETO4.md` (2026-05-07).
+> Reemplaza la versión anterior (mayo 4) que tenía precios y horarios
+> desactualizados. **Moneda primaria: IDR.** Si el cliente pregunta en
+> otra moneda, John puede dar aproximados pero la cotización oficial
+> es en IDR.
+
 **Sede:** Gili Trawangan
 **Moneda base:** IDR (Rupias indonesias)
-**Última actualización:** mayo 2026
+**Última actualización:** 2026-05-07
 
 ---
 
-## Try Scuba {#try-scuba}
+## Try Scuba Diving / Bautizo de Buceo {#try-scuba}
 
-- **Precio:** 1,750,000 IDR
-- **Duración:** 1 día
-- **Para:** principiantes sin experiencia previa
-- **Profundidad máxima:** 12m
-- **Edad mínima:** 10 años
+- **Precio:** 1.750.000 IDR por persona
+- **Duración:** 1 día completo
+- **Edad mínima:** 10 años (8-9 años: máx 5 m, requiere consultar oficina)
+- **Profundidad máxima:** 12 metros
+- **Sin certificación** — solo experiencia
 
 ### Horario estándar {#try-scuba-horario-estandar}
-Teoría y piscina 8 o 9am + dos buceos en barco 12:30–4pm. Todo en un día.
+
+- 8:00 AM: encuentro en la escuela para teoría + piscina (~2 hs piscina)
+- Descanso para comer
+- 12:30 PM: encuentro en la escuela para ir a bucear (2 buceos desde barco, máx 12 m)
+- 4:00 PM: regreso a la escuela
 
 ### Horario alternativo (cliente llega al mediodía) {#try-scuba-horario-alternativo}
-Teoría y piscina desde 1pm ese día + dos buceos barco AM 7:15–11am al día siguiente.
+
+Si el cliente llega después de las 12:15, John puede ofrecer:
+- **Hoy (después de 12:15):** teoría + piscina por la tarde
+- **Mañana:** 2 buceos en barco AM o PM
+
+### Excepción operativa (interna)
+
+- Slot 7:00 AM automático para clientes de India (NO comunicar al cliente).
 
 ---
 
-## Scuba Diver {#scuba-diver}
+## Scuba Diver (licencia en 1 día) {#scuba-diver}
 
-- **Precio:** 4,600,000 IDR
+- **Precio:** 4.600.000 IDR por persona
 - **Duración:** 1 día
-- **Certificación:** vitalicia hasta 12m
-- **Upgradeable:** sí, a Open Water
+- **Edad mínima:** 10 años
+- **Profundidad máxima:** 12 metros
+- **Certificación:** SSI Scuba Diver (internacional y vitalicia)
 
 ### Horario estándar {#scuba-diver-horario-estandar}
-Teoría y piscina desde 8am + dos buceos 12:30–4pm + examen online.
 
-### Horario alternativo (cliente llega al mediodía) {#scuba-diver-horario-alternativo}
-Teoría y piscina desde 1pm ese día + dos buceos barco AM 7:15–11am al día siguiente.
+- 8:00 AM: teoría + piscina (~2 hs)
+- 12:30 — 16:00 PM: 2 buceos + Knowledge Review
+
+### Horario alternativo {#scuba-diver-horario-alternativo}
+
+Después de 12:15: teoría + piscina hoy → buceos mañana.
+
+### Upgrade
+
+Se puede subir a Open Water en cualquier momento, en cualquier escuela
+SSI del mundo.
 
 ---
 
-## Open Water {#ow-course}
+## Open Water 18 m {#ow-course}
 
-- **Precio:** 6,400,000 IDR
-- **Duración:** 3 días
-- **Certificación:** internacional vitalicia hasta 18m
-- **Edad mínima:** 10 años
+- **Precio:** 6.400.000 IDR por persona
+- **Duración:** 3 días (también disponible en 2 días — mismo precio,
+  misma cantidad de buceos y clases, solo más ajustado en tiempo)
+- **Edad mínima:** 10 años (Junior OW menores de 15: máx 12 m,
+  auto-upgrade a 18 m a los 15 años) {#junior-ow}
+- **Profundidad máxima:** 18 metros
+- **Certificación:** SSI Open Water (internacional y vitalicia,
+  reconocida 1:1 con PADI)
 
 ### Cronograma {#ow-cronograma}
-- **Día 1:** teoría y piscina desde 1:30pm
-- **Día 2:** dos buceos 12:30–4pm + teoría de vuelta en la escuela
-- **Día 3:** dos buceos 7:15–11am + examen
 
-### Junior Open Water {#junior-ow}
-10 a 14 años → Junior OW (hasta 12m, se actualiza a los 15).
+- **Día 1:** 1:30 PM encuentro para teoría + piscina (~2 hs)
+- **Día 2:** 12:30 PM dos buceos → regreso 4:00 PM → segunda clase
+  teórica hasta 5:00 PM
+- **Día 3:** 7:15 AM dos buceos → regreso 11:00 AM → cierre de curso
 
 ---
 
-## Open Water 30 {#ow30-course}
+## Open Water 30 ⭐ {#ow30-course}
 
-- **Precio:** 9,500,000 IDR
+> SIEMPRE OFRECER PRIMERO si el cliente tiene 3+ días disponibles.
+> Es el producto premium de GT.
+
+- **Precio:** 9.500.000 IDR por persona
+- **Valor real:** 12.757.000 IDR — el cliente ahorra 3.257.000 IDR
 - **Duración:** 3 días
-- **Certificación:** hasta 30m de por vida (programa exclusivo DPM)
+- **Profundidad máxima:** 30 metros
+- **Certificación:** SSI Open Water + reconocimiento Deep Adventurer
+- **Aproximados:** ~509 EUR / ~434 GBP / ~576 USD
 
-### Incluye {#ow30-incluye}
-- Licencia OW
-- Reconocimiento Deep Adventurer
-- Camiseta DPM
-- Máscara, snorkel y botella reutilizable de regalo
-- 6 buceos
-- 50% descuento en Fun Dives en todas las otras sedes DPM
+### Incluye (más que el OW estándar) {#ow30-incluye}
+
+- Camiseta DPM gratis
+- Máscara profesional + snorkel
+- Botella DPM reutilizable
+- 6 inmersiones (vs 4 del OW estándar)
+- Equipo completo, seguro, instructor profesional, todas las tasas
+- **Bonus:** 50 % descuento en 1 Fun Dive en cada sede DPM (Koh Tao,
+  Phi Phi, Gili T, Gili Air, Nusa Penida)
 
 ### Cuándo ofrecerlo {#ow30-cuando-ofrecer}
-**SIEMPRE como upsell al OW estándar una vez confirmado el interés en OW.**
+
+- Cliente confirma certificarse y tiene ≥ 3 días disponibles → ofrecer
+  OW30 PRIMERO. Si dice no, recién ahí ofrecer OW estándar.
+- Cliente ya está pidiendo OW estándar → mencionar OW30 una vez con
+  el ahorro y dejar al cliente decidir.
+
+### Cronograma {#ow30-cronograma}
+
+- **Día 1:** 1:30 PM teoría + piscina
+- **Día 2:** 12:30 PM 2 buceos → regreso 4:00 PM → teoría hasta 5:00 PM
+- **Día 3:** 7:15 AM 2 buceos → regreso 11:00 AM → descanso → 12:30 PM
+  2 buceos extra (Aventura Deep + Fun Dive) → regreso 4:00 PM → cierre
 
 ---
 
-## Advanced {#advanced-course}
+## Advanced Adventurer (AOW) {#advanced-course}
 
-- **Precio:** 5,400,000 IDR
-- **Duración:** 2 días
-- **Certificación:** hasta 30m
-- **Aventuras:** buoyancy, navigation, deep, wreck, fish ID
-- **Sin teoría ni examen** — curso 100% práctico
+- **Precio:** 5.400.000 IDR por persona
+- **Duración:** 2 días, 5 inmersiones
+- **Profundidad máxima:** 30 metros
+- **Requisito:** Open Water previo (cualquier agencia)
+- **100 % práctico:** sin teoría, sin examen, sin clases
 
 ### Cronograma {#advanced-cronograma}
-- **Día 1:** dos buceos tarde 12:30–4pm
-- **Día 2:** dos buceos mañana 7:15–11am + un buceo tarde 12:30–2:30pm (regreso máximo 3pm)
+
+- **Día 1:** 12:15 PM 2 buceos (Navegación + Flotabilidad) → regreso 4:00 PM
+- **Día 2:** 7:30 AM 2 buceos (Buceo Profundo + Barco Hundido) → regreso
+  11:00 AM → descanso → 12:30 PM 1 buceo más (Aventura de Corriente
+  o Fish ID) → regreso 2:30 PM
 
 ### Logística ferry {#advanced-ferry}
-Último buceo del Advanced termina a las 2:30pm. Ferry de las 3:15pm cabe perfectamente. **Calcular SIEMPRE antes de decir que no encaja con el horario de salida del cliente.**
+
+Cliente que viene de Bali el mismo día del Día 1: el ferry mínimo es
+2 hs desde Padangbai. Para llegar a las 12:15 PM tiene que salir antes
+de las 10:00 AM. Si no, ofrecer empezar mañana.
 
 ---
 
 ## Refresh {#refresh-course}
 
-- **Precio:** 1,540,000 IDR
+- **Precio:** 1.540.000 IDR por persona
 - **Duración:** 1 día
-- **Para:** certificados sin bucear hace más de 12 meses
+- **Requisito:** Scuba Diver, OW, Advanced o superior **+ última
+  inmersión hace más de 1 año** (regla Indonesia / seguridad)
 
 ### Horario estándar {#refresh-horario-estandar}
-Teoría y piscina 9am + dos buceos 12:30–4pm. Todo en un día.
 
-### Horario alternativo (cliente llega al mediodía) {#refresh-horario-alternativo}
-Teoría y piscina desde 1pm ese día + dos buceos barco AM 7:15–11am al día siguiente.
+- 9:00 AM: teoría + piscina
+- 12:30 — 16:00 PM: 2 buceos en barco
+
+### Horario alternativo {#refresh-horario-alternativo}
+
+Después de 12:15: teoría + piscina hoy → buceos mañana.
 
 ### Gancho de venta — IMPORTANTE {#refresh-gancho}
-El Refresh siempre va al barco de **tarde** (12:30–4pm) → gancho **tortugas en Turtle Heaven**, NUNCA Shark Point (que es de mañana). Ver `KB-04_sales_patterns.md#gancho-tortugas`.
+
+El Refresh es **obligatorio** si la última inmersión fue hace > 1 año.
+NO es algo que el cliente pueda saltarse "porque ya bucea". Es una
+regla de seguridad.
 
 ---
 
-## Refresh + Advanced {#refresh-advanced-combo}
+## Refresh + Advanced Combo {#refresh-advanced-combo}
 
-- **Precio:** 5,950,000 IDR
+- **Precio:** 5.950.000 IDR por persona
 - **Duración:** 2 días
-- **Para:** OW certificados con más de 1 año sin bucear que quieren hacer el Advanced
 
 ### Cuándo ofrecerlo {#refresh-advanced-cuando}
-Solo si el cliente rechaza hacer el Refresh por separado.
+
+Cliente certificado con > 1 año sin bucear que también quiere AOW.
+Es más barato que el Refresh + AOW por separado y el Día 1 se
+compacta.
 
 ### Cronograma {#refresh-advanced-cronograma}
-- **Día 1:** teoría y piscina 9am + dos buceos 12:30–4pm (inicio Advanced)
-- **Día 2:** dos buceos 7:15–11am + un buceo tarde 12:30–2:30pm
+
+- **Día 1:** 9:00 AM Refresh teoría + piscina → 12:15 PM 2 buceos AOW
+  (Navegación + Flotabilidad) → regreso 4:00 PM
+- **Día 2:** mismo que Día 2 del Advanced (7:30 AM 2 buceos + 12:30 PM
+  1 buceo)
 
 ---
 
 ## Fun Dive {#fun-dive}
 
-- **Precio:** 1,180,000 IDR (dos buceos)
-- **Para:** OW certificados o superior
+- **Precio:** 1.180.000 IDR por persona
+- 2 inmersiones desde barco
+- Cliente elige slot: AM o PM
 
-### Mañana 7:15–11am {#fun-dive-am}
-Shark Point + Bounty Wreck
+### Mañana 7:15–11:00 AM {#fun-dive-am}
 
-### Tarde 12:30–4pm {#fun-dive-pm}
-Turtle Heaven + Halik
+Cliente llega 6:45 AM al centro.
 
-### Basic Diver con instructor {#fun-dive-basic}
-Con Basic Diver card válida: 1,500,000 IDR con instructor.
+### Tarde 12:15–16:00 PM {#fun-dive-pm}
 
----
-
-## Deep Adventure + Fun Dive {#deep-adventure-fd}
-
-- **Precio:** 1,680,000 IDR
-- **Duración:** 1 día (dos buceos)
-- **Certificación:** hasta 30m de por vida
-- **Para:** OW sin tiempo para el Advanced completo
-
-### Horario {#deep-adventure-horario}
-Turno mañana 7:15–11am o tarde 12:30–4pm según disponibilidad.
+Cliente llega 12:00 PM al centro.
 
 ---
 
-## Nitrox Specialty {#nitrox-specialty}
+## Deep Adventure + Fun Dive {#deep-adventure-fun-dive}
 
-- **Precio completo (teoría + 2 buceos):** 3,200,000 IDR
-- **Solo teoría (sin buceos):** 1,800,000 IDR
-- **Certifica:** Enriched Air Nitrox 32% o 40%
-
-### Cronograma {#nitrox-cronograma}
-- **Día 1:** teoría 1:30pm + análisis de tanque
-- **Día 2:** 2 buceos AM 7:15–11am
-
-### Importante {#nitrox-importante}
-Avisar a la oficina con anticipación para ordenar los tanques.
+- **Precio:** 1.680.000 IDR por persona
+- 1 Deep Adventure + 1 Fun Dive
+- Cliente elige slot AM o PM
 
 ---
 
 ## Deep Specialty {#deep-specialty}
 
-- **Precio (OW):** 4,190,000 IDR
-- **Precio (Advanced):** 3,600,000 IDR
+- **Precio:** 4.190.000 IDR por persona
+- **Profundidad máx:** 40 m
+- **Cronograma detallado:** derivar a humano
 
 ---
 
-## React Right {#react-right}
+## Rescue Diver {#rescue-diver}
 
-- **Precio:** 2,400,000 IDR
-- **Duración:** medio día (solo teoría)
-- **Sin prerrequisitos**
-- **Validez:** 2 años
-
----
-
-## Rescue Course {#rescue-course}
-
-- **Precio:** 6,400,000 IDR
-- **Prerrequisito:** React Right previo
+- Programa disponible en GT (NO es una especialidad)
+- Requiere certificación previa Advanced
+- **Precio y cronograma detallado:** derivar a humano
 
 ---
 
-## Upgrades SSI {#upgrades-ssi}
+## Nitrox Specialty {#nitrox-specialty}
 
-> Solo aplican a certificaciones SSI.
-
-### Basic Diver → Open Water {#upgrade-bd-ow}
-- **Precio:** 5,350,000 IDR
-- **Duración:** 3 buceos en 2 días
-- **Día 1:** teoría y piscina 8am + dos buceos 12:30–4pm
-- **Día 2:** un buceo AM 7:15–11am
-
-### Scuba Diver → Open Water {#upgrade-sd-ow}
-- **Precio:** 4,050,000 IDR
-- **Duración:** 2 buceos en 1 día
-- **Cronograma:** piscina desde 8am + dos buceos 12:30–4pm
-
-### Basic Diver → Open Water (continúa al día siguiente del BD en GT) {#upgrade-bd-ow-continua}
-- **Precio:** 4,650,000 IDR
+- Especialidad disponible en GT
+- **Precio y cronograma:** derivar a humano
 
 ---
 
-## No disponibles en Gili Trawangan {#no-disponibles}
+## React Right (Emergency First Response SSI) {#react-right}
 
-### Buceo nocturno {#no-night-dive}
-No es regular en GT. Si el cliente lo pide → consultar con la escuela antes de confirmar. **Nunca confirmar por cuenta propia.**
+- **Precio:** 2.400.000 IDR por persona
+- **Duración:** 1 clase de teoría (sin piscina, sin buceos)
+- **Sin barco** — cualquier fecha funciona
 
-### Divemaster / Instructor {#no-divemaster}
-No disponible en GT → referir a Gili Air: +6282266153697
+### Cronograma — 2 opciones
+
+- **Mañana:** 8:00 AM (mañana entera)
+- **Tarde:** 1:30 PM (tarde entera)
+
+### Componentes básicos
+
+- Primary Assessment
+- First Aid & CPR Skills
+- Primary Stabilization Techniques
+
+### Componentes opcionales
+
+- Oxygen Administration in Diving Emergencies
+- Automated External Defibrillation Basics
+
+> Tanto principiantes como SSI React Right Providers experimentados
+> encuentran valor en esta sesión.
 
 ---
 
-## Extras y costos adicionales {#extras}
+## Programas que GT NO ofrece {#no-ofrecidos}
 
-- **Marine park fee:** 100,000 IDR/persona/semana. Efectivo IDR en la escuela. Válido Gili Air, Gili Trawangan, Gili Meno.
-- **Alquiler computadora de buceo:** 150,000 IDR (sujeto a disponibilidad). Incluida en OW y Advanced.
-- **Cargo por tarjeta:** +3% (efectivo IDR o transferencia sin recargo)
-- **Wetsuit:** 3mm short
-- **Tanques:** 12L
-- **Snacks a bordo:** frutas, galletitas, agua, café y té
-- **Camisetas DPM:** 300,000 IDR
+- **Buceo nocturno** → derivar a Gili Air (Colomba)
+- **Divemaster training** → derivar a Gili Air
+- **Snorkel guiado**
+- **Programas para menores de 8 años**
+
+### Frase de derivación
+
+- 🇪🇸 ES: "Para [programa] te conviene hablar directo con el equipo,
+  te conecto 🤿"
+- 🇬🇧 EN: "For that one I'll connect you with the team 🤿"
+
+### Excepción — Night Dive (sí derivar a Gili Air)
+
+- 🇪🇸 ES: "No ofrecemos buceo nocturno en Gili T, pero sí en nuestra
+  sede de Gili Air. ¿Querés que te conecte? 🤿"
+- 🇬🇧 EN: "We don't offer night dives in Gili T — our Gili Air
+  location does! Want me to connect you? 🤿"

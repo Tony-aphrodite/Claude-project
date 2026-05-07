@@ -465,3 +465,164 @@ literales son críticos y no se pueden inferir del resumen):
 4. La fecha del lanzamiento real con clientes pasa al
    **martes 2026-05-12** (no lunes 11). Steve actualiza
    memoria y procedimiento de gate-removal en consecuencia.
+
+---
+
+## 12. Miguel — 5 dudas sobre el doc DPM_AI_LAUNCH — 2026-05-07
+
+> Después de subir el documento Miguel revisó cuestiones que faltan
+> aclarar antes de seguir armando secciones. Mezcla de preguntas
+> técnicas (campos en Respond.io, almacenamiento del refCode, webhook
+> inactivo) y operativas (links que faltan, formato del formulario
+> médico).
+
+### Mensaje original
+
+```
+Hola Steve,
+Estuve repasando el doc y me surgieron algunas dudas / cosas que creo
+que faltan. Antes de seguir agregando secciones quería tu opinión:
+
+1. Captura de datos al sheet
+Tengo armado todo un sistema de Sheets que captura las ventas
+(DPM_Ventas_Master → DPM_Comando_Central). Hoy lo llena un agente
+humano al cerrar la conversación con un rayito específico ("Cerrar
+Venta — Captura Datos") que tiene un form de 8 campos (programa,
+turno, pax, monto, moneda, sede, descuento). Después un Logger
+automatizado escribe la fila al sheet.
+Mi idea para John: que vaya actualizando los campos de contacto a
+medida que va captando la info en la conversación, así cuando se
+cierra la conv el Logger lee solo y no hace falta que un humano
+ejecute nada. ¿Eso lo podés configurar desde el AI Agent en
+Respond.io? ¿O preferís otra forma de hacerlo?
+
+2. Código único de referencia
+Lo del formato DPM-GT-MMDD-XXXXXX, ¿dónde lo vas a guardar exactamente?
+Mi idea es que tu servidor lo escriba a un campo de contacto custom
+en Respond.io (ej: codigo_referencia, tipo Text). Yo creo el campo y
+agrego una columna nueva al sheet, el Logger lo lleva solo. ¿Te sirve
+o tenías pensado otra cosa?
+
+3. Mensajes post-venta (sección 3.5)
+Dejé como "pendiente" los textos reales de los 3 mensajes
+post-reserva y el formato del formulario médico. ¿Querés que te los
+pase antes de arrancar, o preferís ir con placeholders y los
+reemplazás después? Patrick los tiene, se los pido esta semana si
+querés.
+
+4. Detalles que también faltan:
+- Link del Google Maps del centro DPM Gili Trawangan
+- Links de fast boats (Bluewater Express, Scoot, Eka Jaya)
+- Formato del formulario médico (¿Google Form existente? ¿Campos
+  custom en Respond.io? ¿Otro?)
+
+5. Webhook Developer Webhook 1 inactivo
+Te avisé ayer pero veo que hoy sigue marcado como Inactivo en
+Respond.io (el que apunta a https://dpmserver-production.up.railway.app...).
+¿Lo dejaste así a propósito o se desactivó solo? Te lo recuerdo por
+las dudas porque entiendo que sin ese webhook activo el server no
+recibe los mensajes nuevos de WhatsApp y John no podría procesar
+nada cuando lo conectemos.
+
+Avisame qué pensás y arreglamos cómo sumamos esto al doc, o
+arrancamos con lo que ya esté claro.
+```
+
+### Respuesta operativa (pegada a Miguel)
+
+Texto sugerido — limpio, en orden de las 5 preguntas y técnico
+donde corresponde:
+
+```
+Hola Miguel,
+
+Te respondo punto por punto.
+
+1) Captura al Sheet → SÍ, lo hace el server.
+La forma más limpia es: a medida que John va calificando, mi server
+escribe los campos en el contacto de Respond.io vía API (lo mismo que
+el Logger que tenés hoy, pero disparado por el AI en lugar de por un
+humano). Concretamente, cuando el AI invoca consultar_disponibilidad
+empujo programa + turno + start_date al contacto. Cuando invoca
+solicitar_deposito empujo monto + moneda + codigo_referencia + pax.
+Para descuento, si el cliente lo pide, lo registro como un campo
+adicional. El Logger sigue funcionando igual — lee el contacto
+cuando dispara el rayito de cierre.
+
+Para que esto funcione necesito que crees en Respond.io los siguientes
+campos custom de contacto (te los paso en el orden que los va a
+escribir el server, todos tipo Text salvo donde digo otro):
+
+  programa            (Text — ej: "OW30", "TryScuba")
+  turno               (Text — "AM" / "PM")
+  start_date          (Date — primer día del programa)
+  pax                 (Number — cantidad de personas)
+  monto_deposito      (Number — 40 / 700000 según moneda)
+  moneda              (Text — "EUR" / "GBP" / "AUD" / "USD" / "IDR")
+  codigo_referencia   (Text — "DPM-GT-MMDD-XXXXXX")
+  descuento           (Number — % aplicado, default 0)
+
+Si querés cambiar nombres avisame, los uso tal cual los crees.
+
+2) Código de referencia → exactamente como decís.
+Servidor genera DPM-GT-MMDD-XXXXXX, lo guarda en Supabase (mi panel)
+Y en simultáneo lo escribe al campo codigo_referencia del contacto
+en Respond.io. Doble registro: el panel para auditoría, Respond.io
+para que el Logger lo levante al sheet.
+
+3) Mensajes post-venta → mejor con los textos reales antes del lunes.
+Si Patrick los tiene, mandámelos esta semana — los cargo como
+plantillas en Respond.io o los hardcodeo según prefieras. Con
+placeholders se puede arrancar pero el cliente real va a recibir
+"[INSERT MAPS LINK]" si me olvido de actualizar antes del switch.
+Mejor cerrarlo bien.
+
+4) Detalles que faltan:
+- Maps GT: yo tengo este link cargado de algún doc viejo —
+  https://maps.app.goo.gl/9e7PLpg1WU8b8S9R9
+  Confirmame si es el correcto o me pasás otro.
+- Fast boats: necesito los 3 links (Bluewater Express, Scoot,
+  Eka Jaya). Los meto en el mensaje 3 post-venta cuando me los pases.
+- Formulario médico: te tiro mi recomendación — usemos un Google
+  Form existente si Patrick ya tiene uno que ustedes usan; si no,
+  armamos uno nuevo simple con: nombre completo, edad, teléfono
+  emergencia, condiciones médicas (sí/no + cuál), seguro de viaje
+  (sí/no + compañía + N° póliza). Más fácil de mantener que campos
+  custom en Respond.io porque cualquiera del equipo puede editarlo.
+
+5) Webhook Developer Webhook 1 inactivo → necesito que lo actives vos.
+El webhook está creado correctamente apuntando a la URL de Railway
+(/webhook/respond-io). Yo no puedo activarlo desde mi lado — ese
+toggle vive en tu workspace de Respond.io. Andá a Settings →
+Integrations → Webhooks (o Developer Hub según versión) y prendé el
+toggle "Active" del webhook Developer Webhook 1. Apenas lo hagas
+hago un ping de prueba para confirmar que llega el evento al server.
+
+Tenés razón en que sin ese webhook activo el server no procesa
+nada. Lo mantuve apagado durante el desarrollo para no contaminar
+con tráfico de prueba; ahora que vamos al lunes interno hay que
+prenderlo.
+
+Resumen de lo que necesito de vos para arrancar el lunes:
+  a) Crear los 8 campos custom de contacto en Respond.io (lista arriba)
+  b) Pasar los 3 textos post-venta + formato del form médico
+  c) Confirmar el link de Maps + pasar los 3 links de fast boats
+  d) Activar Developer Webhook 1
+
+Mientras llegan (a) (b) (c), yo voy implementando del lado del server
+la escritura de los campos custom (con los nombres que propuse arriba)
+y la auto-confirmación del depósito por OCR. Si después cambiás los
+nombres de los campos, lo ajusto en una línea.
+
+Saludos!
+```
+
+### Acción tomada del lado de Steve (2026-05-07)
+
+1. Mensaje guardado en este archivo (sección 12).
+2. Voy a implementar la escritura a campos custom de Respond.io en el
+   server con los nombres tentativos `programa`, `turno`, `start_date`,
+   `pax`, `monto_deposito`, `moneda`, `codigo_referencia`, `descuento`.
+3. Pendiente de Miguel: 8 campos creados en Respond.io, 3 textos
+   post-venta, formato form médico, links faltantes, activación del
+   webhook.
