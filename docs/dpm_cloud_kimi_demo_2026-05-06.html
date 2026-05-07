@@ -1,0 +1,1277 @@
+<!DOCTYPE html><html lang="es"><head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DPM Cloud - Demo Interactivo</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        dpm: {
+          50: '#f0fdfa', 100: '#ccfbf1', 200: '#99f6e4',
+          300: '#5eead4', 400: '#2dd4bf', 500: '#14b8a6',
+          600: '#0d9488', 700: '#0f766e', 800: '#115e59', 900: '#134e4a'
+        }
+      }
+    }
+  }
+}
+</script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+body { font-family: 'Inter', sans-serif; }
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); }
+.page { display: none; animation: fadeIn 0.3s ease-out; }
+.page.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.timeline-dot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; z-index: 10; position: relative; }
+.timeline-line { position: absolute; left: 13px; top: 28px; bottom: -8px; width: 2px; background: #e2e8f0; }
+.timeline-line-fill { position: absolute; left: 13px; top: 28px; width: 2px; background: linear-gradient(to bottom, #0d9488, #06b6d4); border-radius: 1px; transition: height 1s ease-out; }
+.btn-tactile { min-height: 44px; }
+#map { height: 400px; border-radius: 12px; }
+</style>
+<script src="https://www.kimi.com/sdk-seed.js" defer=""></script></head>
+<body class="bg-slate-50 min-h-screen">
+
+<!-- ===================== LOGIN SCREEN ===================== -->
+<div id="loginScreen" class="page active min-h-screen bg-gradient-to-br from-dpm-600 via-dpm-500 to-cyan-600 flex items-center justify-center p-4 relative overflow-hidden">
+  <!-- Floating bubbles -->
+  <div class="absolute inset-0 overflow-hidden pointer-events-none">
+    <div class="absolute w-16 h-16 rounded-full bg-white/10 top-10 right-10 animate-pulse"></div>
+    <div class="absolute w-24 h-24 rounded-full bg-white/5 bottom-20 left-10 animate-bounce" style="animation-duration:3s"></div>
+    <div class="absolute w-10 h-10 rounded-full bg-white/10 top-1/3 left-1/4"></div>
+    <div class="absolute w-20 h-20 rounded-full bg-white/5 top-1/4 right-1/3" style="animation: float 4s ease-in-out infinite"></div>
+  </div>
+
+  <div class="w-full max-w-md relative z-10">
+    <!-- Logo -->
+    <div class="text-center mb-8">
+      <div class="w-20 h-20 mx-auto mb-4 rounded-full bg-white/15 backdrop-blur flex items-center justify-center border border-white/20">
+        <svg class="w-10 h-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4-1.8 4-4 4"></path><path d="M12 8v2"></path></svg>
+      </div>
+      <h1 class="text-3xl font-bold text-white tracking-tight">DPM Cloud</h1>
+      <p class="text-dpm-200 text-sm mt-1">Dive Center Management System</p>
+    </div>
+
+    <!-- Role Selector -->
+    <div class="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl p-6 space-y-3">
+      <p class="text-sm font-semibold text-slate-500 text-center mb-2">Selecciona tu rol</p>
+
+      <button onclick="login(&#39;owner&#39;)" class="w-full btn-tactile flex items-center gap-3 p-4 rounded-xl border-2 border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 hover:border-amber-400 hover:shadow-md transition-all group">
+        <div class="w-10 h-10 rounded-lg bg-amber-500 flex items-center justify-center text-white shrink-0">
+          <i data-lucide="crown" class="w-5 h-5"></i>
+        </div>
+        <div class="text-left">
+          <p class="font-bold text-slate-800 group-hover:text-amber-700">Owner</p>
+          <p class="text-xs text-slate-500">Dashboard consolidado 5 sedes</p>
+        </div>
+        <i data-lucide="chevron-right" class="w-5 h-5 text-slate-300 ml-auto"></i>
+      </button>
+
+      <button onclick="login(&#39;manager&#39;)" class="w-full btn-tactile flex items-center gap-3 p-4 rounded-xl border-2 border-dpm-200 bg-gradient-to-r from-dpm-50 to-cyan-50 hover:border-dpm-400 hover:shadow-md transition-all group">
+        <div class="w-10 h-10 rounded-lg bg-dpm-600 flex items-center justify-center text-white shrink-0">
+          <i data-lucide="building-2" class="w-5 h-5"></i>
+        </div>
+        <div class="text-left">
+          <p class="font-bold text-slate-800 group-hover:text-dpm-700">Manager</p>
+          <p class="text-xs text-slate-500">Sede Koh Tao - gestion local</p>
+        </div>
+        <i data-lucide="chevron-right" class="w-5 h-5 text-slate-300 ml-auto"></i>
+      </button>
+
+      <button onclick="login(&#39;instructor&#39;)" class="w-full btn-tactile flex items-center gap-3 p-4 rounded-xl border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 hover:border-blue-400 hover:shadow-md transition-all group">
+        <div class="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center text-white shrink-0">
+          <i data-lucide="user-check" class="w-5 h-5"></i>
+        </div>
+        <div class="text-left">
+          <p class="font-bold text-slate-800 group-hover:text-blue-700">Instructor</p>
+          <p class="text-xs text-slate-500">Mis alumnos, comisiones, disponibilidad</p>
+        </div>
+        <i data-lucide="chevron-right" class="w-5 h-5 text-slate-300 ml-auto"></i>
+      </button>
+
+      <div class="border-t border-slate-100 pt-3">
+        <p class="text-xs text-slate-400 text-center mb-2">Soy alumno</p>
+        <button onclick="showStudentLogin()" class="w-full btn-tactile flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-white hover:border-dpm-300 hover:shadow-sm transition-all">
+          <div class="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-white shrink-0">
+            <i data-lucide="graduation-cap" class="w-4 h-4"></i>
+          </div>
+          <div class="text-left">
+            <p class="font-semibold text-slate-700 text-sm">Entrar con mi codigo</p>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Student Code Login -->
+    <div id="studentLoginForm" class="hidden bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl p-6 mt-4">
+      <div class="flex items-center gap-2 mb-4">
+        <button onclick="hideStudentLogin()" class="p-1 hover:bg-slate-100 rounded-lg"><i data-lucide="arrow-left" class="w-4 h-4 text-slate-500"></i></button>
+        <p class="font-semibold text-slate-700">Acceso de Alumno</p>
+      </div>
+      <label class="text-xs text-slate-500 font-medium mb-1 block">Codigo de acceso</label>
+      <input id="studentCode" type="text" placeholder="DPM847K" class="w-full h-11 px-3 border border-slate-200 rounded-lg text-sm font-mono tracking-wider uppercase focus:ring-2 focus:ring-dpm-500 focus:border-dpm-500 outline-none" oninput="this.value=this.value.toUpperCase()"/>
+      <p class="text-[10px] text-slate-400 mt-1 mb-3">Ejemplo: DPM847K</p>
+      <button onclick="studentLogin()" class="w-full btn-tactile bg-dpm-600 hover:bg-dpm-700 text-white font-semibold rounded-xl transition-colors">Ingresar</button>
+      <p id="studentError" class="text-xs text-red-500 mt-2 hidden">Codigo no encontrado</p>
+    </div>
+
+    <p class="text-center text-white/50 text-xs mt-6">DPM Cloud Demo v1.0 | Prototipo interactivo</p>
+  </div>
+</div>
+
+<!-- ===================== APP LAYOUT ===================== -->
+<div id="appLayout" class="min-h-screen flex" style="display:none;">
+  <!-- Sidebar -->
+  <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 flex-col hidden lg:flex h-screen sticky top-0">
+    <div class="p-5 border-b border-slate-100">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-dpm-500 to-cyan-500 flex items-center justify-center text-white">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M8 12c0-2.2 1.8-4 4-4s4 1.8 4 4-1.8 4-4 4"></path><path d="M12 8v2"></path></svg>
+        </div>
+        <span class="font-bold text-slate-800">DPM Cloud</span>
+      </div>
+      <div id="userBadge" class="mt-3 flex items-center gap-2"></div>
+    </div>
+    <nav id="sidebarNav" class="flex-1 p-3 space-y-1 overflow-y-auto hide-scrollbar"></nav>
+    <div class="p-3 border-t border-slate-100">
+      <button onclick="logout()" class="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-slate-500 hover:bg-red-50 hover:text-red-600 transition-colors">
+        <i data-lucide="log-out" class="w-4 h-4"></i>Salir
+      </button>
+    </div>
+  </aside>
+
+  <!-- Mobile sidebar overlay -->
+  <div id="mobileSidebarOverlay" class="fixed inset-0 bg-black/50 z-40 hidden lg:hidden" onclick="toggleMobileSidebar()"></div>
+  <aside id="mobileSidebar" class="fixed left-0 top-0 bottom-0 w-64 bg-white z-50 transform -translate-x-full transition-transform lg:hidden h-full">
+    <div class="p-4 border-b border-slate-100 flex items-center justify-between">
+      <span class="font-bold text-slate-800">DPM Cloud</span>
+      <button onclick="toggleMobileSidebar()" class="p-1"><i data-lucide="x" class="w-5 h-5"></i></button>
+    </div>
+    <nav id="mobileSidebarNav" class="p-3 space-y-1"></nav>
+  </aside>
+
+  <!-- Main Content -->
+  <div class="flex-1 flex flex-col min-w-0">
+    <!-- Header -->
+    <header class="h-16 bg-white/80 backdrop-blur border-b border-slate-200 flex items-center justify-between px-4 lg:px-6 sticky top-0 z-30">
+      <div class="flex items-center gap-3">
+        <button onclick="toggleMobileSidebar()" class="lg:hidden p-2 rounded-lg hover:bg-slate-100">
+          <i data-lucide="menu" class="w-5 h-5 text-slate-700"></i>
+        </button>
+        <h2 id="pageTitle" class="text-lg font-semibold text-slate-800">Dashboard</h2>
+      </div>
+      <div id="headerBadge" class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium bg-dpm-50 border-dpm-200 text-dpm-700">
+        <i data-lucide="waves" class="w-3.5 h-3.5"></i><span id="headerIsland">Koh Tao</span>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main id="mainContent" class="flex-1 p-4 lg:p-6 overflow-y-auto"></main>
+  </div>
+</div>
+
+<script>
+// ===================== DATA MOCK =====================
+const SHOPS = [
+  { id: 1, name: "DPM Diving Koh Tao", island: "Koh Tao", country: "Thailand", color: "#0d9488", currency: "THB", lat: 10.0956, lng: 99.8404, accountNumber: "THB-9988776655", holder: "DPM Diving Co. Ltd", bank: "Bangkok Bank" },
+  { id: 2, name: "DPM Diving Phi Phi", island: "Koh Phi Phi", country: "Thailand", color: "#f97316", currency: "THB", lat: 7.7407, lng: 98.7784, accountNumber: "THB-1122334455", holder: "DPM Diving Phi Phi Co.", bank: "Krungthai Bank" },
+  { id: 3, name: "DPM Diving Nusa Penida", island: "Nusa Penida", country: "Indonesia", color: "#6366f1", currency: "IDR", lat: -8.7278, lng: 115.5444, accountNumber: "IDR-5566778899", holder: "DPM Diving Indonesia", bank: "BCA" },
+  { id: 4, name: "DPM Diving Gili T", island: "Gili Trawangan", country: "Indonesia", color: "#10b981", currency: "IDR", lat: -8.3541, lng: 116.0385, accountNumber: "IDR-2233445566", holder: "DPM Diving Gili", bank: "Mandiri" },
+  { id: 5, name: "DPM Diving Gili Air", island: "Gili Air", country: "Indonesia", color: "#0ea5e9", currency: "IDR", lat: -8.3581, lng: 116.0812, accountNumber: "IDR-3344556677", holder: "DPM Diving Gili Air", bank: "BRI" }
+];
+
+const COURSE_TYPES = [
+  { id: 1, code: "OWD", name: "Open Water Diver", price: 11500 },
+  { id: 2, code: "AOW", name: "Advanced Open Water", price: 10500 },
+  { id: 3, code: "RESCUE", name: "Rescue Diver", price: 12500 },
+  { id: 4, code: "DM", name: "Divemaster", price: 45000 },
+  { id: 5, code: "NITROX", name: "Enriched Air Nitrox", price: 6500 },
+  { id: 6, code: "TRY", name: "Try Scuba", price: 3500 }
+];
+
+const STAGES = [
+  { id: "theory1", name: "Teoria 1 - Video", icon: "📹", needsBoat: false },
+  { id: "theory2", name: "Teoria 2 - Examen", icon: "📝", needsBoat: false },
+  { id: "confined", name: "Confinadas", icon: "🏊", needsBoat: false },
+  { id: "ow12", name: "Aguas Abiertas 1-2", icon: "🤿", needsBoat: true },
+  { id: "ow34", name: "Aguas Abiertas 3-4", icon: "🌊", needsBoat: true },
+  { id: "finalpay", name: "Pago final en oficina", icon: "💰", needsBoat: false },
+  { id: "certready", name: "Listo para certificar", icon: "🏅", needsBoat: false }
+];
+
+const INSTRUCTORS = [
+  { id: 1, firstName: "John", lastName: "Smith", email: "john@dpm.com", phone: "+66912345678", shopId: 1, certifications: "OWSI, MSDT", languages: "EN,ES", availability: "available", commission: 30, active: true },
+  { id: 2, firstName: "Maria", lastName: "Garcia", email: "maria@dpm.com", phone: "+628123456789", shopId: 3, certifications: "OWSI, Nitrox", languages: "ES,EN", availability: "available", commission: 25, active: true },
+  { id: 3, firstName: "Alex", lastName: "Chen", email: "alex@dpm.com", phone: "+66987654321", shopId: 1, certifications: "Divemaster", languages: "ZH,EN", availability: "day_off", commission: 20, active: true },
+  { id: 4, firstName: "Sven", lastName: "Lindberg", email: "sven@dpm.com", phone: "+66911223344", shopId: 2, certifications: "OWSI, Tech", languages: "DE,EN", availability: "available", commission: 28, active: true },
+  { id: 5, firstName: "Ana", lastName: "Rodriguez", email: "ana@dpm.com", phone: "+628987654321", shopId: 4, certifications: "OWSI, AOWI", languages: "ES,EN,ID", availability: "available", commission: 22, active: true },
+  { id: 6, firstName: "Hiroshi", lastName: "Tanaka", email: "hiro@dpm.com", phone: "+66955667788", shopId: 1, certifications: "OWSI, Freedive", languages: "JP,EN", availability: "vacation", commission: 30, active: true },
+  { id: 7, firstName: "Laura", lastName: "Bianchi", email: "laura@dpm.com", phone: "+628334455667", shopId: 5, certifications: "OWSI", languages: "IT,EN", availability: "available", commission: 20, active: true },
+  { id: 8, firstName: "Ben", lastName: "Wilson", email: "ben@dpm.com", phone: "+66999887766", shopId: 2, certifications: "OWSI, MSDT, Tech", languages: "EN", availability: "available", commission: 35, active: true }
+];
+
+const CUSTOMERS = [
+  { id: 101, firstName: "Carlos", lastName: "Demo", email: "carlos@demo.com", phone: "+34600123456", shopId: 1, status: "active", accessCode: "DPM847K", country: "Espana", language: "Espanol", courseId: 1, stageProgress: [1,1,1,1,1,1,1], payments: [{amount:11500,status:"confirmed"}], balance: 0 },
+  { id: 102, firstName: "Sophie", lastName: "Martin", email: "sophie@demo.com", phone: "+33678901234", shopId: 1, status: "pending_payment", accessCode: "DPM152B", country: "Francia", language: "Frances", courseId: 1, stageProgress: [1,1,1,1,0,0,0], payments: [{amount:7000,status:"confirmed"},{amount:4500,status:"pending"}], balance: 4500 },
+  { id: 103, firstName: "Marco", lastName: "Rossi", email: "marco@demo.com", phone: "+39347111222", shopId: 1, status: "pending_payment", accessCode: "DPM389F", country: "Italia", language: "Italiano", courseId: 2, stageProgress: [1,1,0,0,0,0,0], payments: [{amount:5000,status:"confirmed"},{amount:5500,status:"pending"}], balance: 5500 },
+  { id: 104, firstName: "Emma", lastName: "Johnson", email: "emma@demo.com", phone: "+44789123456", shopId: 2, status: "active", accessCode: "DPM621A", country: "UK", language: "Ingles", courseId: 1, stageProgress: [1,0,0,0,0,0,0], payments: [{amount:3000,status:"confirmed"}], balance: 8500 },
+  { id: 105, firstName: "Yuki", lastName: "Tanaka", email: "yuki@demo.com", phone: "+818012345678", shopId: 2, status: "active", accessCode: "DPM445C", country: "Japon", language: "Japones", courseId: 3, stageProgress: [1,1,1,0,0,0,0], payments: [{amount:8000,status:"confirmed"}], balance: 4500 },
+  { id: 106, firstName: "Lukas", lastName: "Mueller", email: "lukas@demo.com", phone: "+49170123456", shopId: 3, status: "active", accessCode: "DPM778E", country: "Alemania", language: "Aleman", courseId: 1, stageProgress: [1,1,1,1,0,0,0], payments: [{amount:6000,status:"confirmed"}], balance: 5500 },
+  { id: 107, firstName: "Anna", lastName: "Kowalski", email: "anna@demo.com", phone: "+48601234567", shopId: 3, status: "active", accessCode: "DPM953G", country: "Polonia", language: "Polaco", courseId: 4, stageProgress: [1,0,0,0,0,0,0], payments: [{amount:20000,status:"confirmed"}], balance: 25000 },
+  { id: 108, firstName: "David", lastName: "Lee", email: "david@demo.com", phone: "+821012345678", shopId: 4, status: "active", accessCode: "DPM284H", country: "Corea del Sur", language: "Coreano", courseId: 5, stageProgress: [1,1,1,1,1,1,0], payments: [{amount:6500,status:"confirmed"}], balance: 0 },
+  { id: 109, firstName: "Olivia", lastName: "Brown", email: "olivia@demo.com", phone: "+61412345678", shopId: 4, status: "active", accessCode: "DPM517J", country: "Australia", language: "Ingles", courseId: 1, stageProgress: [0,0,0,0,0,0,0], payments: [{amount:2000,status:"pending"}], balance: 9500 },
+  { id: 110, firstName: "Tom", lastName: "Anderson", email: "tom@demo.com", phone: "+12025551234", shopId: 5, status: "active", accessCode: "DPM639K", country: "USA", language: "Ingles", courseId: 6, stageProgress: [1,1,0,0,0,0,0], payments: [{amount:3500,status:"confirmed"}], balance: 0 },
+  { id: 111, firstName: "Lisa", lastName: "Wong", email: "lisa@demo.com", phone: "+6591234567", shopId: 5, status: "active", accessCode: "DPM871L", country: "Singapur", language: "Chino", courseId: 1, stageProgress: [1,1,1,1,1,0,0], payments: [{amount:9000,status:"confirmed"}], balance: 2500 },
+  { id: 112, firstName: "Pierre", lastName: "Dubois", email: "pierre@demo.com", phone: "+33655443322", shopId: 1, status: "pending_payment", accessCode: "DPM246M", country: "Francia", language: "Frances", courseId: 2, stageProgress: [1,1,1,0,0,0,0], payments: [{amount:3000,status:"confirmed"}], balance: 7500 },
+  { id: 113, firstName: "Sara", lastName: "Nilsson", email: "sara@demo.com", phone: "+46701234567", shopId: 2, status: "active", accessCode: "DPM468N", country: "Suecia", language: "Sueco", courseId: 1, stageProgress: [1,1,1,1,1,1,0], payments: [{amount:11500,status:"confirmed"}], balance: 0 },
+  { id: 114, firstName: "Raj", lastName: "Patel", email: "raj@demo.com", phone: "+919876543210", shopId: 4, status: "active", accessCode: "DPM582P", country: "India", language: "Ingles", courseId: 3, stageProgress: [1,0,0,0,0,0,0], payments: [{amount:4000,status:"pending"}], balance: 8500 },
+  { id: 115, firstName: "Hannah", lastName: "Schmidt", email: "hannah@demo.com", phone: "+491511234567", shopId: 3, status: "active", accessCode: "DPM715Q", country: "Alemania", language: "Aleman", courseId: 1, stageProgress: [1,1,0,0,0,0,0], payments: [{amount:5000,status:"confirmed"}], balance: 6500 },
+  { id: 116, firstName: "Jack", lastName: "Taylor", email: "jack@demo.com", phone: "+447501234567", shopId: 1, status: "lead", accessCode: "", country: "UK", language: "Ingles", courseId: null, stageProgress: [], payments: [], balance: 0 },
+  { id: 117, firstName: "Mei", lastName: "Lin", email: "mei@demo.com", phone: "+8613800138000", shopId: 2, status: "active", accessCode: "DPM928R", country: "China", language: "Chino", courseId: 5, stageProgress: [1,1,1,1,1,1,1], payments: [{amount:6500,status:"confirmed"}], balance: 0 },
+  { id: 118, firstName: "Felipe", lastName: "Silva", email: "felipe@demo.com", phone: "+5511987654321", shopId: 5, status: "active", accessCode: "DPM153S", country: "Brasil", language: "Portugues", courseId: 1, stageProgress: [1,1,1,0,0,0,0], payments: [{amount:8000,status:"confirmed"}], balance: 3500 },
+  { id: 119, firstName: "Ingrid", lastName: "Larsen", email: "ingrid@demo.com", phone: "+4791234567", shopId: 3, status: "active", accessCode: "DPM374T", country: "Noruega", language: "Noruego", courseId: 2, stageProgress: [1,1,1,1,0,0,0], payments: [{amount:7000,status:"confirmed"}], balance: 3500 },
+  { id: 120, firstName: "Chris", lastName: "Evans", email: "chris@demo.com", phone: "+12025555678", shopId: 4, status: "pending_payment", accessCode: "DPM486U", country: "USA", language: "Ingles", courseId: 1, stageProgress: [0,0,0,0,0,0,0], payments: [], balance: 11500 }
+];
+
+const DIVE_SITES = [
+  { name: "Chumphon Pinnacle", lat: 10.405, lng: 99.815, depth: "35m", level: "Advanced", shopId: 1 },
+  { name: "Sail Rock", lat: 10.108, lng: 99.688, depth: "40m", level: "Advanced", shopId: 1 },
+  { name: "Shark Island", lat: 10.120, lng: 99.825, depth: "25m", level: "OW", shopId: 1 },
+  { name: "Shark Point", lat: 7.773, lng: 98.640, depth: "20m", level: "OW", shopId: 2 },
+  { name: "Hin Muang", lat: 7.533, lng: 98.800, depth: "50m", level: "Advanced", shopId: 2 },
+  { name: "Manta Point", lat: -8.760, lng: 115.520, depth: "18m", level: "OW", shopId: 3 },
+  { name: "Crystal Bay", lat: -8.715, lng: 115.535, depth: "12m", level: "OW", shopId: 3 },
+  { name: "Turtle Point", lat: -8.355, lng: 116.040, depth: "20m", level: "OW", shopId: 4 },
+  { name: "Sunset Point", lat: -8.348, lng: 116.025, depth: "30m", level: "Advanced", shopId: 4 },
+  { name: "Coral Garden", lat: -8.360, lng: 116.085, depth: "15m", level: "OW", shopId: 5 }
+];
+
+// ===================== STATE =====================
+let currentRole = null;
+let currentUser = null;
+let currentShop = SHOPS[0];
+let currentCustomer = null;
+let mapInstance = null;
+
+// ===================== NAVIGATION =====================
+function showPage(pageId) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const target = document.getElementById(pageId);
+  if (target) target.classList.add('active');
+  // Refresh icons
+  if (window.lucide) lucide.createIcons();
+}
+
+function showScreen(screenName) {
+  const screens = ['dashboard','customers','customerDetail','instructors','instructorProfile','payments','reports','settings','boats','map','studentCourse','studentPayments','studentDiploma','myStudents','myCommissions','myAvailability'];
+  const main = document.getElementById('mainContent');
+  
+  // Close mobile sidebar
+  document.getElementById('mobileSidebar').classList.add('-translate-x-full');
+  document.getElementById('mobileSidebarOverlay').classList.add('hidden');
+
+  switch(screenName) {
+    case 'dashboard': renderDashboard(); break;
+    case 'customers': renderCustomers(); break;
+    case 'customerDetail': renderCustomerDetail(); break;
+    case 'instructors': renderInstructors(); break;
+    case 'instructorProfile': renderInstructorProfile(); break;
+    case 'payments': renderPayments(); break;
+    case 'reports': renderReports(); break;
+    case 'settings': renderSettings(); break;
+    case 'boats': renderBoats(); break;
+    case 'map': renderMapPage(); break;
+    case 'studentCourse': renderStudentCourse(); break;
+    case 'studentPayments': renderStudentPayments(); break;
+    case 'studentDiploma': renderStudentDiploma(); break;
+    case 'myStudents': renderMyStudents(); break;
+    case 'myCommissions': renderMyCommissions(); break;
+    case 'instructorPayments': renderInstructorPayments(); break;
+    case 'myAvailability': renderMyAvailability(); break;
+  }
+  if (window.lucide) setTimeout(() => lucide.createIcons(), 50);
+}
+
+function setPageTitle(title) {
+  document.getElementById('pageTitle').textContent = title;
+}
+
+// ===================== LOGIN / LOGOUT =====================
+function login(role) {
+  currentRole = role;
+  const names = { owner: { name: 'DPM Owner', roleLabel: 'Owner' }, manager: { name: 'Manager Koh Tao', roleLabel: 'Manager' }, instructor: { name: 'John Smith', roleLabel: 'Instructor' } };
+  currentUser = names[role] || { name: 'Usuario', roleLabel: role };
+  
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appLayout').style.display = 'flex';
+  
+  // Setup sidebar
+  setupSidebar();
+  setupBadge();
+  
+  // Show dashboard
+  showScreen('dashboard');
+}
+
+function showStudentLogin() {
+  document.getElementById('studentLoginForm').classList.remove('hidden');
+  setTimeout(() => document.getElementById('studentCode').focus(), 100);
+}
+
+function hideStudentLogin() {
+  document.getElementById('studentLoginForm').classList.add('hidden');
+  document.getElementById('studentError').classList.add('hidden');
+}
+
+function studentLogin() {
+  const code = document.getElementById('studentCode').value.trim();
+  const customer = CUSTOMERS.find(c => c.accessCode === code);
+  if (!customer) {
+    document.getElementById('studentError').classList.remove('hidden');
+    return;
+  }
+  document.getElementById('studentError').classList.add('hidden');
+  currentRole = 'student';
+  currentUser = { name: `${customer.firstName} ${customer.lastName}`, roleLabel: 'Alumno' };
+  currentCustomer = customer;
+  currentShop = SHOPS.find(s => s.id === customer.shopId) || SHOPS[0];
+  
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appLayout').style.display = 'flex';
+  
+  setupSidebar();
+  setupBadge();
+  showScreen('studentCourse');
+}
+
+function logout() {
+  currentRole = null;
+  currentUser = null;
+  currentCustomer = null;
+  document.getElementById('appLayout').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('studentLoginForm').classList.add('hidden');
+  document.getElementById('studentCode').value = '';
+  if (mapInstance) { mapInstance.remove(); mapInstance = null; }
+}
+
+function toggleMobileSidebar() {
+  const sidebar = document.getElementById('mobileSidebar');
+  const overlay = document.getElementById('mobileSidebarOverlay');
+  if (sidebar.classList.contains('-translate-x-full')) {
+    sidebar.classList.remove('-translate-x-full');
+    overlay.classList.remove('hidden');
+  } else {
+    sidebar.classList.add('-translate-x-full');
+    overlay.classList.add('hidden');
+  }
+}
+
+// ===================== SIDEBAR =====================
+function setupSidebar() {
+  const navItems = {
+    owner: [
+      { screen: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+      { screen: 'customers', label: 'Alumnos', icon: 'users' },
+      { screen: 'instructors', label: 'Instructores', icon: 'user-check' },
+      { screen: 'payments', label: 'Pagos', icon: 'credit-card' },
+      { screen: 'reports', label: 'Reportes', icon: 'bar-chart-3' },
+      { screen: 'settings', label: 'Configuracion', icon: 'settings' }
+    ],
+    manager: [
+      { screen: 'dashboard', label: 'Dashboard', icon: 'layout-dashboard' },
+      { screen: 'customers', label: 'Alumnos', icon: 'users' },
+      { screen: 'instructors', label: 'Instructores', icon: 'user-check' },
+      { screen: 'payments', label: 'Pagos Pendientes', icon: 'credit-card' },
+      { screen: 'boats', label: 'Horarios y Barcos', icon: 'ship' },
+      { screen: 'map', label: 'Sitios de Buceo', icon: 'map' }
+    ],
+    instructor: [
+      { screen: 'myStudents', label: 'Mis Alumnos', icon: 'users' },
+      { screen: 'myCommissions', label: 'Mis Comisiones', icon: 'dollar-sign' },
+      { screen: 'instructorPayments', label: 'Pagos de Mis Alumnos', icon: 'credit-card' },
+      { screen: 'myAvailability', label: 'Mi Disponibilidad', icon: 'calendar' },
+      { screen: 'map', label: 'Sitios de Buceo', icon: 'map' }
+    ],
+    student: [
+      { screen: 'studentCourse', label: 'Mi Curso', icon: 'book-open' },
+      { screen: 'studentPayments', label: 'Mis Pagos', icon: 'credit-card' },
+      { screen: 'studentDiploma', label: 'Mi Diploma', icon: 'award' },
+      { screen: 'map', label: 'Sitios de Buceo', icon: 'map' }
+    ]
+  };
+  
+  const items = navItems[currentRole] || [];
+  const html = items.map(item => `
+    <button onclick="showScreen('${item.screen}')" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-slate-600 hover:bg-dpm-50 hover:text-dpm-700 transition-colors text-left">
+      <i data-lucide="${item.icon}" class="w-4.5 h-4.5"></i>
+      <span>${item.label}</span>
+    </button>
+  `).join('');
+  
+  document.getElementById('sidebarNav').innerHTML = html;
+  document.getElementById('mobileSidebarNav').innerHTML = html;
+}
+
+function setupBadge() {
+  const colors = { owner: 'bg-amber-100 text-amber-700', manager: 'bg-dpm-100 text-dpm-700', instructor: 'bg-blue-100 text-blue-700', student: 'bg-emerald-100 text-emerald-700' };
+  document.getElementById('userBadge').innerHTML = `
+    <div class="w-8 h-8 rounded-full ${colors[currentRole] || 'bg-slate-100'} flex items-center justify-center text-xs font-bold">${currentUser.name[0]}</div>
+    <div><p class="text-sm font-medium text-slate-700">${currentUser.name}</p><p class="text-xs text-slate-400 capitalize">${currentUser.roleLabel}</p></div>
+  `;
+  
+  const islandEl = document.getElementById('headerIsland');
+  if (currentRole === 'student' && currentCustomer) {
+    const shop = SHOPS.find(s => s.id === currentCustomer.shopId);
+    islandEl.textContent = shop?.island || 'DPM';
+    document.getElementById('headerBadge').classList.remove('hidden');
+  } else if (currentRole === 'manager') {
+    islandEl.textContent = 'Koh Tao';
+    document.getElementById('headerBadge').classList.remove('hidden');
+  } else if (currentRole === 'instructor') {
+    islandEl.textContent = 'Koh Tao';
+    document.getElementById('headerBadge').classList.remove('hidden');
+  } else {
+    document.getElementById('headerBadge').classList.add('hidden');
+  }
+}
+
+// ===================== RENDER: DASHBOARD =====================
+function renderDashboard() {
+  setPageTitle('Dashboard');
+  const isOwner = currentRole === 'owner';
+  const shopId = isOwner ? null : currentShop.id;
+  const shopCustomers = shopId ? CUSTOMERS.filter(c => c.shopId === shopId) : CUSTOMERS;
+  const activeCourses = shopCustomers.filter(c => c.status === 'active' && c.courseId).length;
+  const totalRevenue = shopCustomers.reduce((s, c) => s + c.payments.filter(p => p.status === 'confirmed').reduce((t, p) => t + p.amount, 0), 0);
+  const pendingPayments = shopCustomers.filter(c => c.balance > 0).length;
+  const todayBoats = Math.floor(Math.random() * 3) + 1;
+  
+  document.getElementById('mainContent').innerHTML = `
+    <div class="space-y-6 max-w-6xl mx-auto">
+      <!-- Stats -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        ${statCard('Alumnos', shopCustomers.length, 'users', '#0d9488', 'Registrados')}
+        ${statCard('Cursos Activos', activeCourses, 'graduation-cap', '#06b6d4', 'En progreso')}
+        ${statCard('Ingresos', `฿${(totalRevenue / 1000).toFixed(0)}k`, 'credit-card', '#10b981', 'Confirmados')}
+        ${statCard('Salidas Hoy', todayBoats, 'ship', '#3b82f6', 'Barcos')}
+      </div>
+      
+      ${isOwner ? `
+      <!-- Shops Overview -->
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <h3 class="font-semibold text-slate-800 mb-4 flex items-center gap-2"><i data-lucide="building-2" class="w-5 h-5 text-dpm-600"></i>Sedes</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          ${SHOPS.map(s => {
+            const sc = CUSTOMERS.filter(c => c.shopId === s.id);
+            const rev = sc.reduce((sum, c) => sum + c.payments.filter(p => p.status === 'confirmed').reduce((t, p) => t + p.amount, 0), 0);
+            return `
+            <div class="rounded-xl border p-4 cursor-pointer hover:shadow-md transition-shadow" style="border-color: ${s.color}30; background: ${s.color}08">
+              <div class="flex items-center gap-2 mb-2">
+                <div class="w-3 h-3 rounded-full" style="background:${s.color}"></div>
+                <span class="font-semibold text-sm text-slate-800">${s.island}</span>
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-xs">
+                <div><p class="text-slate-400">Alumnos</p><p class="font-bold text-slate-700">${sc.length}</p></div>
+                <div><p class="text-slate-400">Ingresos</p><p class="font-bold text-slate-700">${s.currency === 'THB' ? '฿' : 'Rp'}${(rev/1000).toFixed(0)}k</p></div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>` : ''}
+      
+      <!-- Recent Customers -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+          <h3 class="font-semibold text-slate-800 mb-3 flex items-center gap-2"><i data-lucide="users" class="w-4 h-4 text-dpm-600"></i>Alumnos Recientes</h3>
+          <div class="space-y-2">
+            ${shopCustomers.slice(0, 5).map(c => `
+              <div class="flex items-center gap-3 p-2 rounded-lg hover:bg-slate-50 cursor-pointer" onclick="currentCustomer=CUSTOMERS.find(x=>x.id===${c.id});showScreen('customerDetail')">
+                <div class="w-9 h-9 rounded-full bg-gradient-to-br from-dpm-100 to-cyan-100 flex items-center justify-center text-dpm-700 text-xs font-bold shrink-0">${c.firstName[0]}${c.lastName[0]}</div>
+                <div class="flex-1 min-w-0"><p class="text-sm font-medium text-slate-800 truncate">${c.firstName} ${c.lastName}</p><p class="text-xs text-slate-400">${c.country}</p></div>
+                <span class="text-xs px-2 py-0.5 rounded-full ${c.status === 'active' ? 'bg-emerald-100 text-emerald-700' : c.status === 'pending_payment' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}">${c.status === 'active' ? 'Activo' : c.status === 'pending_payment' ? 'Pago Pendiente' : 'Lead'}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        
+        <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+          <h3 class="font-semibold text-slate-800 mb-3 flex items-center gap-2"><i data-lucide="alert-circle" class="w-4 h-4 text-amber-500"></i>Pagos Pendientes</h3>
+          <div class="space-y-2">
+            ${shopCustomers.filter(c => c.balance > 0).slice(0, 5).map(c => `
+              <div class="flex items-center justify-between p-2 rounded-lg bg-amber-50/50">
+                <div class="flex items-center gap-2">
+                  <div class="w-2 h-2 rounded-full bg-amber-400"></div>
+                  <span class="text-sm text-slate-700">${c.firstName} ${c.lastName}</span>
+                </div>
+                <span class="text-sm font-bold text-amber-600">฿${c.balance.toLocaleString()}</span>
+              </div>
+            `).join('') || '<p class="text-sm text-slate-400 text-center py-4">Sin pagos pendientes</p>'}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function statCard(title, value, icon, color, subtitle) {
+  return `
+    <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-4 hover:shadow-md transition-shadow">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-xs text-slate-500 font-medium">${title}</p>
+          <p class="text-2xl font-bold text-slate-800 mt-1">${value}</p>
+          ${subtitle ? `<p class="text-xs text-slate-400 mt-0.5">${subtitle}</p>` : ''}
+        </div>
+        <div class="p-2 rounded-lg" style="background:${color}15"><i data-lucide="${icon}" class="w-5 h-5" style="color:${color}"></i></div>
+      </div>
+    </div>`;
+}
+
+// ===================== RENDER: CUSTOMERS =====================
+function renderCustomers() {
+  setPageTitle('Alumnos');
+  const shopId = currentRole === 'owner' ? null : currentShop.id;
+  const list = shopId ? CUSTOMERS.filter(c => c.shopId === shopId) : CUSTOMERS;
+  
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-5xl mx-auto space-y-4">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div class="relative flex-1 max-w-md w-full">
+          <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
+          <input type="text" placeholder="Buscar alumno..." oninput="filterCustomers(this.value)" class="w-full h-10 pl-9 pr-4 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-dpm-500 outline-none">
+        </div>
+        <button onclick="showAddCustomerForm()" class="btn-tactile px-4 py-2.5 bg-dpm-600 hover:bg-dpm-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors">
+          <i data-lucide="plus" class="w-4 h-4"></i>Nuevo Alumno
+        </button>
+      </div>
+      
+      <div id="addCustomerForm" class="hidden bg-white rounded-xl border border-slate-100 p-5 space-y-3">
+        <h3 class="font-semibold text-slate-800">Registrar Nuevo Alumno</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <input id="newFirstName" placeholder="Nombre" class="h-10 px-3 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-dpm-500">
+          <input id="newLastName" placeholder="Apellido" class="h-10 px-3 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-dpm-500">
+          <input id="newEmail" placeholder="Email" type="email" class="h-10 px-3 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-dpm-500">
+          <input id="newPhone" placeholder="Telefono" class="h-10 px-3 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-dpm-500">
+          <select id="newShop" class="h-10 px-3 border border-slate-200 rounded-lg text-sm bg-white outline-none">
+            ${SHOPS.map(s => `<option value="${s.id}">${s.island}</option>`).join('')}
+          </select>
+          <select id="newCourse" class="h-10 px-3 border border-slate-200 rounded-lg text-sm bg-white outline-none">
+            ${COURSE_TYPES.map(c => `<option value="${c.id}">${c.name} - ฿${c.price.toLocaleString()}</option>`).join('')}
+          </select>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="addCustomer()" class="px-4 py-2 bg-dpm-600 text-white rounded-lg text-sm font-medium">Guardar</button>
+          <button onclick="hideAddCustomerForm()" class="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm">Cancelar</button>
+        </div>
+      </div>
+      
+      <div id="customersList" class="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-100">
+              <tr><th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Alumno</th><th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase hidden sm:table-cell">Sede</th><th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Curso</th><th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Saldo</th><th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">Estado</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-50">
+              ${list.map(c => renderCustomerRow(c)).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCustomerRow(c) {
+  const course = COURSE_TYPES.find(ct => ct.id === c.courseId);
+  const shop = SHOPS.find(s => s.id === c.shopId);
+  const pct = c.stageProgress.length ? Math.round((c.stageProgress.filter(Boolean).length / 7) * 100) : 0;
+  return `
+    <tr class="hover:bg-slate-50 cursor-pointer transition-colors" onclick="currentCustomer=CUSTOMERS.find(x=>x.id===${c.id});showScreen('customerDetail')">
+      <td class="px-4 py-3"><div class="flex items-center gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-dpm-100 to-cyan-100 flex items-center justify-center text-dpm-700 text-xs font-bold">${c.firstName[0]}${c.lastName[0]}</div><div><p class="font-medium text-slate-800">${c.firstName} ${c.lastName}</p><p class="text-xs text-slate-400">${c.accessCode || 'Sin codigo'}</p></div></div></td>
+      <td class="px-4 py-3 hidden sm:table-cell"><span class="text-xs px-2 py-0.5 rounded-full" style="background:${shop?.color}15;color:${shop?.color}">${shop?.island}</span></td>
+      <td class="px-4 py-3"><p class="text-slate-700">${course?.name || '-'}</p><div class="w-16 h-1.5 bg-slate-100 rounded-full mt-1"><div class="h-full bg-dpm-500 rounded-full" style="width:${pct}%"></div></div></td>
+      <td class="px-4 py-3"><span class="font-medium ${c.balance > 0 ? 'text-amber-600' : 'text-emerald-600'}">${c.balance > 0 ? '฿'+c.balance.toLocaleString() : 'Pagado'}</span></td>
+      <td class="px-4 py-3"><span class="text-xs px-2 py-0.5 rounded-full ${c.status === 'active' ? 'bg-emerald-100 text-emerald-700' : c.status === 'pending_payment' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}">${c.status === 'active' ? 'Activo' : c.status === 'pending_payment' ? 'Pago Pendiente' : 'Lead'}</span></td>
+    </tr>`;
+}
+
+function filterCustomers(q) {
+  const rows = document.querySelectorAll('#customersList tbody tr');
+  rows.forEach(row => {
+    row.style.display = row.textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none';
+  });
+}
+
+function showAddCustomerForm() { document.getElementById('addCustomerForm').classList.remove('hidden'); }
+function hideAddCustomerForm() { document.getElementById('addCustomerForm').classList.add('hidden'); }
+
+function addCustomer() {
+  const fn = document.getElementById('newFirstName').value;
+  const ln = document.getElementById('newLastName').value;
+  if (!fn || !ln) { alert('Nombre y apellido son obligatorios'); return; }
+  const newId = Math.max(...CUSTOMERS.map(c => c.id)) + 1;
+  const code = 'DPM' + Math.floor(100 + Math.random() * 899) + String.fromCharCode(65 + Math.floor(Math.random() * 26));
+  CUSTOMERS.unshift({
+    id: newId, firstName: fn, lastName: ln, email: document.getElementById('newEmail').value, phone: document.getElementById('newPhone').value,
+    shopId: parseInt(document.getElementById('newShop').value), status: 'active', accessCode: code,
+    country: '', language: '', courseId: parseInt(document.getElementById('newCourse').value),
+    stageProgress: [0,0,0,0,0,0,0], payments: [], balance: COURSE_TYPES.find(ct => ct.id === parseInt(document.getElementById('newCourse').value))?.price || 11500
+  });
+  alert(`Alumno registrado! Codigo: ${code}`);
+  hideAddCustomerForm();
+  renderCustomers();
+}
+
+// ===================== RENDER: CUSTOMER DETAIL =====================
+function renderCustomerDetail() {
+  if (!currentCustomer) { showScreen('customers'); return; }
+  const c = currentCustomer;
+  const shop = SHOPS.find(s => s.id === c.shopId);
+  const course = COURSE_TYPES.find(ct => ct.id === c.courseId);
+  const totalPaid = c.payments.filter(p => p.status === 'confirmed').reduce((s, p) => s + p.amount, 0);
+  const isCertified = c.stageProgress.length === 7 && c.stageProgress.every(Boolean) && c.balance <= 0;
+  
+  setPageTitle(`${c.firstName} ${c.lastName}`);
+  
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-4xl mx-auto space-y-4">
+      <!-- Header Card -->
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <div class="flex items-start justify-between flex-wrap gap-3">
+          <div class="flex items-center gap-3 sm:gap-4">
+            <div class="w-14 h-14 rounded-full bg-gradient-to-br from-dpm-100 to-cyan-100 flex items-center justify-center text-dpm-700 text-lg font-bold">${c.firstName[0]}${c.lastName[0]}</div>
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <h1 class="text-xl font-bold text-slate-800">${c.firstName} ${c.lastName}</h1>
+                <span class="text-[10px] px-2 py-0.5 rounded-full font-bold ${c.status === 'active' ? 'bg-emerald-100 text-emerald-700' : c.status === 'pending_payment' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}">${c.status === 'active' ? 'ACTIVO' : c.status === 'pending_payment' ? 'PAGO PENDIENTE' : 'LEAD'}</span>
+              </div>
+              <div class="flex items-center gap-2 text-sm text-slate-500 mt-1">
+                <span class="px-2 py-0.5 rounded text-xs font-medium" style="background:${shop?.color}20;color:${shop?.color}">${shop?.island}</span>
+                <span class="hidden sm:inline">${c.country}</span>
+              </div>
+            </div>
+          </div>
+          <button onclick="showScreen('customers')" class="px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50 flex items-center gap-1"><i data-lucide="arrow-left" class="w-4 h-4"></i>Volver</button>
+        </div>
+        
+        <!-- QR Access -->
+        ${c.accessCode ? `
+        <div class="mt-4 bg-gradient-to-r from-dpm-600 to-cyan-600 rounded-xl p-4 text-white">
+          <div class="flex flex-col sm:flex-row items-start gap-4">
+            <div class="bg-white rounded-xl p-2 shrink-0 mx-auto sm:mx-0"><div id="customerQR" class="w-20 h-20"></div></div>
+            <div class="flex-1 text-center sm:text-left">
+              <p class="text-xs uppercase tracking-wider text-dpm-200 mb-1">QR de acceso DPM Cloud</p>
+              <p class="font-mono text-xl font-bold tracking-widest">${c.accessCode}</p>
+              <p class="text-xs text-dpm-200 mt-1">El alumno escanea este QR con su celular</p>
+              <button onclick="alert('Codigo copiado: ${c.accessCode}')" class="mt-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg text-xs font-medium">Copiar codigo</button>
+            </div>
+          </div>
+        </div>` : '<div class="mt-4 bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-700 text-sm">Este alumno no tiene codigo de acceso. <button onclick="generateCodeForCustomer()" class="underline font-medium ml-1">Generar QR</button></div>'}
+        
+        <!-- Balance -->
+        ${c.balance > 0 ? `
+        <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div class="bg-slate-50 rounded-lg p-3 text-center"><p class="text-xs text-slate-500">Total curso</p><p class="text-lg font-bold text-slate-800">฿${(course?.price || 0).toLocaleString()}</p></div>
+          <div class="bg-emerald-50 rounded-lg p-3 text-center"><p class="text-xs text-emerald-600">Pagado</p><p class="text-lg font-bold text-emerald-600">฿${totalPaid.toLocaleString()}</p></div>
+          <div class="bg-amber-50 rounded-lg p-3 text-center"><p class="text-xs text-amber-600">Saldo pendiente</p><p class="text-lg font-bold text-amber-600">฿${c.balance.toLocaleString()}</p></div>
+        </div>
+        <!-- QR WISE Payment -->
+        <div class="mt-4 bg-gradient-to-r from-emerald-600 to-dpm-600 rounded-xl p-4 text-white">
+          <div class="flex flex-col sm:flex-row items-start gap-4">
+            <div class="bg-white rounded-xl p-2 shrink-0 mx-auto sm:mx-0"><div id="wiseQR" class="w-20 h-20"></div></div>
+            <div class="flex-1 text-center sm:text-left">
+              <p class="text-xs uppercase tracking-wider text-emerald-200 mb-1">Pago con WISE</p>
+              <p class="text-2xl font-bold">฿${c.balance.toLocaleString()}</p>
+              <p class="text-xs text-emerald-200">Saldo pendiente | Cuenta: ${shop?.accountNumber}</p>
+              <p class="text-[10px] text-emerald-300 mt-1">Escanea para abrir WISE con datos precargados</p>
+            </div>
+          </div>
+        </div>` : '<div class="mt-4 bg-emerald-50 border border-emerald-200 rounded-xl p-4"><p class="text-emerald-700 font-medium flex items-center gap-2"><i data-lucide="check-circle" class="w-4 h-4"></i>Curso pagado en su totalidad</p></div>'}
+        
+        <!-- Transfer -->
+        <div class="mt-4 flex flex-col sm:flex-row gap-2">
+          ${c.balance > 0 ? `<div class="flex-1 bg-red-50 border border-red-200 rounded-lg p-2.5 flex items-center gap-2 min-h-[44px]"><i data-lucide="alert-triangle" class="w-4 h-4 text-red-500 shrink-0"></i><span class="text-xs text-red-700">Saldo: <b>฿${c.balance.toLocaleString()}</b></span></div>` : ''}
+          <button onclick="alert('Transferencia iniciada. Se requiere autorizacion del manager de la sede destino.')" class="py-2.5 px-3 rounded-lg text-sm font-medium border bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200 flex items-center justify-center gap-1.5 min-h-[44px]"><i data-lucide="arrow-left-right" class="w-4 h-4"></i>Transferir sede</button>
+        </div>
+      </div>
+      
+      <!-- Timeline -->
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <h3 class="font-semibold text-slate-800 mb-4 flex items-center gap-2"><i data-lucide="route" class="w-4 h-4 text-dpm-600"></i>Progreso del Curso: ${course?.name || 'Sin curso'}</h3>
+        ${course ? `
+        <div class="relative pl-8 space-y-0">
+          <div class="timeline-line"></div>
+          <div class="timeline-line-fill" style="height:${(c.stageProgress.filter(Boolean).length / 7 * 100)}%"></div>
+          ${STAGES.map((stage, idx) => {
+            const completed = c.stageProgress[idx];
+            return `
+            <div class="relative flex items-start gap-3 py-2 ${completed ? 'bg-emerald-50/50' : ''} rounded-lg px-2 -ml-2">
+              <div class="absolute left-[-26px] top-1/2 -translate-y-1/2 z-10">
+                <div class="timeline-dot ${completed ? 'bg-emerald-500 border-emerald-300 shadow-md' : 'bg-white border-slate-300'}">
+                  ${completed ? '<svg class="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>' : `<span>${stage.icon}</span>`}
+                </div>
+              </div>
+              <div class="flex-1 min-w-0 ml-2">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <p class="text-xs font-bold ${completed ? 'text-emerald-700 line-through opacity-70' : 'text-slate-800'}">${stage.name}</p>
+                  ${completed ? '<span class="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-200 text-emerald-800 font-bold">OK</span>' : ''}
+                  ${stage.id === 'finalpay' && c.balance > 0 ? '<span class="text-[9px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-bold">DEBE</span>' : ''}
+                </div>
+                <p class="text-[10px] text-slate-500">${stage.needsBoat ? 'Requiere barco' : 'En tierra'}</p>
+              </div>
+              ${!completed && currentRole !== 'student' ? `<button onclick="markStageComplete(${idx})" class="px-2 py-1 bg-dpm-600 text-white text-[10px] rounded-md hover:bg-dpm-700 shrink-0">Completar</button>` : ''}
+            </div>`;
+          }).join('')}
+        </div>
+        ${isCertified ? '<div class="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-center"><p class="text-sm font-bold text-amber-800">CERTIFICADO</p><p class="text-xs text-amber-600">Curso completo - listo para diploma</p></div>' : ''}
+        ` : '<p class="text-sm text-slate-400 text-center py-4">Sin curso asignado</p>'}
+      </div>
+    </div>
+  `;
+  
+  // Generate QR codes
+  setTimeout(() => {
+    if (c.accessCode && document.getElementById('customerQR')) {
+      new QRCode(document.getElementById('customerQR'), { text: `https://dpmdiving.com/?code=${c.accessCode}`, width: 80, height: 80 });
+    }
+    if (c.balance > 0 && document.getElementById('wiseQR')) {
+      new QRCode(document.getElementById('wiseQR'), { text: `WISE:${shop?.accountNumber}:${c.balance}:${shop?.currency}`, width: 80, height: 80 });
+    }
+  }, 100);
+}
+
+function generateCodeForCustomer() {
+  if (!currentCustomer) return;
+  currentCustomer.accessCode = 'DPM' + Math.floor(100 + Math.random() * 899) + String.fromCharCode(65 + Math.floor(Math.random() * 26));
+  alert(`Codigo generado: ${currentCustomer.accessCode}`);
+  renderCustomerDetail();
+}
+
+function markStageComplete(idx) {
+  if (!currentCustomer) return;
+  if (STAGES[idx].id === 'finalpay' && currentCustomer.balance > 0) { alert('No se puede marcar Pago Final con saldo pendiente'); return; }
+  currentCustomer.stageProgress[idx] = 1;
+  alert(`${STAGES[idx].name} marcado como completado!`);
+  renderCustomerDetail();
+}
+
+// ===================== RENDER: INSTRUCTORS =====================
+function renderInstructors() {
+  setPageTitle('Instructores');
+  const shopId = currentRole === 'owner' ? null : currentShop.id;
+  const list = shopId ? INSTRUCTORS.filter(i => i.shopId === shopId) : INSTRUCTORS;
+  
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-5xl mx-auto space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="font-semibold text-slate-800">${list.length} instructores</h3>
+        <button onclick="alert('Generar QR de onboarding para nuevo instructor')" class="btn-tactile px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium flex items-center gap-2"><i data-lucide="qr-code" class="w-4 h-4"></i>QR Nuevo Instructor</button>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        ${list.map(inst => {
+          const shop = SHOPS.find(s => s.id === inst.shopId);
+          const statusColors = { available: 'bg-emerald-100 text-emerald-700', day_off: 'bg-slate-100 text-slate-500', vacation: 'bg-purple-100 text-purple-700', inactive: 'bg-red-100 text-red-700' };
+          const statusLabels = { available: 'Disponible', day_off: 'Dia libre', vacation: 'Vacaciones', inactive: 'Inactivo' };
+          return `
+          <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-4 hover:shadow-md transition-shadow">
+            <div class="flex items-start gap-3">
+              <div class="w-12 h-12 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center text-blue-700 font-bold shrink-0">${inst.firstName[0]}${inst.lastName[0]}</div>
+              <div class="flex-1 min-w-0">
+                <p class="font-semibold text-slate-800">${inst.firstName} ${inst.lastName}</p>
+                <p class="text-xs text-slate-500">${inst.certifications}</p>
+                <div class="flex items-center gap-2 mt-2 flex-wrap">
+                  <span class="text-[10px] px-2 py-0.5 rounded-full ${statusColors[inst.availability]}">${statusLabels[inst.availability]}</span>
+                  <span class="text-[10px] px-2 py-0.5 rounded-full" style="background:${shop?.color}15;color:${shop?.color}">${shop?.island}</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-1">Comision: ${inst.commission}% | ${inst.languages}</p>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// ===================== RENDER: PAYMENTS =====================
+function renderPayments() {
+  setPageTitle('Pagos');
+  const shopId = currentRole === 'owner' ? null : currentShop.id;
+  const shopCustomers = shopId ? CUSTOMERS.filter(c => c.shopId === shopId) : CUSTOMERS;
+  const pendingPayments = [];
+  shopCustomers.forEach(c => {
+    c.payments.filter(p => p.status === 'pending').forEach(p => pendingPayments.push({ customer: c, amount: p.amount }));
+  });
+  
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-4xl mx-auto space-y-4">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-white rounded-xl border border-slate-100 p-4"><p class="text-xs text-slate-500">Pagos Confirmados</p><p class="text-2xl font-bold text-emerald-600">฿${shopCustomers.reduce((s, c) => s + c.payments.filter(p => p.status === 'confirmed').reduce((t, p) => t + p.amount, 0), 0).toLocaleString()}</p></div>
+        <div class="bg-white rounded-xl border border-slate-100 p-4"><p class="text-xs text-slate-500">Pagos Pendientes</p><p class="text-2xl font-bold text-amber-600">${pendingPayments.length}</p></div>
+      </div>
+      
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <h3 class="font-semibold text-slate-800 mb-3">Pagos Pendientes de Confirmacion</h3>
+        ${pendingPayments.length ? pendingPayments.map(pp => `
+          <div class="flex items-center justify-between p-3 rounded-lg bg-amber-50/50 border border-amber-100 mb-2">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 text-xs font-bold">${pp.customer.firstName[0]}</div>
+              <div><p class="text-sm font-medium text-slate-800">${pp.customer.firstName} ${pp.customer.lastName}</p><p class="text-xs text-slate-400">Transferencia/WISE</p></div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="font-bold text-amber-600">฿${pp.amount.toLocaleString()}</span>
+              <button onclick="confirmPayment(${pp.customer.id})" class="px-3 py-1.5 bg-emerald-600 text-white text-xs rounded-lg hover:bg-emerald-700">Confirmar</button>
+            </div>
+          </div>
+        `).join('') : '<p class="text-sm text-slate-400 text-center py-4">No hay pagos pendientes</p>'}
+      </div>
+    </div>
+  `;
+}
+
+function confirmPayment(customerId) {
+  const c = CUSTOMERS.find(x => x.id === customerId);
+  if (c) {
+    c.payments.forEach(p => { if (p.status === 'pending') p.status = 'confirmed'; });
+    c.balance = Math.max(0, c.balance - c.payments.filter(p => p.status === 'confirmed').reduce((s, p) => s + p.amount, 0));
+    c.status = c.balance <= 0 ? 'active' : 'pending_payment';
+    alert(`Pago confirmado para ${c.firstName} ${c.lastName}!`);
+    renderPayments();
+  }
+}
+
+// ===================== RENDER: BOATS =====================
+function renderBoats() {
+  setPageTitle('Horarios y Barcos');
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-4xl mx-auto space-y-4">
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <h3 class="font-semibold text-slate-800 mb-4">Salidas de Hoy - Koh Tao</h3>
+        <div class="space-y-3">
+          ${[
+            { time: '07:00 AM', site: 'Chumphon Pinnacle', spots: 8, max: 12, instructor: 'John Smith' },
+            { time: '09:00 AM', site: 'Sail Rock', spots: 6, max: 10, instructor: 'Alex Chen' },
+            { time: '11:00 AM', site: 'Shark Island', spots: 10, max: 14, instructor: 'Hiroshi Tanaka' },
+            { time: '14:00 PM', site: 'White Rock', spots: 4, max: 12, instructor: 'John Smith' }
+          ].map(b => `
+            <div class="flex items-center gap-4 p-3 rounded-lg border ${b.spots >= b.max ? 'bg-red-50 border-red-200' : 'bg-white border-slate-100'}">
+              <div class="w-16 text-center"><p class="text-lg font-bold text-dpm-700">${b.time.split(' ')[0]}</p><p class="text-xs text-slate-400">${b.time.split(' ')[1]}</p></div>
+              <div class="flex-1"><p class="font-medium text-slate-800">${b.site}</p><p class="text-xs text-slate-500">Instructor: ${b.instructor}</p></div>
+              <div class="text-right"><p class="text-sm font-bold ${b.spots >= b.max ? 'text-red-600' : 'text-slate-700'}">${b.spots}/${b.max}</p><p class="text-xs text-slate-400">cupos</p></div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ===================== RENDER: MAP =====================
+function renderMapPage() {
+  setPageTitle('Sitios de Buceo');
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-5xl mx-auto space-y-4">
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+        <div id="map"></div>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        ${DIVE_SITES.map(ds => `
+          <div class="bg-white rounded-xl border border-slate-100 p-4">
+            <p class="font-semibold text-slate-800">${ds.name}</p>
+            <div class="flex items-center gap-3 mt-2 text-xs text-slate-500">
+              <span class="flex items-center gap-1"><i data-lucide="arrow-down" class="w-3 h-3"></i>${ds.depth}</span>
+              <span class="px-2 py-0.5 rounded-full ${ds.level === 'OW' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}">${ds.level}</span>
+              <span style="color:${SHOPS.find(s=>s.id===ds.shopId)?.color}">${SHOPS.find(s=>s.id===ds.shopId)?.island}</span>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+  setTimeout(() => {
+    if (mapInstance) { mapInstance.remove(); mapInstance = null; }
+    mapInstance = L.map('map').setView([8.0, 100.0], 4);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; CARTO' }).addTo(mapInstance);
+    DIVE_SITES.forEach(ds => {
+      const shop = SHOPS.find(s => s.id === ds.shopId);
+      L.marker([ds.lat, ds.lng]).addTo(mapInstance)
+        .bindPopup(`<b>${ds.name}</b><br>Prof: ${ds.depth} | Nivel: ${ds.level}<br>${shop?.island}`);
+    });
+  }, 200);
+}
+
+// ===================== RENDER: REPORTS =====================
+function renderReports() {
+  setPageTitle('Reportes');
+  const totalRevenue = CUSTOMERS.reduce((s, c) => s + c.payments.filter(p => p.status === 'confirmed').reduce((t, p) => t + p.amount, 0), 0);
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-4xl mx-auto space-y-4">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-white rounded-xl border border-slate-100 p-4"><p class="text-xs text-slate-500">Ingresos Totales (5 sedes)</p><p class="text-2xl font-bold text-emerald-600">฿${(totalRevenue/1000).toFixed(0)}k</p></div>
+        <div class="bg-white rounded-xl border border-slate-100 p-4"><p class="text-xs text-slate-500">Alumnos Certificados</p><p class="text-2xl font-bold text-dpm-600">${CUSTOMERS.filter(c => c.stageProgress.length === 7 && c.stageProgress.every(Boolean)).length}</p></div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <h3 class="font-semibold text-slate-800 mb-3">Ingresos por Sede</h3>
+        ${SHOPS.map(s => {
+          const rev = CUSTOMERS.filter(c => c.shopId === s.id).reduce((sum, c) => sum + c.payments.filter(p => p.status === 'confirmed').reduce((t, p) => t + p.amount, 0), 0);
+          const maxRev = 80000;
+          return `<div class="mb-3"><div class="flex justify-between text-sm mb-1"><span class="text-slate-700">${s.island}</span><span class="font-medium">฿${rev.toLocaleString()}</span></div><div class="w-full h-3 bg-slate-100 rounded-full"><div class="h-full rounded-full" style="width:${Math.min(100, rev/maxRev*100)}%;background:${s.color}"></div></div></div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// ===================== RENDER: SETTINGS =====================
+function renderSettings() {
+  setPageTitle('Configuracion');
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-2xl mx-auto space-y-4">
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <h3 class="font-semibold text-slate-800 mb-4">Configuracion del Sistema</h3>
+        <div class="space-y-4">
+          <div><label class="text-sm font-medium text-slate-700">Nombre del Negocio</label><input value="DPM Diving" class="mt-1 w-full h-10 px-3 border border-slate-200 rounded-lg text-sm"></div>
+          <div><label class="text-sm font-medium text-slate-700">Moneda por defecto</label><select class="mt-1 w-full h-10 px-3 border border-slate-200 rounded-lg text-sm bg-white"><option>THB (Baht tailandes)</option><option>IDR (Rupia indonesia)</option></select></div>
+          <div><label class="text-sm font-medium text-slate-700">Zona horaria</label><select class="mt-1 w-full h-10 px-3 border border-slate-200 rounded-lg text-sm bg-white"><option>Asia/Bangkok (UTC+7)</option><option>Asia/Makassar (UTC+8)</option></select></div>
+        </div>
+        <button onclick="alert('Configuracion guardada')" class="mt-4 px-4 py-2 bg-dpm-600 text-white rounded-lg text-sm font-medium">Guardar cambios</button>
+      </div>
+    </div>
+  `;
+}
+
+// ===================== RENDER: INSTRUCTOR SCREENS =====================
+function renderMyStudents() {
+  setPageTitle('Mis Alumnos');
+  const myCustomers = CUSTOMERS.filter(c => c.shopId === 1 && c.status === 'active').slice(0, 6);
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-4xl mx-auto space-y-4">
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <h3 class="font-semibold text-slate-800 mb-3">Alumnos Asignados (${myCustomers.length})</h3>
+        <div class="space-y-2">
+          ${myCustomers.map(c => {
+            const course = COURSE_TYPES.find(ct => ct.id === c.courseId);
+            const pct = c.stageProgress.length ? Math.round((c.stageProgress.filter(Boolean).length / 7) * 100) : 0;
+            return `
+            <div class="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-50 border border-slate-50">
+              <div class="w-10 h-10 rounded-full bg-gradient-to-br from-dpm-100 to-cyan-100 flex items-center justify-center text-dpm-700 text-sm font-bold">${c.firstName[0]}${c.lastName[0]}</div>
+              <div class="flex-1 min-w-0"><p class="font-medium text-slate-800 text-sm">${c.firstName} ${c.lastName}</p><p class="text-xs text-slate-400">${course?.name || 'Sin curso'}</p></div>
+              <div class="text-right"><div class="w-16 h-1.5 bg-slate-100 rounded-full"><div class="h-full bg-dpm-500 rounded-full" style="width:${pct}%"></div></div><p class="text-xs text-slate-400 mt-1">${pct}%</p></div>
+              <button onclick="currentCustomer=CUSTOMERS.find(x=>x.id===${c.id});showScreen('customerDetail')" class="px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg">Ver</button>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderMyCommissions() {
+  setPageTitle('Mis Comisiones');
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-4xl mx-auto space-y-4">
+      <div class="grid grid-cols-3 gap-3">
+        <div class="bg-white rounded-xl border border-slate-100 p-4 text-center"><p class="text-xs text-slate-500">Acumulado</p><p class="text-xl font-bold text-dpm-700">฿45,600</p></div>
+        <div class="bg-white rounded-xl border border-slate-100 p-4 text-center"><p class="text-xs text-slate-500">Cobrado</p><p class="text-xl font-bold text-emerald-600">฿32,000</p></div>
+        <div class="bg-amber-50 rounded-xl border border-amber-200 p-4 text-center"><p class="text-xs text-amber-600">Pendiente</p><p class="text-xl font-bold text-amber-700">฿13,600</p></div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <h3 class="font-semibold text-slate-800 mb-3">Historial de Comisiones</h3>
+        ${[
+          { student: 'Carlos Demo', course: 'Open Water', amount: 3450, status: 'cobrado', date: '15 May' },
+          { student: 'Sophie Martin', course: 'Open Water', amount: 2100, status: 'pendiente', date: '20 May' },
+          { student: 'Marco Rossi', course: 'Advanced OW', course: 'AOW', amount: 2625, status: 'pendiente', date: '22 May' },
+          { student: 'Hannah Schmidt', course: 'Open Water', amount: 1950, status: 'cobrado', date: '10 May' },
+        ].map(c => `
+          <div class="flex items-center justify-between p-3 rounded-lg ${c.status === 'pendiente' ? 'bg-amber-50/50' : 'bg-slate-50/50'} mb-2">
+            <div><p class="text-sm font-medium text-slate-800">${c.student}</p><p class="text-xs text-slate-400">${c.course}</p></div>
+            <div class="text-right"><p class="font-bold text-sm ${c.status === 'pendiente' ? 'text-amber-600' : 'text-emerald-600'}">฿${c.amount.toLocaleString()}</p><p class="text-[10px] text-slate-400">${c.date} | ${c.status}</p></div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderMyAvailability() {
+  setPageTitle('Mi Disponibilidad');
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-3xl mx-auto space-y-4">
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <h3 class="font-semibold text-slate-800 mb-3">Estado Actual</h3>
+        <div class="flex gap-2 flex-wrap">
+          ${['Disponible', 'Dia libre', 'Vacaciones', 'Inactivo'].map(s => `
+            <button onclick="alert('Estado cambiado a: ${s}')" class="px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${s === 'Disponible' ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}">${s}</button>
+          `).join('')}
+        </div>
+      </div>
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <h3 class="font-semibold text-slate-800 mb-3">Calendario - Mayo 2026</h3>
+        <div class="grid grid-cols-7 gap-1 text-center text-xs">
+          ${['L','M','X','J','V','S','D'].map(d => `<div class="p-2 font-bold text-slate-400">${d}</div>`).join('')}
+          ${Array(31).fill(0).map((_, i) => {
+            const day = i + 1;
+            const colors = [1,2,8,9,15,16,22,23,29,30].includes(day) ? 'bg-dpm-100 text-dpm-700' : [3,10,17,24,31].includes(day) ? 'bg-slate-100 text-slate-400' : 'hover:bg-slate-50';
+            return `<div class="p-2 rounded-lg ${colors} cursor-pointer">${day}</div>`;
+          }).join('')}
+        </div>
+        <div class="flex gap-4 mt-3 text-xs">
+          <span class="flex items-center gap-1"><div class="w-3 h-3 rounded bg-dpm-100"></div>Con alumnos</span>
+          <span class="flex items-center gap-1"><div class="w-3 h-3 rounded bg-slate-100"></div>Dia libre</span>
+          <span class="flex items-center gap-1"><div class="w-3 h-3 rounded bg-white border"></div>Disponible</span>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ===================== RENDER: INSTRUCTOR PAYMENTS =====================
+function renderInstructorPayments() {
+  setPageTitle('Pagos de Mis Alumnos');
+  // Instructores asignados: por simplicidad, mostramos alumnos de la misma sede
+  const myCustomers = CUSTOMERS.filter(c => c.shopId === 1 && c.status === 'active');
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-4xl mx-auto space-y-4">
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <h3 class="font-semibold text-slate-800 mb-1">Pagos de Mis Alumnos</h3>
+        <p class="text-xs text-slate-400 mb-4">Los instructores pueden ver los pagos confirmados y pendientes de sus alumnos asignados. No pueden confirmar pagos — solo el Manager/Owner.</p>
+        
+        ${myCustomers.map(c => {
+          const totalConfirmed = c.payments.filter(p => p.status === 'confirmed').reduce((s, p) => s + p.amount, 0);
+          const totalPending = c.payments.filter(p => p.status === 'pending').reduce((s, p) => s + p.amount, 0);
+          const course = COURSE_TYPES.find(ct => ct.id === c.courseId);
+          return `
+          <div class="border border-slate-100 rounded-xl p-4 mb-3">
+            <div class="flex items-center gap-3 mb-3">
+              <div class="w-10 h-10 rounded-full bg-gradient-to-br from-dpm-100 to-cyan-100 flex items-center justify-center text-dpm-700 text-sm font-bold">${c.firstName[0]}${c.lastName[0]}</div>
+              <div>
+                <p class="font-semibold text-slate-800 text-sm">${c.firstName} ${c.lastName}</p>
+                <p class="text-xs text-slate-400">${course?.name || 'Sin curso'} | ${c.accessCode}</p>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <div class="bg-emerald-50 rounded-lg p-2 text-center">
+                <p class="text-[10px] text-emerald-600 uppercase">Confirmado</p>
+                <p class="text-sm font-bold text-emerald-700">฿${totalConfirmed.toLocaleString()}</p>
+              </div>
+              <div class="bg-amber-50 rounded-lg p-2 text-center">
+                <p class="text-[10px] text-amber-600 uppercase">Pendiente</p>
+                <p class="text-sm font-bold text-amber-700">฿${totalPending.toLocaleString()}</p>
+              </div>
+              <div class="${c.balance > 0 ? 'bg-red-50' : 'bg-emerald-50'} rounded-lg p-2 text-center">
+                <p class="text-[10px] ${c.balance > 0 ? 'text-red-500' : 'text-emerald-600'} uppercase">Saldo</p>
+                <p class="text-sm font-bold ${c.balance > 0 ? 'text-red-600' : 'text-emerald-700'}">${c.balance > 0 ? '฿'+c.balance.toLocaleString() : 'Pagado'}</p>
+              </div>
+            </div>
+            ${c.payments.length > 0 ? `
+            <div class="mt-2 space-y-1">
+              ${c.payments.map(p => `
+                <div class="flex justify-between text-xs p-1.5 rounded ${p.status === 'confirmed' ? 'bg-emerald-50/50 text-emerald-700' : 'bg-amber-50/50 text-amber-700'}">
+                  <span class="flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full ${p.status === 'confirmed' ? 'bg-emerald-400' : 'bg-amber-400'}"></span>
+                    ${p.status === 'confirmed' ? 'Confirmado' : 'Pendiente'}
+                  </span>
+                  <span class="font-semibold">฿${p.amount.toLocaleString()}</span>
+                </div>
+              `).join('')}
+            </div>` : '<p class="text-xs text-slate-400 mt-2">Sin pagos registrados</p>'}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// ===================== RENDER: STUDENT SCREENS =====================
+function renderStudentCourse() {
+  if (!currentCustomer) return;
+  const c = currentCustomer;
+  const shop = SHOPS.find(s => s.id === c.shopId);
+  const course = COURSE_TYPES.find(ct => ct.id === c.courseId);
+  const pct = c.stageProgress.length ? Math.round((c.stageProgress.filter(Boolean).length / 7) * 100) : 0;
+  const isCertified = c.stageProgress.length === 7 && c.stageProgress.every(Boolean) && c.balance <= 0;
+  
+  setPageTitle('Mi Curso');
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-lg mx-auto space-y-5 pb-8">
+      <!-- Hero -->
+      <div class="relative overflow-hidden rounded-2xl p-5 text-white" style="background: linear-gradient(135deg, #0d9488 0%, #0891b2 40%, #0284c7 100%)">
+        <div class="relative flex items-center gap-4">
+          <div class="w-14 h-14 rounded-full bg-white/20 backdrop-blur flex items-center justify-center text-lg font-bold">${c.firstName[0]}${c.lastName[0]}</div>
+          <div><h1 class="text-lg font-bold">${c.firstName} ${c.lastName}</h1><p class="text-xs text-cyan-100 flex items-center gap-1"><i data-lucide="map-pin" class="w-3 h-3"></i>DPM ${shop?.island}</p><p class="text-[11px] text-cyan-200/80">${course?.name}</p></div>
+        </div>
+      </div>
+      
+      <!-- Progress -->
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-4">
+        <div class="flex items-center gap-3">
+          <div class="flex-1"><p class="text-sm font-bold text-slate-800">${isCertified ? 'CERTIFICADO' : 'Curso en progreso'}</p><p class="text-xs text-slate-500">${c.stageProgress.filter(Boolean).length} de 7 etapas</p><div class="w-full h-2 bg-slate-100 rounded-full mt-2"><div class="h-full bg-gradient-to-r from-dpm-400 to-cyan-400 rounded-full transition-all" style="width:${pct}%"></div></div></div>
+          <div class="w-12 h-12 rounded-full bg-gradient-to-br from-dpm-500 to-cyan-500 flex items-center justify-center shrink-0 shadow-lg"><span class="text-xs font-bold text-white">${pct}%</span></div>
+        </div>
+      </div>
+      
+      <!-- Timeline -->
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2"><i data-lucide="route" class="w-4 h-4 text-dpm-600"></i>Progreso</h3>
+        <div class="relative pl-8 space-y-0">
+          <div class="timeline-line"></div>
+          <div class="timeline-line-fill" style="height:${pct}%"></div>
+          ${STAGES.map((stage, idx) => {
+            const completed = c.stageProgress[idx];
+            return `
+            <div class="relative flex items-start gap-3 py-2 ${completed ? 'bg-emerald-50/50' : ''} rounded-lg px-2 -ml-2">
+              <div class="absolute left-[-26px] top-1/2 -translate-y-1/2 z-10">
+                <div class="timeline-dot ${completed ? 'bg-emerald-500 border-emerald-300' : 'bg-white border-slate-300'}">
+                  ${completed ? '<svg class="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>' : `<span>${stage.icon}</span>`}
+                </div>
+              </div>
+              <div class="flex-1 min-w-0 ml-2">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <p class="text-xs font-bold ${completed ? 'text-emerald-700 line-through opacity-70' : 'text-slate-800'}">${stage.name}</p>
+                  ${completed ? '<span class="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-200 text-emerald-800 font-bold">OK</span>' : ''}
+                  ${stage.id === 'finalpay' && c.balance > 0 ? '<span class="text-[9px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 font-bold">DEBE ฿'+c.balance.toLocaleString()+'</span>' : ''}
+                </div>
+                <p class="text-[10px] text-slate-500">${stage.needsBoat ? 'Requiere barco' : 'En tierra'}</p>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+      
+      ${isCertified ? `
+      <!-- Graduation -->
+      <div class="bg-gradient-to-br from-amber-500 via-yellow-400 to-orange-500 rounded-2xl p-6 text-white text-center shadow-xl">
+        <div class="w-16 h-16 mx-auto mb-3 rounded-full bg-white/20 flex items-center justify-center"><svg class="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="5"/><path d="M12 13v8"/><path d="M9 16l3-3 3 3"/></svg></div>
+        <h3 class="text-xl font-bold">Felicidades!</h3>
+        <p class="text-sm text-amber-100 mt-1">Completaste ${course?.name}</p>
+        <button onclick="showScreen('studentDiploma')" class="mt-4 w-full py-3 bg-white text-amber-600 font-bold rounded-xl text-sm">Ver mi Diploma</button>
+      </div>` : ''}
+    </div>
+  `;
+}
+
+function renderStudentPayments() {
+  if (!currentCustomer) return;
+  const c = currentCustomer;
+  const shop = SHOPS.find(s => s.id === c.shopId);
+  setPageTitle('Mis Pagos');
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-lg mx-auto space-y-4 pb-8">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-emerald-50 rounded-xl p-4 border border-emerald-100"><p class="text-xs text-emerald-600">Pagado</p><p class="text-xl font-bold text-emerald-700">฿${c.payments.filter(p=>p.status==='confirmed').reduce((s,p)=>s+p.amount,0).toLocaleString()}</p></div>
+        <div class="${c.balance > 0 ? 'bg-red-50 border-red-100' : 'bg-emerald-50 border-emerald-100'} rounded-xl p-4 border"><p class="text-xs ${c.balance > 0 ? 'text-red-500' : 'text-emerald-600'}">Saldo</p><p class="text-xl font-bold ${c.balance > 0 ? 'text-red-600' : 'text-emerald-700'}">${c.balance > 0 ? '฿'+c.balance.toLocaleString() : 'Pagado!'}</p></div>
+      </div>
+      
+      ${c.balance > 0 ? `
+      <div class="bg-gradient-to-r from-emerald-600 to-dpm-600 rounded-xl p-5 text-white">
+        <div class="flex flex-col items-center text-center gap-3">
+          <div class="bg-white rounded-xl p-2"><div id="studentWiseQR" class="w-28 h-28"></div></div>
+          <div><p class="text-xs uppercase tracking-wider text-emerald-200">Paga con WISE</p><p class="text-2xl font-bold">฿${c.balance.toLocaleString()}</p><p class="text-xs text-emerald-200">Escanea para abrir WISE</p></div>
+        </div>
+      </div>` : '<div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center"><p class="text-emerald-700 font-medium">Curso completamente pagado!</p></div>'}
+      
+      <div class="bg-white rounded-xl border border-slate-100 p-4">
+        <h3 class="font-semibold text-slate-800 mb-2">Historial de Pagos</h3>
+        ${c.payments.map(p => `
+          <div class="flex justify-between p-2 rounded-lg ${p.status === 'confirmed' ? 'bg-emerald-50/50' : 'bg-amber-50/50'} mb-1">
+            <span class="text-sm text-slate-600">${p.status === 'confirmed' ? 'Pago confirmado' : 'Pago pendiente'}</span>
+            <span class="font-semibold ${p.status === 'confirmed' ? 'text-emerald-600' : 'text-amber-600'}">฿${p.amount.toLocaleString()}</span>
+          </div>
+        `).join('') || '<p class="text-sm text-slate-400 text-center py-4">Sin pagos registrados</p>'}
+      </div>
+    </div>
+  `;
+  if (c.balance > 0) {
+    setTimeout(() => { if (document.getElementById('studentWiseQR')) new QRCode(document.getElementById('studentWiseQR'), { text: `WISE:${shop?.accountNumber}:${c.balance}:THB`, width: 112, height: 112 }); }, 100);
+  }
+}
+
+function renderStudentDiploma() {
+  if (!currentCustomer) return;
+  const c = currentCustomer;
+  const shop = SHOPS.find(s => s.id === c.shopId);
+  const course = COURSE_TYPES.find(ct => ct.id === c.courseId);
+  setPageTitle('Mi Diploma');
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-lg mx-auto space-y-4 pb-8">
+      <div class="relative overflow-hidden rounded-2xl shadow-2xl">
+        <div class="bg-gradient-to-br from-amber-500 via-yellow-400 to-orange-500 p-8 text-white text-center relative overflow-hidden">
+          <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -skew-x-12"></div>
+          <div class="relative">
+            <svg class="w-16 h-16 mx-auto mb-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="5"/><path d="M12 13v8"/><path d="M9 16l3-3 3 3"/></svg>
+            <h2 class="text-2xl font-bold tracking-wide">CERTIFICADO DIGITAL</h2>
+            <p class="text-sm text-amber-100">DPM Diving - ${shop?.island}</p>
+            <div class="mt-6 bg-white/20 backdrop-blur rounded-xl p-5 border border-white/30">
+              <p class="text-xs text-amber-100 uppercase tracking-widest">Se certifica que</p>
+              <p class="text-3xl font-bold mt-2">${c.firstName} ${c.lastName}</p>
+              <p class="text-base text-amber-100 mt-2">completo <span class="font-bold text-white">${course?.name}</span></p>
+              <p class="text-sm text-amber-200/80 mt-3">${new Date().toLocaleDateString('es-ES', {day:'numeric', month:'long', year:'numeric'})}</p>
+            </div>
+          </div>
+        </div>
+        <div class="p-4 flex gap-3 bg-white">
+          <button onclick="alert('Diploma guardado como PDF')" class="flex-1 py-3 border border-slate-200 rounded-xl text-sm font-medium flex items-center justify-center gap-2 hover:bg-slate-50"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>Guardar PDF</button>
+          <button onclick="alert('Link copiado para compartir')" class="flex-1 py-3 bg-gradient-to-r from-dpm-500 to-cyan-500 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2"><svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>Compartir</button>
+        </div>
+      </div>
+      
+      <!-- Photo Pack -->
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+        <div class="bg-gradient-to-r from-purple-500 via-pink-500 to-rose-500 p-5 text-white text-center">
+          <p class="text-lg font-bold">Pack de Graduacion</p>
+          <p class="text-sm text-white/80">5 fotos de ${shop?.island} - GRATIS</p>
+        </div>
+        <div class="p-4">
+          <div class="grid grid-cols-5 gap-2 mb-4">
+            ${[1,2,3,4,5].map(i => `<div class="aspect-square rounded-lg bg-gradient-to-br from-dpm-100 to-cyan-100 flex items-center justify-center text-2xl">📸</div>`).join('')}
+          </div>
+          <button onclick="downloadPhotoPack()" class="w-full py-3 bg-gradient-to-r from-purple-500 via-pink-500 to-rose-500 text-white font-bold rounded-xl text-sm flex items-center justify-center gap-2">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>Descargar Fotos
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function downloadPhotoPack() {
+  alert('Pack descargado!');
+  setTimeout(() => {
+    if (confirm('Te gusto tu experiencia con DPM Diving? Dejanos una review en Google!')) {
+      alert('Redirigiendo a Google Reviews...');
+    }
+  }, 500);
+}
+
+// ===================== INSTRUCTOR PROFILE =====================
+function renderInstructorProfile() {
+  setPageTitle('Mi Ficha');
+  document.getElementById('mainContent').innerHTML = `
+    <div class="max-w-3xl mx-auto space-y-4">
+      <div class="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+        <div class="flex items-center gap-4">
+          <div class="w-16 h-16 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center text-blue-700 text-xl font-bold">JS</div>
+          <div><h3 class="font-bold text-slate-800 text-lg">John Smith</h3><p class="text-sm text-slate-500">OWSI, MSDT | EN, ES</p></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ===================== INIT =====================
+document.addEventListener('DOMContentLoaded', () => {
+  if (window.lucide) lucide.createIcons();
+});
+</script>
+
+
+</body></html>
