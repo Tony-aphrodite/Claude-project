@@ -53,8 +53,10 @@ export const STAGE_META: Record<
     fg: "#fcd34d",
     chip: "bg-amber-400/10 text-amber-300 ring-amber-400/30",
     columnBg: "bg-stage-deposit-pending",
-    warnHours: 12,
-    badHours: 48,
+    // Owner spec INSTRUCCIONES_PAGO §1: 24h panel alert; 72h auto-lost is
+    // enforced server-side in expireStaleDepositPending.
+    warnHours: 24,
+    badHours: 72,
   },
   deposit_paid: {
     label: "Depósito pagado",
@@ -71,8 +73,10 @@ export const STAGE_META: Record<
     fg: "#c4b5fd",
     chip: "bg-violet-400/10 text-violet-300 ring-violet-400/30",
     columnBg: "bg-stage-handed-off",
-    warnHours: 2,
-    badHours: 12,
+    // Owner spec INSTRUCCIONES_PAGO §1: alerta a los 30 minutos sin
+    // actividad humana. Bad threshold escalates if it sits longer.
+    warnHours: 0.5,
+    badHours: 2,
   },
   closed: {
     label: "Cerrado",
