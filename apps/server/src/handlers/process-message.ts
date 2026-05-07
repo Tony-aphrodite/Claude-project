@@ -39,7 +39,7 @@ import type {
 } from "@dpm/shared";
 import { depositAmountFor } from "@dpm/shared";
 
-import { errores, getDb } from "@dpm/db";
+import { errores, getDb, mensajes } from "@dpm/db";
 
 import { loadEnv } from "../env.js";
 import { callClaude } from "../services/anthropic.js";
@@ -103,6 +103,12 @@ export type ProcessResult =
         | "test_tag_missing";
       branch?: string | null;
       latencyMs: number;
+    }
+  | {
+      ok: true;
+      acknowledgedAttachment: true;
+      conversationId: string;
+      latencyMs: number;
     };
 
 export async function processIncomingMessage(
@@ -112,10 +118,6 @@ export async function processIncomingMessage(
   const t0 = Date.now();
 
   const incomingText = (payload.message.text ?? "").trim();
-  if (!incomingText) {
-    log.info("ignoring non-text message");
-    return { ok: false, ignored: true, reason: "non_text", latencyMs: Date.now() - t0 };
-  }
 
   // Step 2: Pilot gate. The Branch contact field decides whether this
   // message belongs to our system. Anything other than "Gili Trawangan"
@@ -182,6 +184,47 @@ export async function processIncomingMessage(
     respondIoContactId: contact.respondIoContactId,
     sedeId: sede.id,
   });
+
+  // Non-text handling. Owner spec INSTRUCCIONES_PAGO §7
+  // (mensaje-comprobante-recibido) — when the client sends an image / PDF
+  // (typically a payment proof) while the lead is in deposit_pending, the AI
+  // must acknowledge so the customer doesn't go silent. We skip OCR
+  // validation for now; an operator confirms manually from the panel.
+  if (!incomingText) {
+    if (conversation.leadStage === "deposit_pending") {
+      const ackText = pickComprobanteAck(contact.language ?? null);
+      try {
+        await respondIoClient.sendMessage({
+          conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
+          contactId: payload.contact.id,
+          text: ackText,
+        });
+      } catch (err) {
+        log.error({ err }, "respond_io send failed during comprobante ack");
+      }
+      // Persist the AI message so the panel + history reflect what the
+      // customer saw. Mark synthetic so the regression suite can filter it.
+      await getDb()
+        .insert(mensajes)
+        .values({
+          conversacionId: conversation.id,
+          sender: "ai",
+          content: ackText,
+          metadata: { synthetic: true, reason: "comprobante_received_ack" },
+        })
+        .catch((err) =>
+          log.warn({ err }, "failed to persist comprobante ack mensaje"),
+        );
+      return {
+        ok: true,
+        acknowledgedAttachment: true,
+        conversationId: conversation.id,
+        latencyMs: Date.now() - t0,
+      };
+    }
+    log.info("ignoring non-text message (not deposit_pending)");
+    return { ok: false, ignored: true, reason: "non_text", latencyMs: Date.now() - t0 };
+  }
 
   // Idempotency: Respond.io retries any 5xx, so a network blip during reply
   // would otherwise re-trigger a Claude call + double reply. If we already
@@ -583,4 +626,19 @@ function wITAYmd(): string {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+}
+
+/**
+ * Owner spec INSTRUCCIONES_PAGO §7 mensaje-comprobante-recibido. Sent the
+ * moment a non-text message lands while the lead is in deposit_pending —
+ * typically the customer's bank receipt. The actual OCR validation is not
+ * implemented yet (Pieza 1 v1 launches with manual operator verification),
+ * so this is a polite "wait while we check" placeholder.
+ */
+export function pickComprobanteAck(language: string | null): string {
+  const lang = (language ?? "es").slice(0, 2).toLowerCase();
+  if (lang === "en") {
+    return "Got it, thanks 🙏 Let me confirm the transfer with the team and I'll get back to you in a few minutes.";
+  }
+  return "¡Recibido, gracias 🙏! Déjame confirmar la transferencia con el equipo y te aviso en unos minutos.";
 }
