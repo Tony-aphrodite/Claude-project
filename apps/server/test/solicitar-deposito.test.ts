@@ -182,6 +182,45 @@ describe("buildPaymentInstructions", () => {
     expect(txt).toContain("Bank Mandiri");
     expect(txt).toContain("1610010570609");
   });
+
+  it("does NOT mention PDF for IDR (Indonesian mobile banking accepts screenshots)", () => {
+    // Owner spec INSTRUCCIONES_PAGO §1 table: "Comprobante en IDR
+    // | Screenshot aceptado (banca móvil indonesia)".
+    const txtEn = buildPaymentInstructions({
+      sedeNombre: "Gili Trawangan",
+      language: "en",
+      currency: "IDR",
+      refCode: "DPM-XYZABC",
+    });
+    expect(txtEn).not.toContain("PDF");
+    expect(txtEn).toContain("payment confirmation");
+
+    const txtEs = buildPaymentInstructions({
+      sedeNombre: "Gili Trawangan",
+      language: "es",
+      currency: "IDR",
+      refCode: "DPM-XYZABC",
+    });
+    expect(txtEs).not.toContain("PDF");
+    expect(txtEs).toContain("comprobante");
+  });
+
+  it("renders with blank lines separating head / bank / reference / tail (WhatsApp readability)", () => {
+    // Owner spec INSTRUCCIONES_PAGO §4: each section is its own paragraph
+    // so the message reads cleanly in WhatsApp.
+    const txt = buildPaymentInstructions({
+      sedeNombre: "Gili Trawangan",
+      language: "en",
+      currency: "EUR",
+      refCode: "DPM-A1B2C3",
+    });
+    // Head, then blank line, then "Beneficiary:" line.
+    expect(txt).toMatch(/40 EUR 🙏\n\nBeneficiary:/);
+    // Last bank line, blank line, then "Reference:".
+    expect(txt).toMatch(/Wise, Brussels, Belgium\n\nReference: DPM-A1B2C3/);
+    // Reference line, blank line, then tail.
+    expect(txt).toMatch(/Reference: DPM-A1B2C3\n\nOnce sent/);
+  });
 });
 
 describe("sedeHasAutomaticGateway", () => {

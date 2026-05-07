@@ -51,6 +51,7 @@ import {
 } from "../services/catalog-registry.js";
 import { chatContactsService } from "../services/chat-contacts.js";
 import { conversationService } from "../services/conversation.js";
+import { detectCurrencyFromPhone } from "../services/currency-detection.js";
 import {
   addDays,
   getRequiredSlots,
@@ -241,6 +242,9 @@ export async function processIncomingMessage(
 
   // Step 6: dynamic block + 5: 4-block prompt
   const detectedLanguage = detectLanguage(incomingText) ?? contact.language ?? undefined;
+  // Resolve deposit currency from phone prefix per INSTRUCCIONES_PAGO §3.
+  // null when prefix isn't in the table → AI prompts the client to choose.
+  const suggestedCurrency = detectCurrencyFromPhone(contact.phone);
   const roster = await rosterPromise;
 
   // Drop the bot's own message from the history we send back to Claude;
@@ -254,6 +258,7 @@ export async function processIncomingMessage(
     roster,
     incomingMessage: incomingText,
     detectedLanguage,
+    suggestedCurrency,
   });
 
   // Step 7+8: tool_use handlers + Claude call

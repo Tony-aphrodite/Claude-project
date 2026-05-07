@@ -21,7 +21,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 
 import type { Mensaje, Sede } from "@dpm/db";
-import type { AvailabilityResponse } from "@dpm/shared";
+import type { AvailabilityResponse, DepositCurrency } from "@dpm/shared";
 
 export type BuildPromptInput = {
   systemPrompt: string; // Bloque 1 content (system prompt + playbook + few-shots)
@@ -31,6 +31,13 @@ export type BuildPromptInput = {
   roster: AvailabilityResponse | null;
   incomingMessage: string;
   detectedLanguage?: string | undefined;
+  /**
+   * Deposit currency derived server-side from the contact's phone prefix
+   * per owner spec INSTRUCCIONES_PAGO §3. null when the prefix isn't in
+   * the table — the AI must then ask the client to choose from the five
+   * supported currencies.
+   */
+  suggestedCurrency?: DepositCurrency | null;
 };
 
 export type BuildPromptOutput = {
@@ -54,6 +61,7 @@ export function buildFourBlockPrompt(input: BuildPromptInput): BuildPromptOutput
     roster: input.roster,
     incomingMessage: input.incomingMessage,
     detectedLanguage: input.detectedLanguage,
+    suggestedCurrency: input.suggestedCurrency,
   });
 
   const system: Anthropic.TextBlockParam[] = [
@@ -137,6 +145,7 @@ export function formatDynamicBlock(input: {
   roster: AvailabilityResponse | null;
   incomingMessage: string;
   detectedLanguage?: string | undefined;
+  suggestedCurrency?: DepositCurrency | null;
 }): string {
   const sedeNow = new Date().toLocaleString("en-US", {
     timeZone: input.sede.timezone,
@@ -156,11 +165,21 @@ export function formatDynamicBlock(input: {
     ? `IDIOMA DETECTADO DEL CLIENTE: ${input.detectedLanguage} (responde en ese idioma)`
     : "IDIOMA: detectá automáticamente del mensaje y responde en el mismo idioma";
 
+  // Currency hint resolved server-side from phone prefix (INSTRUCCIONES_PAGO §3).
+  // The AI passes this to solicitar_deposito unless the client explicitly
+  // asks for a different currency.
+  const currencyLine =
+    input.suggestedCurrency === undefined || input.suggestedCurrency === null
+      ? "MONEDA SUGERIDA: NO DETECTADA por prefijo telefónico — al activar solicitar_deposito, primero preguntá al cliente qué moneda prefiere de las 5 disponibles (EUR, GBP, AUD, USD, IDR)."
+      : `MONEDA SUGERIDA POR PREFIJO TELEFÓNICO: ${input.suggestedCurrency} — usala como moneda_cliente al invocar solicitar_deposito, salvo que el cliente pida explícitamente otra.`;
+
   return `=== CONTEXTO DINÁMICO ===
 HORA ACTUAL EN LA SEDE: ${sedeNow}
 ZONA HORARIA: ${input.sede.timezone}
 SEDE: ${input.sede.nombre} (${input.sede.pais})
 MONEDA LOCAL: ${input.sede.currencyCode} (${input.sede.currencySymbol})
+
+${currencyLine}
 
 ${langLine}
 

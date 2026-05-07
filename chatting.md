@@ -256,3 +256,102 @@ This is only for Gili Trawangan; each location has a different one.
   que correr un UPDATE sobre esa fila — no hay cambio de código.
   El piloto sigue siendo solo Gili Trawangan; los otros 4 URLs
   se piden cuando el alcance se extienda.
+
+---
+
+## 10. Miguel — URLs de Apps Script de las 5 sedes — 2026-05-06
+
+> Miguel mandó los 5 URLs (uno por sede) sin pedirlo explícitamente.
+> Probable contexto: facilitarnos la activación rápida cuando
+> termine el piloto de Gili Trawangan.
+
+```
+GILI TRAWANGAN:
+https://script.google.com/macros/s/AKfycbzmSetuWdCOEIIbO8T7YS6ZP9kHCO9YI0ZT-QfF_rqQqZzf9RrNiZt6qhX81e5SmdEcJg/exec
+
+GILI AIR:
+https://script.google.com/macros/s/AKfycbwEHo97P7DCI5D-HRZ_JgibjweAQzfnshBS1HivVPpZXhF7sGSQqh9ajmRosZoQ8aQw/exec
+
+NUSA PENIDA:
+https://script.google.com/macros/s/AKfycbyVYIbbdZjyZ2_YbKbOlf2KKaZq2b16x-YSddMNo-xUWbOYdyu_K5WEet5znuefvO_WLA/exec
+
+KOH TAO:
+https://script.google.com/macros/s/AKfycbxygnv93Ve_1jirG7A9eFLg4b3NEPgZSwfz_eNGiEmrgXK4v5fvSyBW7oNs8XnJ9DJV/exec
+
+KOH PHI PHI:
+https://script.google.com/macros/s/AKfycbzLTj2AJsOQmEqqcHaQ-0JDJhP0t2MgGK3aiCNSrrJXx8DS6UkQ-mnBdErGDDgmeVvZ/exec
+```
+
+**Verificación contra los 5 URLs (2026-05-06, `?date=2026-05-08&days=3`):**
+
+| Sede | País | TZ | `days` honrado | `hora_actual_wita` | `turno_nocturno` |
+|------|------|----|----------------|--------------------|-----------------|
+| Gili Trawangan | Indonesia | WITA (UTC+8) | ✅ 3 días | ✅ presente | ✅ presente |
+| Gili Air | Indonesia | WITA | ✅ 3 días | ✅ presente | ✅ presente |
+| Nusa Penida | Indonesia | WITA | ✅ 3 días | ❌ `null` | ❌ ausente |
+| Koh Tao | Thailand | WIB (UTC+7) | ✅ 3 días | ❌ `null` | ✅ presente |
+| Koh Phi Phi | Thailand | WIB | ✅ 3 días | ❌ `null` | ✅ presente |
+
+**Diferencias detectadas que afectarán a la activación de otras sedes:**
+
+1. **`hora_actual_wita`** lo devuelven solo Gili Trawangan + Gili Air.
+   Razones probables: el campo se llama explícitamente "WITA" y los
+   centros tailandeses están en otra zona (WIB/Indochina Time);
+   Nusa Penida está en WITA pero su Apps Script parece más viejo.
+   → Hablar con Miguel: o renombramos el campo a `hora_actual_local`
+   y agregamos `timezone` aparte, o cada sede devuelve la hora pero
+   en el TZ apropiado.
+2. **`turno_nocturno`** lo omite Nusa Penida (operacionalmente no
+   tienen night dives). Es info válida — el AI debería tratar
+   esa sede como "AM/PM only".
+3. **`days` parameter**: ya funciona en las 5 sedes (Miguel
+   parchó el de Gili T y por lo visto los demás ya estaban OK
+   o también se actualizaron).
+
+**Implicancias para Pieza 1 (Gili Trawangan, 2026-05-11):** ninguna.
+Gili Trawangan devuelve los dos campos completos y ya está
+configurado en `sedes.roster_config.url`.
+
+**Implicancias para futuras activaciones (Pieza 1 ampliada o
+post-launch):** el validador en `apps/server/src/services/apps-script.ts`
+exige `hora_actual_wita` como string y la shape `AvailabilityDay`
+exige `turno_nocturno`. Si activamos otras sedes sin tocar el
+schema, las respuestas se descartan como malformadas. **Refactor
+pendiente** (no bloquea el lanzamiento del lunes):
+- Hacer `hora_actual_wita` opcional en `AvailabilityResponse`
+  (cuando esté ausente, `bookable-slots.ts` ya tiene fallback
+  conservador → solo PM hoy).
+- Hacer `turno_nocturno` opcional en `AvailabilityDay`.
+- Renombrar a `hora_actual_local` + agregar `timezone` (idealmente
+  pedirle a Miguel que extienda el Apps Script para que cada uno
+  emita ambos campos).
+
+**SQL templates listos** (NO ejecutar todavía — el piloto del lunes
+es solo Gili T, las otras 4 sedes se activan post-launch):
+
+```sql
+-- Gili Air
+UPDATE sedes SET roster_source='apps_script_url',
+  roster_config = jsonb_build_object('url',
+    'https://script.google.com/macros/s/AKfycbwEHo97P7DCI5D-HRZ_JgibjweAQzfnshBS1HivVPpZXhF7sGSQqh9ajmRosZoQ8aQw/exec')
+WHERE nombre='Gili Air';
+
+-- Nusa Penida
+UPDATE sedes SET roster_source='apps_script_url',
+  roster_config = jsonb_build_object('url',
+    'https://script.google.com/macros/s/AKfycbyVYIbbdZjyZ2_YbKbOlf2KKaZq2b16x-YSddMNo-xUWbOYdyu_K5WEet5znuefvO_WLA/exec')
+WHERE nombre='Nusa Penida';
+
+-- Koh Tao
+UPDATE sedes SET roster_source='apps_script_url',
+  roster_config = jsonb_build_object('url',
+    'https://script.google.com/macros/s/AKfycbxygnv93Ve_1jirG7A9eFLg4b3NEPgZSwfz_eNGiEmrgXK4v5fvSyBW7oNs8XnJ9DJV/exec')
+WHERE nombre='Koh Tao';
+
+-- Koh Phi Phi
+UPDATE sedes SET roster_source='apps_script_url',
+  roster_config = jsonb_build_object('url',
+    'https://script.google.com/macros/s/AKfycbzLTj2AJsOQmEqqcHaQ-0JDJhP0t2MgGK3aiCNSrrJXx8DS6UkQ-mnBdErGDDgmeVvZ/exec')
+WHERE nombre='Koh Phi Phi';
+```
+

@@ -22,7 +22,17 @@ https://script.google.com/macros/s/AKfycbzmSetuWdCOEIIbO8T7YS6ZP9kHCO9YI0ZT-QfF_
 > entrega los URLs uno a uno cuando se activa cada centro. Hoy solo
 > está Gili Trawangan; los otros 4 (Koh Tao, Koh Phi Phi, Gili Air,
 > Nusa Penida) se cargan en `sedes.roster_config.url` cuando llegue
-> el momento — sin cambio de código.
+> el momento — sin cambio de código *para schema homogéneo*.
+>
+> Miguel envió los 5 URLs el 2026-05-06 (ver `chatting.md §10`
+> para diferencias de schema entre sedes que requieren un refactor
+> menor antes de activar las que no son Gili T):
+>
+> - **Gili Trawangan**: `…AKfycbzmSetuWdCO…SmdEcJg/exec` ✅ activo
+> - **Gili Air**: `…AKfycbwEHo97P7DCI5D…sZoQ8aQw/exec`
+> - **Nusa Penida**: `…AKfycbyVYIbbdZjyZ2_…vO_WLA/exec`
+> - **Koh Tao**: `…AKfycbxygnv93Ve_…XnJ9DJV/exec`
+> - **Koh Phi Phi**: `…AKfycbzLTj2AJsOQ…meVvZ/exec`
 
 > **Patch del `days` (2026-05-06)**: la primera deploy del Apps Script
 > ignoraba el parámetro `days` y siempre devolvía un único día en

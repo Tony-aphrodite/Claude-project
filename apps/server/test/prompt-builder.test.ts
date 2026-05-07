@@ -124,6 +124,34 @@ describe("formatDynamicBlock", () => {
     });
     expect(text).toContain("roster no disponible");
   });
+
+  it("surfaces server-resolved deposit currency hint when phone prefix matches", () => {
+    const text = formatDynamicBlock({
+      sede: SEDE,
+      roster: ROSTER,
+      incomingMessage: "quiero reservar",
+      suggestedCurrency: "EUR",
+    });
+    expect(text).toMatch(/MONEDA SUGERIDA POR PREFIJO TELEFÓNICO: EUR/);
+    expect(text).toContain("solicitar_deposito");
+  });
+
+  it("instructs the AI to ask the client when currency cannot be detected", () => {
+    const text = formatDynamicBlock({
+      sede: SEDE,
+      roster: ROSTER,
+      incomingMessage: "quiero reservar",
+      suggestedCurrency: null,
+    });
+    expect(text).toContain("MONEDA SUGERIDA: NO DETECTADA");
+    expect(text).toMatch(/preguntá al cliente/);
+    // Lists the 5 supported currencies the AI must offer.
+    expect(text).toContain("EUR");
+    expect(text).toContain("GBP");
+    expect(text).toContain("AUD");
+    expect(text).toContain("USD");
+    expect(text).toContain("IDR");
+  });
 });
 
 describe("buildFourBlockPrompt", () => {

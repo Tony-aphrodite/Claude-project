@@ -49,8 +49,13 @@ const HEAD_EN = (amt: string, ccy: string) =>
 const HEAD_ES = (amt: string, ccy: string) =>
   `Acá los datos bancarios en ${ccy} para tu depósito de ${amt} ${ccy} 🙏`;
 
-const TAIL_EN = "Once sent, please download and share the payment confirmation PDF 🙏";
-const TAIL_ES = "Cuando lo envíes, descargá y compartí el comprobante de pago en PDF 🙏";
+// Foreign currencies (EUR/GBP/AUD/USD) require a PDF receipt — Indonesian
+// mobile banking apps don't easily produce PDFs, so for IDR we accept a
+// screenshot (owner spec, INSTRUCCIONES_PAGO §1 + §4 bloque-idr).
+const TAIL_PDF_EN = "Once sent, please download and share the payment confirmation PDF 🙏";
+const TAIL_PDF_ES = "Cuando lo envíes, descargá y compartí el comprobante de pago en PDF 🙏";
+const TAIL_ANY_EN = "Once sent, please share the payment confirmation 🙏";
+const TAIL_ANY_ES = "Cuando lo envíes, compartí el comprobante de pago 🙏";
 
 const REFERENCE_LINE = (refCode: string) => `Reference: ${refCode}`;
 
@@ -102,14 +107,29 @@ function formatAmount(currency: DepositCurrency): string {
  * The block is meant to be sent ALONE in its own outbound message — the
  * prompt builder instructs the AI to keep price, bank, and close-question
  * in three separate messages.
+ *
+ * Layout matches owner spec INSTRUCCIONES_PAGO §4: blank lines between the
+ * head, the bank lines, the reference line, and the tail so the message
+ * reads cleanly inside WhatsApp.
  */
 export function buildPaymentInstructions(input: BuildInstructionsInput): string {
   const isEnglish = !input.language.toLowerCase().startsWith("es");
   const amt = formatAmount(input.currency);
   const head = isEnglish ? HEAD_EN(amt, input.currency) : HEAD_ES(amt, input.currency);
   const lines = BANK_BLOCKS_EN[input.currency];
-  const tail = isEnglish ? TAIL_EN : TAIL_ES;
-  return [head, ...lines, REFERENCE_LINE(input.refCode), tail].join("\n");
+  const requiresPdf = input.currency !== "IDR";
+  const tail = isEnglish
+    ? requiresPdf ? TAIL_PDF_EN : TAIL_ANY_EN
+    : requiresPdf ? TAIL_PDF_ES : TAIL_ANY_ES;
+  return [
+    head,
+    "",
+    ...lines,
+    "",
+    REFERENCE_LINE(input.refCode),
+    "",
+    tail,
+  ].join("\n");
 }
 
 /**
