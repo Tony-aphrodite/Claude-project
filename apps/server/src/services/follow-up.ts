@@ -78,6 +78,50 @@ suave (temporada, plazas), sin reproche. 2-3 oraciones. Mismo idioma.`,
 abierta sin sonar a venta. 1-2 oraciones. Mismo idioma.`,
 };
 
+/**
+ * Owner spec INSTRUCCIONES_PAGO §1: leads sitting in `deposit_pending` for
+ * more than 72 hours without a receipt are auto-moved to `lost`. We expose
+ * this as its own helper so it can be exercised in tests independently of
+ * the generic re-engagement scanner.
+ */
+const DEPOSIT_PENDING_TIMEOUT_HOURS = 72;
+
+export async function expireStaleDepositPending(): Promise<{ expired: number }> {
+  const db = getDb();
+  const log = getLogger();
+  const cutoff = new Date(Date.now() - DEPOSIT_PENDING_TIMEOUT_HOURS * 60 * 60 * 1000);
+
+  const stale = await db
+    .select({ id: conversaciones.id })
+    .from(conversaciones)
+    .where(
+      and(
+        eq(conversaciones.leadStage, "deposit_pending"),
+        lte(conversaciones.leadStageChangedAt, cutoff),
+      ),
+    );
+
+  let expired = 0;
+  for (const row of stale) {
+    const result = await leadStageService
+      .forceTransition({
+        conversacionId: row.id,
+        to: "lost",
+        by: "system",
+        note: `deposit_pending_timeout_${DEPOSIT_PENDING_TIMEOUT_HOURS}h`,
+      })
+      .catch((err) => {
+        log.warn({ err, convId: row.id }, "deposit_pending timeout transition failed");
+        return null;
+      });
+    if (result?.ok) expired++;
+  }
+  if (expired > 0) {
+    log.info({ expired }, "deposit_pending leads moved to lost (72h timeout)");
+  }
+  return { expired };
+}
+
 export class FollowUpScheduler {
   /**
    * Scan active conversations and schedule the next-applicable follow-up
@@ -87,6 +131,11 @@ export class FollowUpScheduler {
   async scanAndSchedule(): Promise<{ scheduled: number; skipped: number }> {
     const db = getDb();
     const log = getLogger();
+    // Side-effect: enforce the deposit_pending → lost timeout. Cheap (one
+    // narrowly-filtered query) so we run it every scan tick.
+    await expireStaleDepositPending().catch((err) =>
+      log.warn({ err }, "expireStaleDepositPending failed"),
+    );
 
     // Conversations active and where last activity is at least 4h old.
     // We pull a generous window — the per-row level decision happens below.
