@@ -27,7 +27,7 @@ import {
   type LeadStage,
 } from "@dpm/shared";
 
-import { sendRespondIoMessage } from "~/lib/respond-io";
+import { applyContactTag } from "~/lib/respond-io";
 
 const MAX_HISTORY = 10;
 
@@ -69,10 +69,10 @@ async function applyForceTransition(
   return { from, to };
 }
 
-// Handoff text now lives in ~/lib/handoff-text so it can be unit-tested
-// without spinning up vitest in the panel package. "use server" files only
-// export server actions, so the helper has to live elsewhere.
-import { buildHandoffText } from "~/lib/handoff-text";
+// (Long handoff message helper at ~/lib/handoff-text is no longer used
+// here — Miguel's Respond.io workflow handles all post-venta messaging
+// when it sees the `deposit_paid` tag. The helper stays in the repo as
+// fallback in case the workflow ever needs to be bypassed.)
 
 /**
  * Confirm that the deposit landed on Wise/Revolut/bank. The action:
@@ -111,33 +111,34 @@ export async function confirmDepositReceived(formData: FormData) {
   await applyForceTransition(conversacionId, "deposit_paid", "panel:confirm_deposit");
 
   const meta = (row.conv.leadMetadata ?? null) as LeadMetadata | null;
-  const text = buildHandoffText(row.contact?.language, {
-    programa: meta?.programa ?? null,
-    fecha: meta?.start_date ?? null,
-  });
 
-  // Best-effort outbound send.
-  let sent = false;
+  // Owner spec DPM_AI_LAUNCH 2026-05-07 reply §3 + §4: the post-venta
+  // workflow lives in Respond.io and dispatches the snippets
+  // (gten_paperwork, predive_tips, ssi_app, location, accommodation)
+  // when it sees the `deposit_paid` tag on the contact. Our job from
+  // the panel is to apply the tag — we do NOT send a long
+  // confirmation message ourselves because that duplicates the
+  // workflow output. Custom fields are already pushed by the AI when
+  // it ran consultar_disponibilidad / solicitar_deposito; if the
+  // operator confirms a lead where those fields are stale (e.g. the
+  // AI never invoked the tools), the workflow will render snippets
+  // with empty $contact.X — that's a Miguel-side concern, not ours.
+  let tagApplied = false;
   try {
-    await sendRespondIoMessage({
-      conversationId: row.conv.respondIoConversationId,
-      text,
-    });
-    sent = true;
+    await applyContactTag(row.contact?.respondIoContactId ?? null, "deposit_paid");
+    tagApplied = true;
   } catch (err) {
-    console.error("respond_io send failed during deposit confirmation", err);
+    console.error("respond_io add deposit_paid tag failed", err);
   }
 
-  // Persist as AI message regardless of send success — the panel UI shows
-  // the intended message so the operator knows what was attempted.
   await db.insert(mensajes).values({
     conversacionId,
     sender: "ai",
-    content: text,
+    content: "[deposit_paid tag applied — Respond.io workflow handles post-venta messaging]",
     metadata: {
       synthetic: true,
-      reason: "deposit_paid_handoff",
-      sent_via_respond_io: sent,
+      reason: "deposit_paid_tag",
+      tag_applied: tagApplied,
     },
   });
 

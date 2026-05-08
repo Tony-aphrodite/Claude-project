@@ -237,8 +237,14 @@ export type SlotVerdict = {
   slot: SlotKey;
   available: boolean;
   espacios: number; // remaining seats
-  /** Why a slot is NOT available — only set when available=false. */
-  reason?: "full" | "past_today" | "missing_data";
+  /**
+   * Why a slot is NOT available — only set when available=false.
+   *   • full          — boat is full
+   *   • past_today    — same-day boat already departed (cutoff WITA)
+   *   • missing_data  — Apps Script didn't return that date
+   *   • closure_day   — sede closed (Dec 25 / Jan 1, DPM_AI_LAUNCH §9)
+   */
+  reason?: "full" | "past_today" | "missing_data" | "closure_day";
 };
 
 export type ConsultarDisponibilidadResult =

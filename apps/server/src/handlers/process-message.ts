@@ -56,7 +56,9 @@ import { runOcrOnAttachment, type OcrVerdict } from "../services/ocr-comprobante
 import { pickFirstAttachment } from "../services/respond-io-attachment.js";
 import {
   addDays,
+  computeTurno,
   getRequiredSlots,
+  isClosureDay,
   maxDayOffset,
 } from "../services/program-schedule.js";
 import {
@@ -300,42 +302,47 @@ export async function processIncomingMessage(
             log.warn({ err }, "ocr_result metadata patch failed"),
           );
 
-        // On auto-confirm we replace the §7 ack already sent above with a
-        // proper confirmation by chaining a second outbound message —
-        // the customer sees: ACK ("Got it") then immediate confirmation.
-        // Then we move to handed_off so the human team takes the thread.
+        // Auto-confirm path. Owner spec DPM_AI_LAUNCH 2026-05-07 reply
+        // §3 + §4: the post-venta workflow is wired in Respond.io and
+        // dispatches snippets (gten_paperwork with sizes, predive_tips,
+        // SSI app, location, accommodation) when it sees the
+        // `deposit_paid` tag. Our server's job is to:
+        //   1. Apply the `deposit_paid` tag (Miguel's workflow trigger)
+        //   2. Push contact custom fields (programa / start_date / pax /
+        //      monto / moneda / codigo_referencia) so the snippets render
+        //      with real values via $contact.X
+        //   3. Move the lead to handed_off so the panel reflects state
+        //   4. Queue the gilit@dpmdiving.com notification
+        // We DO NOT send a long confirmation message ourselves — that
+        // would duplicate the snippets the workflow dispatches.
         if (autoConfirmed) {
           const meta = (conversation.leadMetadata as LeadMetadata | null) ?? null;
-          const ctx = {
-            programa: meta?.programa ?? null,
-            fecha: meta?.start_date ?? null,
-            language: contact.language ?? null,
-          };
-          const confirmedText = buildAutoConfirmedText(ctx);
+
+          // 1. Tag the contact — Respond.io workflow listens for this.
           try {
-            await respondIoClient.sendMessage({
-              conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
+            await respondIoClient.addContactTag({
               contactId: payload.contact.id,
-              text: confirmedText,
+              tag: "deposit_paid",
             });
           } catch (err) {
-            log.error({ err }, "respond_io send failed during auto-confirm");
+            log.error({ err }, "respond_io add deposit_paid tag failed");
           }
-          await getDb()
-            .insert(mensajes)
-            .values({
-              conversacionId: conversation.id,
-              sender: "ai",
-              content: confirmedText,
-              metadata: {
-                synthetic: true,
-                reason: "ocr_auto_confirmed_message",
+
+          // 2. Push deposit-related fields onto the contact.
+          void respondIoClient
+            .updateContactCustomFields({
+              contactId: payload.contact.id,
+              fields: {
+                monto: meta?.deposit_amount ?? "",
+                moneda: meta?.deposit_currency ?? "",
+                codigo_referencia: meta?.ref_code ?? "",
               },
             })
             .catch((err) =>
-              log.warn({ err }, "failed to persist auto-confirm mensaje"),
+              log.warn({ err }, "respond_io update_custom_fields failed (auto-confirm)"),
             );
-          // Hand off to humans — the GT team picks up from here.
+
+          // 3. Move lead to handed_off — operator panel mirrors state.
           await leadStageService
             .forceTransition({
               conversacionId: conversation.id,
@@ -346,8 +353,9 @@ export async function processIncomingMessage(
             .catch((err) =>
               log.warn({ err }, "auto handoff transition failed"),
             );
-          // Queue the gilit@dpmdiving.com notification (transport may not
-          // be configured yet — entries replay when it lands).
+
+          // 4. Queue gilit@dpmdiving.com notification (Wise-side already
+          // active per §8; this is the in-AI redundancy).
           const targetEmail =
             loadEnv().HANDOFF_NOTIFICATION_EMAIL ?? "gilit@dpmdiving.com";
           await getDb()
@@ -484,6 +492,24 @@ export async function processIncomingMessage(
       };
     }
 
+    // Owner spec DPM_AI_LAUNCH §9 (2026-05-07): Gili Trawangan closes
+    // Dec 25 + Jan 1. Reservations starting on those dates are rejected.
+    // Programs spanning a closure day pause/resume on the operator side —
+    // we surface the conflict so the AI offers the next day instead.
+    const closureDates: string[] = [];
+    const windowSpan = required.length === 0 ? 0 : maxDayOffset(required);
+    for (let i = 0; i <= windowSpan; i++) {
+      const d = addDays(input.start_date, i);
+      if (isClosureDay(d)) closureDates.push(d);
+    }
+    if (closureDates.length > 0) {
+      return {
+        ok: false,
+        reason: "program_not_scheduled",
+        message: `El centro está cerrado el ${closureDates.join(", ")} (Navidad / Año Nuevo). Ofrecé al cliente empezar el día siguiente.`,
+      };
+    }
+
     // Programs that don't need any boat capacity (e.g. ReactRight, theory
     // only) skip the roster check entirely. Returning available=true with
     // empty slots tells the AI it can confirm any date.
@@ -500,6 +526,19 @@ export async function processIncomingMessage(
           },
         })
         .catch(() => {});
+      // Push to Respond.io contact custom fields so Miguel's Sheet
+      // Logger picks them up. Best-effort — failures don't block.
+      void respondIoClient
+        .updateContactCustomFields({
+          contactId: payload.contact.id,
+          fields: {
+            programa: input.programa,
+            start_date: input.start_date,
+          },
+        })
+        .catch((err) =>
+          log.warn({ err }, "respond_io update_custom_fields failed (no-boat path)"),
+        );
       return {
         ok: true,
         programa: input.programa,
@@ -577,6 +616,21 @@ export async function processIncomingMessage(
         },
       })
       .catch(() => {});
+
+    // Push to Respond.io contact custom fields (DPM_AI_LAUNCH 2026-05-07
+    // §1: programa, turno, start_date for Miguel's Sheet Logger).
+    void respondIoClient
+      .updateContactCustomFields({
+        contactId: payload.contact.id,
+        fields: {
+          programa: input.programa,
+          turno: computeTurno(required) ?? "",
+          start_date: input.start_date,
+        },
+      })
+      .catch((err) =>
+        log.warn({ err }, "respond_io update_custom_fields failed (proposed path)"),
+      );
 
     return {
       ok: true,
@@ -661,6 +715,22 @@ export async function processIncomingMessage(
         "solicitar_deposito transition rejected — returning instructions anyway",
       );
     }
+
+    // Push deposit-related fields to Respond.io contact (DPM_AI_LAUNCH
+    // 2026-05-07 §2). The Sheet Logger reads from these the moment the
+    // conversation closes — we don't have to coordinate further.
+    void respondIoClient
+      .updateContactCustomFields({
+        contactId: payload.contact.id,
+        fields: {
+          monto,
+          moneda: currency,
+          codigo_referencia: refCode,
+        },
+      })
+      .catch((err) =>
+        log.warn({ err }, "respond_io update_custom_fields failed (deposit path)"),
+      );
 
     return {
       ok: true,

@@ -626,3 +626,111 @@ Saludos!
 3. Pendiente de Miguel: 8 campos creados en Respond.io, 3 textos
    post-venta, formato form médico, links faltantes, activación del
    webhook.
+
+---
+
+## 13. Miguel — respuesta a las 11 dudas + ajustes — 2026-05-07
+
+> Miguel cierra todos los items pendientes. Hay dos cambios de plan
+> importantes (handoff por team Round Robin en lugar de Patrick
+> directo; AI Agent en Respond.io NO se usa, todo viene de nuestro
+> Railway server) y varias confirmaciones que destraban el lunes.
+
+### Mensaje resumido (puntos clave)
+
+**Cambios de plan:**
+
+1. **Handoff target — equipo "Agents" (ID 21595) Round Robin con 9
+   miembros** (Patrick, Giovanni, Grecia, Fabiola, Francis, Roberto,
+   Alba, Richard, Laura). Resuelve también el backup de Patrick
+   (item 10).
+
+3. **No se usa el Asistente IA de Respond.io** — todo el cerebro
+   está en nuestro Railway. El handoff se dispara por workflow de
+   Respond.io que escucha algún signal nuestro. Miguel pregunta cómo
+   prefiero señalar:
+   - (a) etiqueta al contacto (ej. `handoff-needed`)
+   - (b) custom field (ej. `ai_status = escalated`)
+   - (c) llamada directa a la API de asignación
+
+   **Steve responde: opción (a) — tag-based.** Es el patrón nativo
+   de Respond.io workflows y mantiene la API del server simple.
+   Concretamente:
+   - Tag `deposit_paid` se sigue aplicando cuando OCR auto-confirma
+     o cuando el operador confirma manual en el panel. Es el mismo
+     tag que ya existía en el flujo de Miguel — Round Robin se
+     dispara por ahí.
+   - Tag nuevo `ai_escalation` para handoffs pre-depósito (médica,
+     descuento >10 %, tema prohibido, etc.). Mismo workflow puede
+     escuchar ese tag con la misma asignación Round Robin.
+
+**Confirmaciones (todas ✅):**
+
+2. 8 campos custom creados (programa, turno, pax, moneda, monto,
+   descuento, start_date, codigo_referencia) — usar nombres
+   exactos.
+4. 16 snippets armados (sizes, paperwork con `$contact.programa /
+   start_date / pax`, predive_tips, ssi_app, location Maps DPM,
+   quma Maps, accommodation Quma + Green Banana, closing_days,
+   medical questionnaire). EN+ES.
+5. Maps DPM Gili Trawangan + fast boats (12go.asia genérico).
+6. **Las 6 plantillas Meta APROBADAS** (dpm_followup_48h_es/en,
+   _7d_es/en, _30d_es/en) — categoría Marketing/Personalizada.
+7. **Anthropic Tier 2 APROBADO**, spend cap $400/mes, alerta a
+   $80, $46.68 de crédito.
+8. Wise email gilit@dpmdiving.com **CONFIRMADO ACTIVO**.
+9. **Feriados**: solo 2 días al año cierra GT — **25/12 y 01/01**.
+   AI no acepta reservas que empiecen esos días. Si un curso ya
+   empezó y cae uno de esos días, se pausa y reanuda al día
+   siguiente. **No hay Nyepi / Lebaran**.
+10. Resuelto vía Round Robin (item 1).
+
+**Pendientes:**
+
+11. 🟡 Steve verifica si tiene opción de exportar conversaciones en
+    Respond.io.
+
+### Aclaración importante sobre `descuento`
+
+El campo `descuento` (List) tiene 3 valores fijos:
+- `Sin descuento`
+- `5%`
+- `10%`
+
+Miguel recomienda usar el List directamente. El AI escribe uno de
+los 3 literalmente. Si por algún motivo hay que registrar otro
+valor (15 %, monto fijo, etc.) → usar `descuento_aplicado` (Text)
+como fallback.
+
+### Implicancia arquitectónica importante
+
+Como el flujo post-confirmación lo dispara el **workflow de
+Respond.io** sobre el tag `deposit_paid` (envía gten_paperwork,
+gten_predive_tips, etc. con datos sacados de los custom fields),
+**nuestro server NO debe enviar el mensaje largo de confirmación**
+que armamos antes (`buildAutoConfirmedText` en process-message.ts
+y `buildHandoffText` en panel/leads.ts). Si lo enviamos, duplica
+con los snippets que dispara Miguel.
+
+**Refactor necesario:** Auto-confirm OCR y manual-confirm panel
+deben:
+1. Subir lead_stage a `deposit_paid`
+2. Aplicar tag `deposit_paid` al contacto en Respond.io (ya no
+   mandar texto largo — Miguel's workflow se ocupa)
+3. Subir lead_stage a `handed_off`
+4. Push a custom fields: programa, turno, pax, moneda, monto,
+   start_date, codigo_referencia, descuento
+
+Los textos `buildAutoConfirmedText` / `buildHandoffText` quedan
+muertos — borrar o dejar como fallback solo si Miguel desactiva
+el workflow.
+
+### Acción tomada (2026-05-07)
+
+1. Mensaje guardado.
+2. Refactor del server: tag `deposit_paid` + `ai_escalation`,
+   contact field writes, drop long handoff messages.
+3. KB05 + system prompt v2.1 con feriados Dec 25 / Jan 1.
+4. consultar_disponibilidad rechaza start_date en feriados.
+5. Pendiente respuesta de Steve a Miguel sobre handoff
+   tag-based + descuento List + export Respond.io.

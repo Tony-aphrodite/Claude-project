@@ -260,6 +260,114 @@ export class RespondIoClient {
       clearTimeout(timer);
     }
   }
+
+  /**
+   * Add a tag to a Respond.io contact. Owner spec DPM_AI_LAUNCH +
+   * 2026-05-07 reply: tag-based handoff. The Respond.io workflow that
+   * Miguel maintains listens for these tags and assigns the conversation
+   * to the "Agents" team (id 21595, Round Robin) — we just emit the
+   * signal.
+   *
+   * Common tags we apply:
+   *   • `deposit_paid`     → triggers post-venta workflow + agent assignment
+   *   • `ai_escalation`    → pre-deposit handoff (medical, >10% discount,
+   *                          prohibited topic) — same Round Robin
+   */
+  async addContactTag(input: { contactId: string; tag: string }): Promise<void> {
+    const env = loadEnv();
+    const log = getLogger();
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/tag`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+    try {
+      const res = await undiciFetch(url, {
+        method: "POST",
+        signal: controller.signal,
+        dispatcher: keepAliveAgent,
+        headers: {
+          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ tags: [input.tag] }),
+      } as RequestInit);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new UpstreamError("respond_io", `add_tag ${res.status}`, {
+          status: res.status,
+          body: body.slice(0, 500),
+        });
+      }
+      log.info({ contactId: input.contactId, tag: input.tag }, "respond_io add_tag ok");
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        throw new UpstreamError("respond_io", "add_tag timed out", {
+          timeoutMs: TIMEOUTS.RESPOND_IO_MS,
+        });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Patch contact custom fields. Owner spec DPM_AI_LAUNCH 2026-05-07
+   * reply §2: Miguel created 8 fields (`programa`, `turno`, `pax`,
+   * `moneda`, `monto`, `descuento`, `start_date`, `codigo_referencia`).
+   * The AI populates them as it captures info during the conversation —
+   * Miguel's existing Sheet Logger reads from these fields when the
+   * conversation closes, so the sales row gets written automatically.
+   *
+   * Caller passes only the fields it has; server merges into Respond.io.
+   */
+  async updateContactCustomFields(input: {
+    contactId: string;
+    fields: Record<string, string | number | null>;
+  }): Promise<void> {
+    const env = loadEnv();
+    const log = getLogger();
+    const entries = Object.entries(input.fields).filter(([, v]) => v !== null && v !== undefined);
+    if (entries.length === 0) return;
+
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
+    const customFields = entries.map(([name, value]) => ({ name, value }));
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+    try {
+      const res = await undiciFetch(url, {
+        method: "PATCH",
+        signal: controller.signal,
+        dispatcher: keepAliveAgent,
+        headers: {
+          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ customFields }),
+      } as RequestInit);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new UpstreamError("respond_io", `update_custom_fields ${res.status}`, {
+          status: res.status,
+          body: body.slice(0, 500),
+        });
+      }
+      log.info(
+        { contactId: input.contactId, fields: entries.map(([k]) => k) },
+        "respond_io update_custom_fields ok",
+      );
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        throw new UpstreamError("respond_io", "update_custom_fields timed out", {
+          timeoutMs: TIMEOUTS.RESPOND_IO_MS,
+        });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
 
 /**

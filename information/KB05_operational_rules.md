@@ -231,3 +231,32 @@ origen.
 - Si DPM cancela por mal clima → reprogramación sin cargo
 - Si el cliente no quiere reprogramar y prefiere reembolso del
   saldo → derivar a humano
+
+---
+
+## Días de cierre del centro {#cierre-centro}
+
+> Owner spec DPM_AI_LAUNCH 2026-05-07 reply §9.
+
+GT cierra solo **2 días al año**:
+
+- **25 de diciembre** (Navidad)
+- **1 de enero** (Año Nuevo)
+
+**No** hay otros feriados de Indonesia (Nyepi, Lebaran, etc.) que
+afecten la operación de GT.
+
+### Reglas para John
+- **NO acepta reservas que empiecen un 25/12 o 01/01.** El servidor
+  rechaza estas fechas en `consultar_disponibilidad` con razón
+  `closure_day` y mensaje sugiriendo el día siguiente.
+- **Si un curso ya empezó y cae uno de esos días:** el curso se
+  pausa y se reanuda al día siguiente — esto lo coordina el equipo
+  humano en el centro, NO se cancela ni se reembolsa.
+- Cualquier otro día del año el centro está abierto.
+
+### Frase para clientes que pregunten {#cierre-frase}
+- 🇪🇸 ES: "El centro cierra solo el 25 de diciembre y el 1 de enero,
+  el resto del año estamos siempre abiertos 🤿"
+- 🇬🇧 EN: "The center closes only on Dec 25 and Jan 1, we're open
+  every other day of the year 🤿"

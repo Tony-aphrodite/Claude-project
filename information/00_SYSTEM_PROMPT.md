@@ -146,6 +146,14 @@ fechas, vía la tool `consultar_disponibilidad`. Detalle técnico en
 - Advanced Adventurer, Fun Dive, Deep Adventure + Fun Dive,
   Deep Specialty, Rescue Diver, Nitrox Specialty
 
+### Días de cierre {#cierre}
+
+GT cierra solo **25 de diciembre y 1 de enero**. NO hay otros
+feriados (Nyepi, Lebaran no aplican). Si un cliente quiere empezar
+en uno de esos días, el server lo rechaza con `closure_day` y John
+ofrece el día siguiente. Si un curso ya empezó y cruza esos días,
+se pausa y se reanuda — coordinarlo desde la sede, NO cancelar.
+
 ### Cliente que llega hoy o mañana
 
 Preguntá de dónde viene y a qué hora llega ANTES de confirmar

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   addDays,
+  computeTurno,
   getRequiredSlots,
+  isClosureDay,
   maxDayOffset,
 } from "../src/services/program-schedule.js";
 
@@ -81,5 +83,57 @@ describe("addDays", () => {
 
   it("throws on malformed input", () => {
     expect(() => addDays("not-a-date", 1)).toThrow();
+  });
+});
+
+describe("isClosureDay — DPM_AI_LAUNCH 2026-05-07 §9", () => {
+  it("returns true for Dec 25", () => {
+    expect(isClosureDay("2026-12-25")).toBe(true);
+    expect(isClosureDay("2027-12-25")).toBe(true);
+    expect(isClosureDay("2030-12-25")).toBe(true);
+  });
+
+  it("returns true for Jan 1", () => {
+    expect(isClosureDay("2026-01-01")).toBe(true);
+    expect(isClosureDay("2027-01-01")).toBe(true);
+  });
+
+  it("returns false for any other day", () => {
+    expect(isClosureDay("2026-12-24")).toBe(false);
+    expect(isClosureDay("2026-12-26")).toBe(false);
+    expect(isClosureDay("2026-01-02")).toBe(false);
+    expect(isClosureDay("2026-05-11")).toBe(false);
+  });
+
+  it("returns false for Indonesian holidays NOT in the spec (Nyepi, Lebaran)", () => {
+    expect(isClosureDay("2026-03-19")).toBe(false); // example Nyepi date
+    expect(isClosureDay("2026-04-22")).toBe(false); // example Lebaran-ish date
+  });
+});
+
+describe("computeTurno — high-level field for Miguel's Sheet Logger", () => {
+  it("returns null for null input", () => {
+    expect(computeTurno(null)).toBe(null);
+  });
+
+  it("returns null for empty array (ReactRight: no boat)", () => {
+    expect(computeTurno([])).toBe(null);
+  });
+
+  it("returns 'PM' for PM-only programs (TryScuba, ScubaDiver, Refresh)", () => {
+    expect(computeTurno(getRequiredSlots("TryScuba")!)).toBe("PM");
+    expect(computeTurno(getRequiredSlots("ScubaDiver")!)).toBe("PM");
+    expect(computeTurno(getRequiredSlots("Refresh")!)).toBe("PM");
+  });
+
+  it("returns 'AM/PM' for multi-day mixed programs (OW, OW30, AOW)", () => {
+    expect(computeTurno(getRequiredSlots("OW")!)).toBe("AM/PM");
+    expect(computeTurno(getRequiredSlots("OW30")!)).toBe("AM/PM");
+    expect(computeTurno(getRequiredSlots("AOW")!)).toBe("AM/PM");
+  });
+
+  it("returns 'AM' or 'PM' for FunDive based on client choice", () => {
+    expect(computeTurno(getRequiredSlots("FunDive", "AM")!)).toBe("AM");
+    expect(computeTurno(getRequiredSlots("FunDive", "PM")!)).toBe("PM");
   });
 });

@@ -133,3 +133,41 @@ export function addDays(yyyymmdd: string, n: number): string {
   const dd = String(date.getUTCDate()).padStart(2, "0");
   return `${yy}-${mm}-${dd}`;
 }
+
+/**
+ * Owner spec DPM_AI_LAUNCH 2026-05-07 reply §9. Gili Trawangan only
+ * closes on Dec 25 + Jan 1. Other Indonesian holidays (Nyepi, Lebaran)
+ * are NOT closure days. AI must reject reservations that START on a
+ * closure day. Courses already in progress that hit a closure day get
+ * paused and resume the next day — that case is handled at the
+ * conversation level by the operator, not by the schedule.
+ */
+const CLOSURE_MMDD = new Set(["12-25", "01-01"]);
+
+export function isClosureDay(yyyymmdd: string): boolean {
+  // Match on MM-DD to be year-agnostic.
+  const mmdd = yyyymmdd.length >= 10 ? yyyymmdd.slice(5, 10) : "";
+  return CLOSURE_MMDD.has(mmdd);
+}
+
+/**
+ * Resolve a high-level "turno" string for Miguel's contact field
+ * `turno` (Text). One value per program — used as a hint for the
+ * sales sheet logger, not as scheduling input.
+ *
+ *   AM-only programs: programs whose required slots are all AM
+ *   PM-only programs: programs whose required slots are all PM
+ *   AM/PM:            mixed (multi-day with both turnos)
+ *   null:             empty (no boat needed) or unknown
+ */
+export function computeTurno(
+  required: readonly RequiredSlot[] | null,
+): string | null {
+  if (!required || required.length === 0) return null;
+  const hasAm = required.some((s) => s.slot === "AM");
+  const hasPm = required.some((s) => s.slot === "PM");
+  if (hasAm && hasPm) return "AM/PM";
+  if (hasAm) return "AM";
+  if (hasPm) return "PM";
+  return null;
+}
