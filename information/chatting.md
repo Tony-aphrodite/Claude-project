@@ -734,3 +734,346 @@ el workflow.
 4. consultar_disponibilidad rechaza start_date en feriados.
 5. Pendiente respuesta de Steve a Miguel sobre handoff
    tag-based + descuento List + export Respond.io.
+
+---
+
+## 14. Miguel — confirmación scope API key Respond.io — 2026-05-07
+
+> Respuesta a la pregunta #4 del checklist final: ¿la
+> RESPOND_IO_API_KEY tiene permisos para `add contact tag` y
+> `patch contact custom fields`?
+
+### Mensaje de Miguel
+
+```
+Hola Steve! Verifiqué. La key es un Workspace Developer API
+token de Respond.io. En Respond.io estos tokens NO tienen
+scopes granulares — automáticamente dan acceso COMPLETO a
+todas las APIs del workspace.
+
+Eso quiere decir que ya tenés permisos para los 3 que pediste:
+✅ Send message
+✅ Add contact tag
+✅ Patch contact custom fields
++ todos los otros endpoints
+
+Confirmé además que la key ya figura como "usada por última
+vez" (may 06, 04:32 AM), así que la autenticación funciona
+de tu lado.
+
+Probá las llamadas que necesitás. Si alguna te tira 401/403
+avisame y regenero el token. Doc oficial:
+https://developers.respond.io/
+
+🤿
+```
+
+### Análisis técnico
+
+- **Workspace Developer API token de Respond.io NO tiene scopes
+  granulares** — un token cualquiera tiene acceso completo a
+  todos los endpoints del workspace.
+- Es coherente con el modelo de Respond.io (cada workspace
+  tiene 1 token "developer" que actúa como master key).
+- La key que tenemos en `.env` (RESPOND_IO_API_KEY) ya está
+  registrada como activa y autenticando correctamente.
+
+### Acción tomada (2026-05-07)
+
+1. **No requiere cambios de código.** Las dos funciones nuevas
+   en `services/respond-io.ts` (`addContactTag`,
+   `updateContactCustomFields`) ya usan el header correcto:
+   `authorization: Bearer ${env.RESPOND_IO_API_KEY}` — mismo
+   formato que `sendMessage`, que ya funciona. Si la auth pasa
+   para una llamada, pasa para las otras.
+2. Si en producción aparece un 401/403 inesperado, Miguel
+   regenera el token en su workspace y lo subimos al `.env` de
+   Railway.
+3. Tony puede hacer un smoke test local antes del lunes:
+
+```bash
+# Test add_tag (no destructivo si el contacto ya tiene la tag)
+curl -X POST \
+  https://api.respond.io/v2/contact/id:<test_contact_id>/tag \
+  -H "authorization: Bearer $RESPOND_IO_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{"tags":["smoke_test_2026_05_07"]}'
+
+# Test patch custom fields
+curl -X PATCH \
+  https://api.respond.io/v2/contact/id:<test_contact_id> \
+  -H "authorization: Bearer $RESPOND_IO_API_KEY" \
+  -H "content-type: application/json" \
+  -d '{"customFields":[{"name":"programa","value":"OW"}]}'
+```
+
+Esperar 200 en ambas. 401/403 → regenerar token con Miguel.
+
+---
+
+## 15. Miguel — update snippets + workflow filtering — 2026-05-07
+
+> Update operativo del lado de Respond.io. Confirma los 16 snippets
+> de GT, agrega 2 snippets genéricos (ferry), explica el filtrado
+> del workflow "Onboarding Cliente Confirmado" para evitar
+> duplicaciones con nuestro AI, y ofrece exportar los textos
+> completos de cada snippet como contexto para el prompt del AI.
+
+### Mensaje original
+
+```
+Hola Steve, update rapido del lado nuestro 👇
+
+Ya quedaron listos los 16 snippets especificos de Gili Trawangan
+para que el AI los pueda disparar:
+
+Post-venta / datos cliente:
+- gten_sizes / gtes_sizes
+- gten_paperwork / gtes_paperwork_gt (usa $contact.programa,
+  $contact.start_date, $contact.pax)
+- gten_predive_tips / gtes_predive_tips
+- gtenssi_app / gtes_ssi_app_gt (con numero SSI 741421)
+- gten_closing_days / gtes_closing_days
+
+Ubicacion / hoteles:
+- gtenlocation / gteslocationes (Maps DPM GT)
+- gten_quma / gtesquma (Maps Quma actualizado)
+- gten_naccommodation / gtes_accommodation (Quma 4★ Adults Only +
+  Green Banana 3★ family-friendly con sus links)
+
+Genericos:
+- genenmedical / genesmedical (cuestionario medico SSI con PDFs
+  EN/ES, tag MEDICAL)
+- indoenferry_info / indoesferry_info (fast boats, 12go.asia)
+
+Workflow side:
+- Workflow original "Onboarding Cliente Confirmado" lo voy a
+  filtrar para excluir GT, asi no se duplican mensajes con lo que
+  dispare tu AI
+- Equipo "Agents" (ID 21595) ya configurado en Round Robin con
+  los 9 agentes para el handoff
+- Los 8 custom fields de contacto creados (programa, turno, pax,
+  moneda, monto, descuento, start_date, codigo_referencia)
+
+Total en Respond.io tenemos 29 snippets controlados.
+
+Avisame si necesitas que te exporte los textos completos de cada
+uno para que los uses como contexto en el prompt del AI 🤿
+```
+
+### Información nueva vs §13
+
+| Item | §13 | §15 (nuevo) |
+|------|-----|-------------|
+| 16 snippets GT | ✅ listados | ✅ confirmados |
+| `indoenferry_info / indoesferry_info` (ferry) | — | 🆕 nuevos |
+| Total snippets en Respond.io | implícito | **29** explícito |
+| Filtrado del workflow "Onboarding Cliente Confirmado" para excluir GT | — | 🆕 dato operativo importante |
+| Oferta de export de textos completos | — | 🆕 |
+
+### Implicancia técnica importante — workflow filtering
+
+Miguel filtra el workflow "Onboarding Cliente Confirmado" para
+**excluir contactos de GT**. Esto significa:
+- En GT, **toda la mensajería post-confirmación pertenece a nuestro
+  AI / al workflow nuevo que escucha el tag `deposit_paid`**.
+- No hay riesgo de doble mensaje (workflow viejo + AI).
+- En las otras 4 sedes (Koh Tao, Phi Phi, Gili Air, Nusa Penida),
+  el workflow original sigue funcionando como antes.
+
+Esto se alinea con el alcance de Pieza 1 (solo GT) y mantiene las
+otras sedes intactas.
+
+### Acciones tomadas (2026-05-07)
+
+1. Mensaje guardado en este archivo.
+2. **Cambio en `00_SYSTEM_PROMPT.md`** — añadida sección que
+   explica a John qué hace el workflow post-confirmación
+   automáticamente, para que no duplique con sus respuestas
+   propias antes del depósito.
+3. Sin cambios de código de servidor — toda la coordinación es
+   vía tag `deposit_paid` (ya implementado).
+4. Pendiente respuesta a Miguel — sí queremos los textos
+   completos de los snippets para usarlos como contexto.
+
+---
+
+## 16. Miguel — workflow trigger decision + onboarding workflow listo — 2026-05-07
+
+> Miguel cierra dos pendientes (filtro de exclusión GT activo,
+> workflow nuevo creado) y pide a Steve decidir entre dos opciones
+> de trigger. Además pregunta sobre formato de los textos del
+> snippet médico (texto solo o texto + links de PDFs).
+
+### Mensaje resumido
+
+**Completados del lado de Miguel:**
+- ✅ Filtro "Onboarding Cliente Confirmado" excluyendo GT — **ACTIVO**.
+  Testeado end-to-end: contactos con tag Gili Trawangan no reciben
+  el mensaje genérico, las otras 4 sedes siguen recibiéndolo normal.
+- ✅ Workflow "DPM GT - Onboarding Piloto" creado y publicado con
+  los 7 mensajes secuenciales EN/ES (welcome → medical → location
+  → hotels → ferry → predive tips → SSI app, ~16 min total).
+
+**Decisión pedida — trigger del workflow:**
+
+Miguel armó el workflow con trigger `Lifecycle = Customer` porque
+otros workflows suyos (NotificacionPago, Cerrar Venta) también
+disparan en ese evento. Steve venía asumiendo trigger `Tag
+deposit_paid`. Opciones:
+
+| Opción | Pro | Contra |
+|--------|-----|--------|
+| **(a) Cambiar trigger a `Tag deposit_paid`** | Separa la lógica del AI de los otros workflows. Limpio y predecible. | Miguel tiene que reconfigurar el workflow. |
+| (b) Dejar `Lifecycle = Customer` y server pasa el lifecycle a Customer al aplicar deposit_paid | Workflow no cambia. | Acopla nuestro server a más eventos de los que controla; harder to reason about. |
+
+**Miguel vota (a). Steve también.**
+
+**Plan post-decisión:**
+- Si (a) confirmado → workflow `DPM GT - Onboarding Piloto` reusa
+  con trigger `Tag deposit_paid`, agrega al final acción de
+  asignar al equipo 21595.
+- Workflow `ai_escalation` nuevo, simple, trigger por tag, filtrado
+  por sede GT para no afectar otras sedes.
+- `snippets_textos.md` con 10 textos (7 post-confirm + genenmedical
+  + indoenferry_info + gten_closing_days), formato `código + ES +
+  EN literal`. Miguel lo manda sábado o domingo.
+
+**Pregunta de Miguel — formato del snippet médico:**
+
+`genenmedical` tiene PDFs adjuntos del cuestionario SSI. ¿Steve
+quiere solo el texto del mensaje o también los links de los PDFs?
+
+### Decisión de Steve (2026-05-07)
+
+✅ **Opción (a) — trigger por tag.** Es lo que ya implementamos
+(`addContactTag('deposit_paid')` aplica el tag desde nuestro server
+en OCR auto-confirm + panel manual confirm). Cero cambio de
+código.
+
+✅ **Para `genenmedical`: pasarme tanto el texto como los links de
+los PDFs.** Razones:
+- John necesita poder mencionar de forma natural "te vamos a
+  pedir un cuestionario médico al llegar / te lo mando ahora si
+  necesitás" sin reescribir el contenido oficial.
+- Si en algún caso edge el server tiene que enviar el cuestionario
+  fuera del workflow estándar (ej. cliente solicita el form antes
+  de pagar), tener los URLs disponibles permite hacerlo sin
+  duplicar contenido.
+
+### Acciones tomadas
+
+1. Mensaje guardado en este archivo.
+2. **Sin cambio de código** — la decisión (a) coincide con la
+   implementación actual.
+3. Pendiente respuesta a Miguel confirmando (a) y formato del
+   snippet médico.
+
+---
+
+## 17. Miguel — snippets_textos.md + 2 workflows + bug fixes — 2026-05-08
+
+> Miguel cierra TODOS los pendientes operativos: cambia trigger
+> del workflow, crea el de ai_escalation, arregla 3 bugs de
+> snippets en español, y entrega el doc completo de snippets.
+
+### Mensaje resumido
+
+```
+Steve, además del snippets_textos.md que ya te pasé, te confirmo
+que las otras 2 cosas pendientes también estan hechas hoy:
+
+✅ Cambio de trigger en "DPM GT - Onboarding Piloto"
+- Trigger ya cambiado de Lifecycle=Customer a tag deposit_paid
+- Mantuve la Rama #2 con filtro tag Gili Trawangan como capa de
+  seguridad
+- Al final de cada rama (ES y EN) agregue accion de asignar al
+  equipo Agents (ID 21595) Round Robin con toggle "solo usuarios
+  online" activado
+- Workflow publicado y operativo
+
+✅ Workflow ai_escalation nuevo
+- Nombre: "DPM GT - AI Escalation"
+- Trigger: tag ai_escalation agregado
+- Accion unica: asignar al equipo Agents 21595, Round Robin, solo
+  usuarios online
+- Sin mensajes intermedios — el humano agarra la conversacion directo
+- Workflow publicado y operativo
+
+Tags ai_escalation y deposit_paid ya creados en el workspace.
+
+Bugs detectados y arreglados hoy en versiones ES de los snippets:
+- GTESPAPERWORK no usaba las variables $contact, ahora si
+- GTESQuma tenia link Quma roto, arreglado con
+  maps.app.goo.gl/qmbzy2QjhgsdiSn76
+- GTESSSIApp link iOS apuntaba a una app SSI vieja
+  (id1117125353), cambie al ID oficial actual (id1249389209)
+
+Sobre los PDFs del cuestionario medico SSI: vamos por la opcion
+"snippet directo" porque en nuestro flujo nadie pide info medica
+antes de pagar — el cuestionario solo se envia post-deposito via
+el workflow GT.
+
+Con esto del lado mio queda todo listo para arrancar el lunes 11/5.
+```
+
+### Análisis del archivo recibido
+
+Path: `information/snippetstextosmdgilitai.md` (220 líneas, 13.7 KB).
+
+**Estructura:**
+- Sección 1: 7 snippets post-confirmación (auto-disparados por
+  workflow tras tag `deposit_paid`)
+- Sección 2: 3 snippets genéricos invocables por John en
+  conversación
+- Notas finales: reglas de uso del AI, variables de contacto,
+  protocolo médico
+
+**Snippets confirmados:**
+
+| # | Código (EN/ES) | Categoría | Variables |
+|---|----------------|-----------|-----------|
+| 1 | `GTENPaperwork` / `GTESPAPERWORK` | Confirmación reserva | `$contact.programa`, `$contact.start_date`, `$contact.pax` |
+| 2 | `GTENSizes` / `GTESSizes` | Datos personales |   |
+| 3 | `GTENPreDiveTips` / `GTESPreDiveTips` | Tips pre-buceo |   |
+| 4 | `GTENSSIApp` / `GTESSSIApp` | App SSI (centro 741421) |   |
+| 5 | `GTENlocation` / `GTESlocation` | Maps DPM GT |   |
+| 6 | `GTENaccommodation` / `GTESaccommodation` | Quma + Green Banana |   |
+| 7 | `GTENQuma` / `GTESQuma` | Maps Quma standalone |   |
+| 8 | `GENENMedical` / `GENESMedical` | Cuestionario médico SSI | tag `MEDICAL` |
+| 9 | `INDOENFerryInfo` / `INDOESFerryInfo` | Fast boats / 12go.asia |   |
+| 10 | `GTENClosingDays` / `GTESClosingDays` | Días cierre centro |   |
+
+**Reglas operativas confirmadas:**
+1. No duplicar contenido del workflow — los 7 snippets de la
+   Sección 1 NO deben enviarse manualmente ni anticipar su
+   contenido pre-pago.
+2. Solo lenguaje del cliente — usar `*EN*` para inglés,
+   `*ES*` para español.
+3. Cuestionario médico solo post-depósito vía workflow.
+4. Preferencia por invocación de snippet vs reescritura — John
+   dice "te paso el detalle de hoteles" pero no reescribe el
+   texto en sus palabras.
+
+### Decisiones del lado de Steve
+
+✅ **Agregar el archivo a la KB del AI** (KB_FILES seeder)
+para que John tenga el texto literal de los 10 snippets como
+contexto.
+
+✅ **Actualizar `00_SYSTEM_PROMPT.md`** con los nombres exactos
+de los snippets (CamelCase / UPPERCASE como están en el doc),
+porque la sección que añadí en §15 usaba lowercase del primer
+mensaje de Miguel.
+
+✅ **Sin cambios de código de servidor** — la lógica de tags
+(`deposit_paid` + `ai_escalation`) ya está implementada y matchea
+exactamente lo que Miguel armó.
+
+### Acciones tomadas (2026-05-08)
+
+1. Mensaje guardado.
+2. `snippetstextosmdgilitai.md` agregado al seeder como KB07.
+3. System prompt v2.1 con códigos exactos de snippets.
+4. Re-run de seeder pendiente (Tony lo ejecuta tras push).
+5. Pendiente respuesta corta a Miguel acusando recibo.

@@ -328,11 +328,82 @@ John NUNCA responde sobre estos temas. Siempre escala a humano.
    mensaje 3)
 4. **Validar comprobante** — el cliente manda PDF, el servidor corre
    OCR y auto-confirma si todo matchea
-5. **Post-confirmación** — el sistema dispara los 3 mensajes
-   automáticos del workflow de Respond.io (Maps + datos personales +
-   recomendaciones). John NO sigue vendiendo otras cosas.
-6. **Handoff** — Patrick toma la conversación. John se pausa
-   automáticamente cuando un humano manda el primer mensaje.
+5. **Post-confirmación** — el servidor aplica el tag `deposit_paid` en
+   Respond.io. **Un workflow externo dispara automáticamente los
+   snippets de bienvenida (paperwork con programa/fecha/pax,
+   predive_tips, ssi_app, location, accommodation, ferry).** John
+   NO debe duplicar esta información ni anticiparla en mensajes
+   propios — eso lo hace el workflow.
+6. **Handoff** — el equipo de GT (Round Robin team "Agents",
+   9 personas) toma la conversación. John se pausa automáticamente
+   cuando un humano manda el primer mensaje.
+
+---
+
+## Workflow post-confirmación (Respond.io) {#post-confirm-workflow}
+
+Después de que el server aplica el tag `deposit_paid` (via OCR auto-
+confirm o panel manual confirm), el workflow `DPM GT - Onboarding
+Piloto` de Respond.io dispara estos 7 snippets en secuencia EN o
+ES según idioma del contacto, llenando los placeholders con los
+custom fields que el server ya escribió. Los textos literales
+están en `snippetstextosmdgilitai.md` §1.
+
+| # | Código EN | Código ES | Variables |
+|---|-----------|-----------|-----------|
+| 1 | `GTENPaperwork` | `GTESPAPERWORK` | `$contact.programa`, `$contact.start_date`, `$contact.pax` |
+| 2 | `GTENSizes` | `GTESSizes` | — |
+| 3 | `GTENPreDiveTips` | `GTESPreDiveTips` | — |
+| 4 | `GTENSSIApp` | `GTESSSIApp` | — |
+| 5 | `GTENlocation` | `GTESlocation` | — |
+| 6 | `GTENaccommodation` | `GTESaccommodation` | — |
+| 7 | `GTENQuma` | `GTESQuma` | — |
+
+Al final de la secuencia, el workflow asigna la conversación al
+equipo `Agents` (id 21595, Round Robin, solo usuarios online).
+
+### Implicancia para John
+
+Antes del depósito (etapas `new` / `qualified` / `proposed` /
+`deposit_pending`):
+- John **PUEDE** mencionar maps, hoteles, ferry, talles, etc. si el
+  cliente pregunta — usar el contenido del KB.
+- Pero NO conviene invertir mucho mensaje en eso porque el workflow
+  lo cubre detallado al confirmar pago.
+
+Después del depósito (`deposit_paid` / `handed_off`):
+- John ya no está activo. El workflow envía los snippets y un
+  agente humano del equipo Round Robin `Agents` toma la conversación.
+
+---
+
+## Snippets de soporte que John puede invocar antes del depósito {#snippets-pre-deposito}
+
+Si la consulta del cliente entra dentro de uno de estos temas y
+encaja con un snippet, John **prefiere invocar el snippet o citar
+el texto literal** en lugar de reescribir con sus palabras
+(garantiza consistencia con la versión oficial de Miguel).
+
+| Tema | Snippet EN | Snippet ES | Cuándo |
+|------|------------|------------|--------|
+| Cuestionario médico SSI | `GENENMedical` | `GENESMedical` | **NO enviar pre-pago.** Si el cliente menciona condición médica → escalar a humano (`ai_escalation`). El cuestionario va via workflow post-depósito únicamente. |
+| Fast boats / inter-island | `INDOENFerryInfo` | `INDOESFerryInfo` | Cliente pregunta cómo llegar de Bali / Lombok / Nusa Penida → mencionar 12go.asia |
+| Días de cierre del centro | `GTENClosingDays` | `GTESClosingDays` | Cliente pregunta si abren feriados, navidad, año nuevo → 25/12 y 01/01 únicos cierres |
+
+### Reglas de uso de snippets
+
+1. **No duplicar contenido del workflow.** Los 7 snippets de la
+   tabla post-confirmación no deben enviarse manualmente ni
+   anticipar su contenido en conversación pre-pago.
+2. **Solo idioma del cliente.** Inglés → `*EN*`. Español →
+   `*ES*`. Si el cliente cambia de idioma, John cambia consigo.
+3. **Cuestionario médico — protocolo estricto.** El PDF SSI
+   adjunto en `GENENMedical/GENESMedical` se envía únicamente
+   post-depósito vía workflow. Pre-pago, John puede mencionar
+   "te vamos a pedir un cuestionario estándar de SSI tras la
+   confirmación", pero NO reproducir el contenido literal ni
+   adjuntar.
+4. **Preferir invocación de snippet sobre reescritura.**
 
 ---
 

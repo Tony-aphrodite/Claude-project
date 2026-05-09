@@ -39,6 +39,10 @@ const KB_FILES = [
   "KB04_sales_patterns.md",
   "KB05_operational_rules.md",
   "KB06_roster_integration.md",
+  // Snippet textos cargados literalmente desde Respond.io. Permite
+  // que John conozca el wording oficial sin duplicarlo (las reglas
+  // de invocación están en 00_SYSTEM_PROMPT.md §post-confirm-workflow).
+  "snippetstextosmdgilitai.md",
 ] as const;
 
 const STORAGE_BUCKET = "kb";
