@@ -64,21 +64,41 @@ export async function webhookRoutes(app: FastifyInstance) {
     // event field entirely — return 200 so the dashboard can activate the
     // webhook.
     const event = parsed.data.event;
+    // TEMP DEBUG (2026-05-10 pilot bring-up): log every webhook event name +
+    // direction + text presence so we can see why messages are being dropped.
+    // Remove once the inbound path is confirmed working end-to-end.
+    req.log.info(
+      {
+        event,
+        direction: parsed.data.direction ?? parsed.data.message?.direction ?? null,
+        textLen: parsed.data.message?.text?.length ?? 0,
+        sentByType:
+          parsed.data.message?.sentBy?.type ??
+          parsed.data.message?.sender?.type ??
+          null,
+        contactId: parsed.data.contact?.id ?? null,
+        tags: parsed.data.contact?.tags ?? [],
+      },
+      "webhook payload received",
+    );
     if (!event) {
       return reply.send({ ok: true, ignored: "missing_event" });
     }
     if (!isMessageEvent(event)) {
+      req.log.info({ event }, "webhook ignored — not a message event");
       return reply.send({ ok: true, ignored: event });
     }
 
     const dispatch = classifyWebhook(parsed.data);
 
     if (dispatch.kind === "ignored") {
+      req.log.info({ reason: dispatch.reason }, "webhook classified as ignored");
       return reply.send({ ok: true, ignored: dispatch.reason });
     }
     if (dispatch.kind === "bot_outbound") {
       // Our own AI reply being echoed back. We already wrote the row in
       // process-message; do not double-store.
+      req.log.info("webhook classified as bot_outbound");
       return reply.send({ ok: true, ignored: "bot_outbound" });
     }
 
