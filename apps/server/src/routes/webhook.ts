@@ -96,7 +96,25 @@ export async function webhookRoutes(app: FastifyInstance) {
       return reply.send({ ok: true, ignored: "missing_event" });
     }
     if (!isMessageEvent(event)) {
-      req.log.info({ event }, "webhook ignored — not a message event");
+      // Status / delivery events (message.delivered, message.failed,
+      // message.read, etc) carry the Meta error code on failures. We don't
+      // ACT on them yet but we DO want the body in logs so we can see what
+      // Meta is rejecting. TEMP DEBUG 2026-05-10.
+      if (
+        event.startsWith("message.") ||
+        event === "delivery_status" ||
+        event === "message_status"
+      ) {
+        req.log.warn(
+          {
+            event,
+            rawBodyHead: rawBody.toString("utf-8").slice(0, 2000),
+          },
+          "webhook status event — capturing for Meta-error diagnosis",
+        );
+      } else {
+        req.log.info({ event }, "webhook ignored — not a message event");
+      }
       return reply.send({ ok: true, ignored: event });
     }
 

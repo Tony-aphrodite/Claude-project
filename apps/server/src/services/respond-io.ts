@@ -142,13 +142,19 @@ export class RespondIoClient {
         }),
       });
 
+      // Capture full response body for diagnostics. Respond.io's API
+      // returns 200/202 even when the underlying Meta push will fail
+      // asynchronously; sometimes the success body carries delivery
+      // status / message id we can subsequently query.
+      const bodyText = await res.text().catch(() => "");
+
       if (!res.ok) {
-        const bodyText = await res.text().catch(() => "");
         log.warn(
           {
             status: res.status,
-            body: bodyText.slice(0, 500),
+            body: bodyText.slice(0, 1500),
             via: useContactFallback ? "contact" : "conversation",
+            url,
           },
           "respond_io send_message non-2xx",
         );
@@ -164,7 +170,14 @@ export class RespondIoClient {
         );
       }
       log.info(
-        { via: useContactFallback ? "contact" : "conversation" },
+        {
+          status: res.status,
+          via: useContactFallback ? "contact" : "conversation",
+          // TEMP DEBUG (2026-05-10 Meta-delivery investigation): log full
+          // 2xx body so we can see the message id + any inline status.
+          bodyHead: bodyText.slice(0, 1500),
+          textLen: input.text.length,
+        },
         "respond_io send_message ok",
       );
     } catch (err) {
