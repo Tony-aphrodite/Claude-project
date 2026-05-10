@@ -287,7 +287,14 @@ export type WebhookDispatch =
  */
 export function classifyWebhook(payload: RespondIoIncomingMessage): WebhookDispatch {
   const text = (payload.message.text ?? "").trim();
-  if (!text) return { kind: "ignored", reason: "non_text" };
+  // Attachment-only messages (PDF payment receipts, photos, voice notes)
+  // carry no text but MUST still reach processIncomingMessage so the OCR /
+  // attachment branch can fire. We only ignore when there's nothing at
+  // all — neither text nor any attachment shape.
+  const hasAttachment =
+    !!payload.message.attachment ||
+    (Array.isArray(payload.message.attachments) && payload.message.attachments.length > 0);
+  if (!text && !hasAttachment) return { kind: "ignored", reason: "non_text" };
 
   const direction = payload.direction ?? payload.message.direction ?? "incoming";
   const sentBy = payload.message.sentBy ?? payload.message.sender ?? null;
