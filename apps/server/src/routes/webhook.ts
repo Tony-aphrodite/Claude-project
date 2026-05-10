@@ -78,6 +78,8 @@ export async function webhookRoutes(app: FastifyInstance) {
           null,
         contactId: parsed.data.contact?.id ?? null,
         tags: parsed.data.contact?.tags ?? [],
+        rawTopLevelKeys: Object.keys(req.body as Record<string, unknown>),
+        rawBodyHead: rawBody.toString("utf-8").slice(0, 1500),
       },
       "webhook payload received",
     );
