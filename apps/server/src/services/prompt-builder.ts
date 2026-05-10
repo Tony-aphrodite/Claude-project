@@ -177,6 +177,7 @@ export function formatDynamicBlock(input: {
 HORA ACTUAL EN LA SEDE: ${sedeNow}
 ZONA HORARIA: ${input.sede.timezone}
 SEDE: ${input.sede.nombre} (${input.sede.pais})
+SEDE_ID: ${input.sede.id}    ← USAR ESTE UUID EXACTO como sede_id en TODA invocación de consultar_disponibilidad / solicitar_deposito / enviar_catalogo. NO inventes uno.
 MONEDA LOCAL: ${input.sede.currencyCode} (${input.sede.currencySymbol})
 
 ${currencyLine}
