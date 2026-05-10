@@ -259,6 +259,7 @@ export async function processIncomingMessage(
         await respondIoClient.sendMessage({
           conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
           contactId: payload.contact.id,
+          channelId: payload.channelId,
           text: replyText,
         });
       } catch (err) {
@@ -937,6 +938,7 @@ export async function processIncomingMessage(
     await respondIoClient.sendMessage({
       conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
       contactId: payload.contact.id,
+      channelId: payload.channelId,
       text: claudeResult.text,
     });
   } catch (err) {

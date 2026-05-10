@@ -28,6 +28,12 @@ export type SendMessageInput = {
   // we cannot send via /conversation/{id}/message. The send path tries this
   // contact identifier instead via /contact/id:{contactId}/message.
   contactId?: string | undefined;
+  // Optional explicit channel id from the webhook payload (e.g. "274637" for
+  // Gili Trawangan WAP EN main). Some Respond.io v2 send paths require this
+  // to disambiguate when a contact has multiple channels — Meta returns
+  // generic "Something went wrong" when the channel is implicit and the
+  // session/window state on Respond.io's side disagrees with Meta.
+  channelId?: string | undefined;
 };
 
 export type SendCatalogInput = {
@@ -137,7 +143,13 @@ export class RespondIoClient {
           authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
         },
         body: JSON.stringify({
-          channelId: undefined, // Respond.io selects the active channel automatically
+          // Pass channelId explicitly when the caller knows it (we extract
+          // it from the inbound webhook). Respond.io v2 often returns
+          // generic Meta delivery failures when channelId is implicit and
+          // their internal session state disagrees with Meta. JSON.stringify
+          // strips this when undefined, preserving the legacy implicit
+          // behavior for callers that do not have a channel id.
+          channelId: input.channelId,
           message: { type: "text", text: input.text },
         }),
       });
