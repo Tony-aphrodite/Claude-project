@@ -104,7 +104,8 @@ export type ProcessResult =
         | "branch_other_sede"
         | "branch_empty"
         | "sede_not_seeded"
-        | "test_tag_missing";
+        | "test_tag_missing"
+        | "ai_silenced_post_handoff";
       branch?: string | null;
       latencyMs: number;
     }
@@ -430,6 +431,38 @@ export async function processIncomingMessage(
   followUpProcessor
     .cancelOpenFollowUpsForConversation(conversation.id, "client_responded")
     .catch((err) => log.warn({ err }, "follow-up cancel-on-reply failed"));
+
+  // Hard guard: once a conversation has crossed into a post-handoff stage,
+  // the AI must stay silent regardless of what the system prompt says.
+  // The schema declares `handed_off — AI silenced; sede team owns the
+  // thread`; we extend the silence to `deposit_paid` (payment confirmed,
+  // workflow snippets are flying, AI must not interleave), `closed`
+  // (booking finalized), and `lost` (dead lead). The customer message
+  // is still persisted above so the panel timeline is complete; we
+  // simply do not generate or send a reply.
+  const POST_HANDOFF_STAGES = new Set([
+    "deposit_paid",
+    "handed_off",
+    "closed",
+    "lost",
+  ]);
+  if (POST_HANDOFF_STAGES.has(conversation.leadStage)) {
+    log.info(
+      {
+        conversationId: conversation.id,
+        leadStage: conversation.leadStage,
+        contactId: payload.contact.id,
+      },
+      "ai silenced post handoff — message persisted, no reply generated",
+    );
+    return {
+      ok: false,
+      ignored: true,
+      reason: "ai_silenced_post_handoff",
+      branch: sede.nombre,
+      latencyMs: Date.now() - t0,
+    };
+  }
 
   const history = await conversationService.recentMessages(conversation.id);
 
@@ -833,6 +866,49 @@ export async function processIncomingMessage(
     costUsd: claudeResult.cost.totalUsd,
     toolCalls: claudeResult.toolCalls,
   });
+
+  // Step 9b: handoff signal handling. If the AI declared an escalation,
+  // we (a) push the `motivo_escalation` custom field so the human team
+  // sees the reason in the Respond.io contact card, and (b) apply the
+  // `ai_escalation` tag — Miguel's "DPM GT - AI Escalation" workflow
+  // listens for this tag and round-robins the conversation to an online
+  // agent. Without the tag, the AI's "te conecto" sentence is just text
+  // and nobody is paged. Best-effort: failures here must not block the
+  // user reply we are about to send.
+  if (claudeResult.escalationReason) {
+    void respondIoClient
+      .updateContactCustomFields({
+        contactId: payload.contact.id,
+        fields: { motivo_escalation: claudeResult.escalationReason },
+      })
+      .catch((err) =>
+        log.warn({ err }, "respond_io update_custom_fields failed (motivo_escalation)"),
+      );
+    void respondIoClient
+      .addContactTag({
+        contactId: payload.contact.id,
+        tag: "ai_escalation",
+      })
+      .catch((err) =>
+        log.warn({ err }, "respond_io add_tag failed (ai_escalation)"),
+      );
+  }
+
+  // Step 9c: descuento custom field. If the AI quoted (or confirmed
+  // "Sin descuento" after negotiation), push the value so Miguel's Sheet
+  // Logger captures it on conversation close. Anything >10% never reaches
+  // here — it gets routed through escalation_reason=discount_over_10
+  // instead.
+  if (claudeResult.descuento) {
+    void respondIoClient
+      .updateContactCustomFields({
+        contactId: payload.contact.id,
+        fields: { descuento: claudeResult.descuento },
+      })
+      .catch((err) =>
+        log.warn({ err }, "respond_io update_custom_fields failed (descuento)"),
+      );
+  }
 
   // Step 10: send back to Respond.io
   try {

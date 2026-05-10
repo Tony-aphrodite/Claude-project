@@ -73,9 +73,34 @@ export type CallClaudeInput = {
   promptVersionId?: string | undefined;
 };
 
+// Canonical escalation_reason codes the AI may emit. Keep in sync with
+// `## Casos que escalan a humano` in the system prompt and with the
+// `motivo_escalation` Respond.io custom field (Text type, owner-confirmed
+// 2026-05-10). Anything outside this set is downgraded to null so we never
+// write garbage to the contact.
+export const ESCALATION_REASONS = [
+  "medical",
+  "discount_over_10",
+  "instructor_request",
+  "human_requested",
+  "payment_issue",
+  "complaint",
+  "prohibited_topic",
+  "out_of_scope",
+] as const;
+export type EscalationReason = (typeof ESCALATION_REASONS)[number];
+
+// Canonical `descuento` values — must match the 3 List values Miguel keeps
+// in Respond.io ("Sin descuento" / "5%" / "10%"). The AI never quotes >10%
+// (escalates instead), so these 3 cover the full range.
+export const DESCUENTO_VALUES = ["Sin descuento", "5%", "10%"] as const;
+export type DescuentoValue = (typeof DESCUENTO_VALUES)[number];
+
 export type CallClaudeResult = {
   text: string;
   fuentes: string[];
+  escalationReason: EscalationReason | null;
+  descuento: DescuentoValue | null;
   toolCalls: string[];
   cost: CostBreakdown;
   latencyMs: number;
@@ -142,15 +167,17 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
 
     if (toolUseBlocks.length === 0 || round === MAX_TOOL_ROUNDS) {
       // Final answer. The prompt instructs the model to emit a structured
-      // {respuesta, fuentes} envelope; if parsing fails (older prompt versions
-      // or model dropped to plain text) we fall back to the raw text and
-      // record empty fuentes — never block the user response on format drift.
+      // {respuesta, fuentes, escalation_reason?, descuento?} envelope; if
+      // parsing fails (older prompt versions or model dropped to plain text)
+      // we fall back to raw text and record empty fuentes / null signals —
+      // never block the user response on format drift.
       const rawText = response.content
         .filter((b): b is Anthropic.TextBlock => b.type === "text")
         .map((b) => b.text)
         .join("\n")
         .trim();
-      const { text, fuentes } = parseStructuredAnswer(rawText);
+      const { text, fuentes, escalationReason, descuento } =
+        parseStructuredAnswer(rawText);
 
       // Append tool_use to fuentes if Claude actually invoked any. The panel
       // surfaces these so a human can audit which tool the AI relied on.
@@ -181,11 +208,22 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
           costUsd: cost.totalUsd,
           toolCalls,
           fuentesCount: fuentes.length,
+          escalationReason,
+          descuento,
         },
         "claude call ok",
       );
 
-      return { text, fuentes, toolCalls, cost, latencyMs, model };
+      return {
+        text,
+        fuentes,
+        escalationReason,
+        descuento,
+        toolCalls,
+        cost,
+        latencyMs,
+        model,
+      };
     }
 
     // Resolve every tool_use the model emitted this turn.
@@ -306,16 +344,24 @@ async function dispatchTool(
 }
 
 /**
- * Parse the {respuesta, fuentes} JSON envelope. Tolerates pre/post fence
- * tokens (markdown, "```json"). On any parse failure we degrade gracefully:
- * the raw text becomes the response and fuentes is empty — the panel will
- * surface the missing-citations status so we can fix the prompt.
+ * Parse the {respuesta, fuentes, escalation_reason?, descuento?} JSON
+ * envelope. Tolerates pre/post fence tokens (markdown, "```json"). On any
+ * parse failure we degrade gracefully: the raw text becomes the response,
+ * fuentes is empty and the escalation/descuento signals are null — never
+ * block the user reply on format drift.
+ *
+ * `escalation_reason` and `descuento` are validated against the canonical
+ * sets (ESCALATION_REASONS, DESCUENTO_VALUES). Anything else collapses to
+ * null so we never push junk to Respond.io custom fields.
  */
 export function parseStructuredAnswer(raw: string): {
   text: string;
   fuentes: string[];
+  escalationReason: EscalationReason | null;
+  descuento: DescuentoValue | null;
 } {
-  if (!raw) return { text: "", fuentes: [] };
+  if (!raw)
+    return { text: "", fuentes: [], escalationReason: null, descuento: null };
 
   // Strip outer code fences if present.
   const stripped = raw
@@ -342,14 +388,45 @@ export function parseStructuredAnswer(raw: string): {
         const fuentes = Array.isArray(j.fuentes)
           ? j.fuentes.filter((x): x is string => typeof x === "string")
           : [];
-        return { text: j.respuesta, fuentes };
+        return {
+          text: j.respuesta,
+          fuentes,
+          escalationReason: coerceEscalationReason(j.escalation_reason),
+          descuento: coerceDescuento(j.descuento),
+        };
       }
     } catch {
       // Try the next candidate.
     }
   }
 
-  return { text: stripped, fuentes: [] };
+  return { text: stripped, fuentes: [], escalationReason: null, descuento: null };
+}
+
+function coerceEscalationReason(value: unknown): EscalationReason | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return (ESCALATION_REASONS as readonly string[]).includes(normalized)
+    ? (normalized as EscalationReason)
+    : null;
+}
+
+function coerceDescuento(value: unknown): DescuentoValue | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  // Accept the canonical strings as-is. Also accept "0%" / "0" /
+  // "sin descuento" (case-insensitive) as aliases for "Sin descuento" because
+  // the prompt may not enforce the casing perfectly across languages.
+  if ((DESCUENTO_VALUES as readonly string[]).includes(trimmed)) {
+    return trimmed as DescuentoValue;
+  }
+  const lower = trimmed.toLowerCase();
+  if (lower === "sin descuento" || lower === "0%" || lower === "0") {
+    return "Sin descuento";
+  }
+  if (lower === "5%" || lower === "5") return "5%";
+  if (lower === "10%" || lower === "10") return "10%";
+  return null;
 }
 
 /**
