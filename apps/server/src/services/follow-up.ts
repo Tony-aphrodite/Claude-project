@@ -366,6 +366,7 @@ export class FollowUpProcessor {
         const variables = [name ?? "amigo"];
         await respondIoClient.sendTemplate({
           conversationId: conv.respondIoConversationId,
+          contactId: conv.respondIoContactId,
           templateName: template.name,
           language: template.language,
           variables,
@@ -384,6 +385,7 @@ export class FollowUpProcessor {
       const text = await generateFollowUpText(fu.level, recent, contact);
       await respondIoClient.sendMessage({
         conversationId: conv.respondIoConversationId,
+        contactId: conv.respondIoContactId,
         text,
       });
       await db
