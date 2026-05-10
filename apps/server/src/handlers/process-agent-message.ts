@@ -24,6 +24,7 @@ import { chatContactsService } from "../services/chat-contacts.js";
 import { conversationService } from "../services/conversation.js";
 import { followUpProcessor } from "../services/follow-up.js";
 import { leadStageService } from "../services/lead-stage.js";
+import { respondIoClient } from "../services/respond-io.js";
 import { sedeService } from "../services/sede.js";
 import { isValidRefCode } from "../tools/solicitar-deposito.js";
 
@@ -65,13 +66,17 @@ export async function processAgentMessage(
   const t0 = Date.now();
   const text = (payload.message.text ?? "").trim();
 
-  const resolution = await sedeService.resolveForPilot(payload.contact);
+  const resolution = await sedeService.resolveForPilot(
+    payload.contact,
+    payload.channelId,
+  );
   if (!resolution.ok) {
     log.info(
       {
         reason: resolution.reason,
         branch: resolution.branchValue,
         contactId: payload.contact.id,
+        channelId: payload.channelId ?? null,
         agentName,
       },
       "espia: pilot gate rejected agent message",
@@ -88,23 +93,39 @@ export async function processAgentMessage(
 
   // Pilot test gate — same rule as the client-inbound path so we don't end
   // up capturing real human-agent traffic before Miguel says "go live".
+  // V2 payloads omit tags; fetch via API when missing.
   const requiredTag = loadEnv().PILOT_REQUIRE_TAG;
-  if (requiredTag && !payload.contact.tags?.includes(requiredTag)) {
-    log.info(
-      {
-        contactId: payload.contact.id,
-        requiredTag,
-        contactTags: payload.contact.tags ?? [],
-      },
-      "espia: test gate rejected — contact lacks required tag",
-    );
-    return {
-      ok: false,
-      ignored: true,
-      reason: "test_tag_missing",
-      branch: sede.nombre,
-      latencyMs: Date.now() - t0,
-    };
+  if (requiredTag) {
+    let tags: string[] = payload.contact.tags ?? [];
+    if (tags.length === 0) {
+      const fetched = await respondIoClient
+        .getContact(payload.contact.id)
+        .catch((err) => {
+          log.warn(
+            { err },
+            "respond_io get_contact failed during espia pilot gate — treating as untagged",
+          );
+          return null;
+        });
+      tags = fetched?.tags ?? [];
+    }
+    if (!tags.includes(requiredTag)) {
+      log.info(
+        {
+          contactId: payload.contact.id,
+          requiredTag,
+          contactTags: tags,
+        },
+        "espia: test gate rejected — contact lacks required tag",
+      );
+      return {
+        ok: false,
+        ignored: true,
+        reason: "test_tag_missing",
+        branch: sede.nombre,
+        latencyMs: Date.now() - t0,
+      };
+    }
   }
 
   const contact = await chatContactsService.upsertFromWebhook({

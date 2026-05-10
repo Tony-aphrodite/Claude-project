@@ -11,7 +11,11 @@
 
 import type { FastifyInstance } from "fastify";
 
-import { classifyWebhook, respondIoIncomingMessageSchema } from "@dpm/shared";
+import {
+  classifyWebhook,
+  normalizeRespondIoPayload,
+  respondIoIncomingMessageSchema,
+} from "@dpm/shared";
 
 import { loadEnv } from "../env.js";
 import { processAgentMessage } from "../handlers/process-agent-message.js";
@@ -51,7 +55,12 @@ export async function webhookRoutes(app: FastifyInstance) {
       return reply.status(401).send({ error: { code: "auth_invalid" } });
     }
 
-    const parsed = respondIoIncomingMessageSchema.safeParse(req.body);
+    // Normalize the Respond.io v2 envelope (event_type, message.message.text,
+    // message.traffic, sender.source, firstName/lastName, etc.) into the
+    // shape our zod schema + downstream code expects. No-op for legacy
+    // payloads.
+    const normalized = normalizeRespondIoPayload(req.body);
+    const parsed = respondIoIncomingMessageSchema.safeParse(normalized);
     if (!parsed.success) {
       req.log.warn({ issues: parsed.error.issues }, "webhook payload invalid");
       return reply.status(422).send({

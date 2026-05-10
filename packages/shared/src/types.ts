@@ -114,6 +114,146 @@ export const respondIoIncomingMessageSchema = z.object({
 export type RespondIoIncomingMessage = z.infer<typeof respondIoIncomingMessageSchema>;
 
 /**
+ * Normalize a real Respond.io v2 webhook payload into the shape our zod
+ * schema + downstream code expects.
+ *
+ * The actual v2 envelope (observed 2026-05-10 via Developer Webhook on
+ * workspace 216239 / channel 274637) differs from earlier docs in several
+ * material ways. Mappings:
+ *
+ *   v2 key                              →  our normalized key
+ *   ──────────────────────────────────────────────────────────────────────
+ *   event_type                          →  event
+ *   message.traffic ("incoming"/"out…") →  direction (top-level)
+ *   message.message.{type,text,attach…} →  message.{type,text,attachment}
+ *   sender.source ("contact"/"bot"/…)   →  message.sentBy.type
+ *   contact.firstName + lastName        →  contact.name
+ *   channel.id                          →  channelId (top-level, additive)
+ *   message.messageId / channelMessageId→  message.messageId
+ *   message.timestamp                   →  message.timestamp
+ *
+ * Tags + customFields are NOT in the v2 webhook payload; they must be
+ * fetched via the Respond.io REST API at the call site (see
+ * respondIoClient.getContact). We leave `contact.tags` as `[]` and
+ * `customFields` as undefined here so the downstream pilot-gate +
+ * Branch-reader can decide whether to fetch.
+ *
+ * Backwards-compat: if the payload already matches the legacy shape (has
+ * `event` not `event_type`, text at `message.text`, etc.), we return it
+ * untouched so existing fixtures and the regression harness keep working.
+ */
+export function normalizeRespondIoPayload(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const r = raw as Record<string, unknown>;
+
+  // Already legacy-shaped: has top-level `event` AND message.text at
+  // single-nesting depth. Leave untouched.
+  const looksLegacy =
+    typeof r.event === "string" ||
+    (typeof r.message === "object" &&
+      r.message !== null &&
+      typeof (r.message as Record<string, unknown>).text === "string");
+  if (looksLegacy && r.event_type === undefined) {
+    return raw;
+  }
+
+  const v2Message = (r.message ?? {}) as Record<string, unknown>;
+  const inner = (v2Message.message ?? {}) as Record<string, unknown>;
+  const v2Contact = (r.contact ?? {}) as Record<string, unknown>;
+  const v2Channel = (r.channel ?? {}) as Record<string, unknown>;
+  const v2Sender = (r.sender ?? {}) as Record<string, unknown>;
+
+  // Direction: v2 uses message.traffic with "incoming" / "outgoing". Map
+  // to our top-level `direction`. Default "incoming" when absent so the
+  // legacy AI-handler bias is preserved.
+  const traffic =
+    typeof v2Message.traffic === "string"
+      ? v2Message.traffic
+      : typeof r.direction === "string"
+        ? (r.direction as string)
+        : "incoming";
+
+  // Sender mapping: sender.source values we've seen are "contact" (real
+  // customer), "bot" (Respond.io workflow / our own AI echo), "user" /
+  // "agent" (human teammate). Our existing classifyWebhook treats these
+  // as message.sentBy.type, so mirror them there.
+  const senderSource =
+    typeof v2Sender.source === "string" ? v2Sender.source : null;
+  const senderType =
+    senderSource === "contact" ||
+    senderSource === "bot" ||
+    senderSource === "agent" ||
+    senderSource === "user" ||
+    senderSource === "system"
+      ? senderSource
+      : undefined;
+
+  // Compose contact.name from firstName + lastName when present. Empty
+  // strings are stripped so zod's optional+nullish pipeline accepts it.
+  const firstName =
+    typeof v2Contact.firstName === "string" ? v2Contact.firstName : "";
+  const lastName =
+    typeof v2Contact.lastName === "string" ? v2Contact.lastName : "";
+  const composedName = `${firstName} ${lastName}`.trim();
+
+  // Build the normalized envelope. Pass through any extra keys the v2
+  // payload carried so debugging logs stay informative.
+  const normalized: Record<string, unknown> = {
+    ...r,
+    event: typeof r.event === "string" ? r.event : r.event_type,
+    direction: traffic === "outgoing" ? "outgoing" : "incoming",
+    channelId:
+      typeof v2Channel.id === "string" || typeof v2Channel.id === "number"
+        ? String(v2Channel.id)
+        : (r.channelId as string | undefined),
+    contact: {
+      ...v2Contact,
+      // v2 keeps `id` as number; our zod schema accepts string|number and
+      // transforms — pass through.
+      id: v2Contact.id,
+      phone: v2Contact.phone ?? null,
+      name: composedName.length > 0 ? composedName : (v2Contact.name ?? null),
+      language: v2Contact.language ?? null,
+      // Tags / customFields are NOT in the v2 payload — leave empty so
+      // the pilot gate can decide to fetch via getContact API.
+      tags: Array.isArray(v2Contact.tags) ? v2Contact.tags : [],
+      customFields: v2Contact.customFields ?? null,
+    },
+    message: {
+      messageId:
+        v2Message.channelMessageId ?? v2Message.messageId ?? null,
+      type: typeof inner.type === "string" ? inner.type : "text",
+      text: typeof inner.text === "string" ? inner.text : null,
+      timestamp: v2Message.timestamp ?? null,
+      direction: traffic === "outgoing" ? "outgoing" : "incoming",
+      sentBy: senderType
+        ? {
+            type: senderType,
+            // v2 nulls collapse to undefined so zod's string|number union
+            // doesn't blow up. We also accept teamId as a fallback id.
+            id:
+              typeof v2Sender.userId === "string" || typeof v2Sender.userId === "number"
+                ? v2Sender.userId
+                : typeof v2Sender.teamId === "string" ||
+                    typeof v2Sender.teamId === "number"
+                  ? v2Sender.teamId
+                  : undefined,
+            name: undefined,
+          }
+        : undefined,
+      // Single-attachment shape: v2 nests under message.message.attachment.
+      attachment:
+        typeof inner.attachment === "object" && inner.attachment !== null
+          ? inner.attachment
+          : undefined,
+      attachments: Array.isArray(inner.attachments) ? inner.attachments : [],
+    },
+    conversation: r.conversation,
+  };
+  return normalized;
+}
+
+/**
  * Read the canonical Branch value from any of the known custom-field paths.
  * Returns null when the field is missing or empty (which during the pilot
  * means "not Gili Trawangan, leave to humans").

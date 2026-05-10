@@ -127,14 +127,20 @@ export async function processIncomingMessage(
   // Step 2: Pilot gate. The Branch contact field decides whether this
   // message belongs to our system. Anything other than "Gili Trawangan"
   // (including empty) is the human team's responsibility — return 200 so
-  // Respond.io does not retry.
-  const resolution = await sedeService.resolveForPilot(payload.contact);
+  // Respond.io does not retry. V2 webhook payloads (2026-05-10+) omit the
+  // customFields, so we also accept channel-id-based identification when
+  // Branch is missing.
+  const resolution = await sedeService.resolveForPilot(
+    payload.contact,
+    payload.channelId,
+  );
   if (!resolution.ok) {
     log.info(
       {
         reason: resolution.reason,
         branch: resolution.branchValue,
         contactId: payload.contact.id,
+        channelId: payload.channelId ?? null,
       },
       "pilot gate rejected message",
     );
@@ -153,23 +159,39 @@ export async function processIncomingMessage(
   // operator-controlled tag (e.g. "ai-test") on the contact. Real customers
   // without that tag are silently dropped here so they continue to be
   // handled by the human team. Setting the env var empty disables the gate.
+  //
+  // V2 webhook payloads omit `tags` on the contact; when the env requires
+  // a tag and we got an empty tags array, we look the contact up via the
+  // Respond.io REST API to make a confident decision.
   const requiredTag = loadEnv().PILOT_REQUIRE_TAG;
-  if (requiredTag && !payload.contact.tags?.includes(requiredTag)) {
-    log.info(
-      {
-        contactId: payload.contact.id,
-        requiredTag,
-        contactTags: payload.contact.tags ?? [],
-      },
-      "test gate rejected — contact lacks required tag",
-    );
-    return {
-      ok: false,
-      ignored: true,
-      reason: "test_tag_missing",
-      branch: resolution.via === "branch" ? sede.nombre : null,
-      latencyMs: Date.now() - t0,
-    };
+  if (requiredTag) {
+    let tags: string[] = payload.contact.tags ?? [];
+    if (tags.length === 0) {
+      const fetched = await respondIoClient
+        .getContact(payload.contact.id)
+        .catch((err) => {
+          log.warn({ err }, "respond_io get_contact failed during pilot gate — treating as untagged");
+          return null;
+        });
+      tags = fetched?.tags ?? [];
+    }
+    if (!tags.includes(requiredTag)) {
+      log.info(
+        {
+          contactId: payload.contact.id,
+          requiredTag,
+          contactTags: tags,
+        },
+        "test gate rejected — contact lacks required tag",
+      );
+      return {
+        ok: false,
+        ignored: true,
+        reason: "test_tag_missing",
+        branch: resolution.via === "branch" ? sede.nombre : null,
+        latencyMs: Date.now() - t0,
+      };
+    }
   }
 
   // Step 2b: contact upsert. This is the canonical store for per-person data;

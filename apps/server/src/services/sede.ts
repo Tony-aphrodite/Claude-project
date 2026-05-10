@@ -23,8 +23,16 @@ import { readBranchField, type RespondIoIncomingMessage } from "@dpm/shared";
 const SEDE_TAG_PREFIX = "sede:";
 const PILOT_SEDE_NAME = "Gili Trawangan" as const;
 
+// Respond.io v2 webhook payloads carry the WhatsApp channel id (not the
+// Branch custom field). For the Gili Trawangan pilot the channel is fixed
+// per Miguel's workspace 216239 / channel 274637, confirmed in memory
+// `reference_respondio_catalog`. When the Branch field is absent we accept
+// channel-id-based identification — locked to this single id so other
+// sedes' channels never accidentally route through John.
+const PILOT_WHATSAPP_CHANNEL_ID = "274637" as const;
+
 export type SedeResolution =
-  | { ok: true; sede: Sede; via: "branch" | "tag" }
+  | { ok: true; sede: Sede; via: "branch" | "tag" | "channel" }
   | {
       ok: false;
       reason: "branch_other_sede" | "branch_empty" | "sede_not_seeded";
@@ -78,6 +86,7 @@ export class SedeService {
    */
   async resolveForPilot(
     contact: RespondIoIncomingMessage["contact"],
+    channelId?: string | null,
   ): Promise<SedeResolution> {
     const branch = readBranchField(contact);
 
@@ -95,6 +104,22 @@ export class SedeService {
         };
       }
       return { ok: true, sede, via: "branch" };
+    }
+
+    // V2 fallback: Respond.io v2 webhooks omit customFields, so Branch is
+    // unavailable in the payload. Use the locked WhatsApp channel id
+    // instead — channel 274637 is unambiguously Gili Trawangan per
+    // Miguel's workspace.
+    if (channelId && channelId === PILOT_WHATSAPP_CHANNEL_ID) {
+      const sede = await this.findByName(PILOT_SEDE_NAME);
+      if (!sede) {
+        return {
+          ok: false,
+          reason: "sede_not_seeded",
+          branchValue: PILOT_SEDE_NAME,
+        };
+      }
+      return { ok: true, sede, via: "channel" };
     }
 
     // Legacy fallback (off by default): tag-based identification.

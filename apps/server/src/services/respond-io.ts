@@ -262,6 +262,77 @@ export class RespondIoClient {
   }
 
   /**
+   * Fetch full contact details (tags + custom fields) from the Respond.io
+   * REST API. The webhook payload v2 (observed 2026-05-10) does NOT carry
+   * tags or customFields, so the pilot gate has to look them up here to
+   * decide whether to engage the AI.
+   *
+   * Returns null on 404 (contact deleted between webhook fire + our
+   * lookup) so callers can fall back to "treat as untagged".
+   */
+  async getContact(contactId: string): Promise<{
+    id: string;
+    tags: string[];
+    customFields: Record<string, unknown>;
+  } | null> {
+    const env = loadEnv();
+    const log = getLogger();
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(contactId)}`;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+    try {
+      const res = await undiciFetch(url, {
+        method: "GET",
+        signal: controller.signal,
+        dispatcher: keepAliveAgent,
+        headers: {
+          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+        },
+      } as RequestInit);
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new UpstreamError("respond_io", `get_contact ${res.status}`, {
+          status: res.status,
+          body: body.slice(0, 500),
+        });
+      }
+      const json = (await res.json()) as Record<string, unknown>;
+      // Respond.io wraps the contact in {data: {...}} or returns it flat
+      // depending on endpoint version. Handle both.
+      const c = (
+        typeof json.data === "object" && json.data !== null ? json.data : json
+      ) as Record<string, unknown>;
+      const tags = Array.isArray(c.tags)
+        ? c.tags.filter((t): t is string => typeof t === "string")
+        : [];
+      const customFields =
+        typeof c.customFields === "object" && c.customFields !== null
+          ? (c.customFields as Record<string, unknown>)
+          : typeof c.fields === "object" && c.fields !== null
+            ? (c.fields as Record<string, unknown>)
+            : typeof c.custom_fields === "object" && c.custom_fields !== null
+              ? (c.custom_fields as Record<string, unknown>)
+              : {};
+      log.info(
+        { contactId, tagCount: tags.length, fieldCount: Object.keys(customFields).length },
+        "respond_io get_contact ok",
+      );
+      return { id: contactId, tags, customFields };
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        throw new UpstreamError("respond_io", "get_contact timed out", {
+          timeoutMs: TIMEOUTS.RESPOND_IO_MS,
+        });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * Add a tag to a Respond.io contact. Owner spec DPM_AI_LAUNCH +
    * 2026-05-07 reply: tag-based handoff. The Respond.io workflow that
    * Miguel maintains listens for these tags and assigns the conversation
