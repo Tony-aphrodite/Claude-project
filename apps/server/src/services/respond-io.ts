@@ -143,13 +143,11 @@ export class RespondIoClient {
           authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
         },
         body: JSON.stringify({
-          // Pass channelId explicitly when the caller knows it (we extract
-          // it from the inbound webhook). Respond.io v2 often returns
-          // generic Meta delivery failures when channelId is implicit and
-          // their internal session state disagrees with Meta. JSON.stringify
-          // strips this when undefined, preserving the legacy implicit
-          // behavior for callers that do not have a channel id.
-          channelId: input.channelId,
+          // 2026-05-10 finding: Respond.io v2 /contact/id:{id}/message
+          // endpoint REJECTS `channelId` as an invalid field
+          // (`{"code":400,"message":"Invalid field(s) : channelId = 274637"}`).
+          // Channel disambiguation happens implicitly via the contact's
+          // primary channel. Do not include channelId here.
           message: { type: "text", text: input.text },
         }),
       });
@@ -192,6 +190,33 @@ export class RespondIoClient {
         },
         "respond_io send_message ok",
       );
+
+      // TEMP DEBUG (2026-05-10): poll the message status 8s after the send
+      // so we can see whether Meta accepted, queued, or rejected the
+      // outbound — and capture the Meta error code surfaced by Respond.io
+      // ("Something went wrong" in the UI is the generic catch-all; the
+      // structured error like 131047 / 132001 is what we need).
+      try {
+        const parsed = JSON.parse(bodyText) as {
+          messageId?: number | string;
+          contactId?: number | string;
+        };
+        const messageId =
+          parsed.messageId !== undefined ? String(parsed.messageId) : null;
+        const contactId =
+          parsed.contactId !== undefined
+            ? String(parsed.contactId)
+            : (input.contactId ?? null);
+        if (messageId && contactId) {
+          setTimeout(() => {
+            this.diagnoseMessageDelivery({ messageId, contactId }).catch((err) =>
+              log.warn({ err, messageId }, "diagnose_message_delivery failed"),
+            );
+          }, 8_000);
+        }
+      } catch {
+        // Body wasn't JSON or didn't have messageId — skip diagnostics.
+      }
     } catch (err) {
       if ((err as { name?: string }).name === "AbortError") {
         throw new UpstreamError("respond_io", "Send message timed out", {
@@ -202,6 +227,65 @@ export class RespondIoClient {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * TEMP DEBUG (2026-05-10): try several Respond.io v2 endpoint shapes to
+   * pull the delivery status of a recently-sent outbound message. We do
+   * NOT know the canonical URL ahead of time so we probe a few patterns
+   * and log every response that doesn't 404. The first non-404 response
+   * is logged in full so we can see the Meta error code embedded by
+   * Respond.io after async push to Meta.
+   */
+  async diagnoseMessageDelivery(input: {
+    messageId: string;
+    contactId: string;
+  }): Promise<void> {
+    const env = loadEnv();
+    const log = getLogger();
+    const candidates = [
+      `${env.RESPOND_IO_API_BASE_URL}/message/id:${encodeURIComponent(input.messageId)}`,
+      `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/message/${encodeURIComponent(input.messageId)}`,
+      `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/messages?limit=3`,
+      `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/conversations?limit=1`,
+    ];
+    for (const url of candidates) {
+      try {
+        const res = await undiciFetch(url, {
+          method: "GET",
+          dispatcher: keepAliveAgent,
+          headers: {
+            authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+          },
+        } as RequestInit);
+        const body = await res.text().catch(() => "");
+        if (res.status === 404) {
+          log.info({ url, status: 404 }, "diagnose_message_delivery: 404 (endpoint shape not supported)");
+          continue;
+        }
+        log.warn(
+          {
+            url,
+            status: res.status,
+            bodyHead: body.slice(0, 2000),
+            messageId: input.messageId,
+            contactId: input.contactId,
+          },
+          "diagnose_message_delivery: response captured",
+        );
+        // Stop at first non-404 — that's our endpoint shape.
+        return;
+      } catch (err) {
+        log.info(
+          { url, err: (err as Error).message },
+          "diagnose_message_delivery: probe error",
+        );
+      }
+    }
+    log.warn(
+      { messageId: input.messageId, contactId: input.contactId },
+      "diagnose_message_delivery: no endpoint accepted the request",
+    );
   }
 
   /**
