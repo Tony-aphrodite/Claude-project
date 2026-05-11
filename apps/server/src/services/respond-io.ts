@@ -367,10 +367,33 @@ export class RespondIoClient {
     // Confirmed via Phase F variant probing on 2026-05-11: Respond.io v2's
     // dedicated `POST /contact/id:{id}/tag` returns 400 "Tags: Cannot be
     // empty" regardless of body shape. The canonical path is the unified
-    // `PUT /contact/id:{id}` with the entire tags array — same pattern as
-    // updateContactCustomFields.
-    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
+    // `PUT /contact/id:{id}` with the entire tags array.
+    //
+    // CRITICAL (2026-05-11 incident): PUT semantics REPLACE the resource
+    // — sending `{tags: ["deposit_paid"]}` wipes out every other tag the
+    // contact had (ai-test, venta_completa, etc). That kills the pilot
+    // gate (no more ai-test → contact treated as a real customer) AND
+    // sometimes prevents Miguel's "tag added" workflow triggers from
+    // firing because the trigger uses the diff (which for a PUT that
+    // also drops other tags reads as "all replaced", not "deposit_paid
+    // added").
+    //
+    // Fix: GET current tags first, merge our new tag in, then PUT the
+    // full union. Costs one extra Respond.io API call per add (~200ms)
+    // but preserves tag history correctly.
+    let existingTags: string[] = [];
+    try {
+      const current = await this.getContact(input.contactId);
+      existingTags = current?.tags ?? [];
+    } catch (err) {
+      log.warn(
+        { err: (err as Error).message, contactId: input.contactId },
+        "respond_io add_tag: getContact failed before merge — proceeding with new tag only (may drop other tags)",
+      );
+    }
+    const merged = Array.from(new Set([...existingTags, input.tag]));
 
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
     try {
@@ -382,12 +405,12 @@ export class RespondIoClient {
           authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ tags: [input.tag] }),
+        body: JSON.stringify({ tags: merged }),
       } as RequestInit);
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         log.warn(
-          { status: res.status, body: body.slice(0, 300), tag: input.tag },
+          { status: res.status, body: body.slice(0, 300), tag: input.tag, tagCount: merged.length },
           "respond_io add_tag non-2xx",
         );
         throw new UpstreamError("respond_io", `add_tag ${res.status}`, {
@@ -395,7 +418,10 @@ export class RespondIoClient {
           body: body.slice(0, 300),
         });
       }
-      log.info({ contactId: input.contactId, tag: input.tag }, "respond_io add_tag ok");
+      log.info(
+        { contactId: input.contactId, tag: input.tag, tagsBefore: existingTags.length, tagsAfter: merged.length },
+        "respond_io add_tag ok",
+      );
     } catch (err) {
       if ((err as { name?: string }).name === "AbortError") {
         throw new UpstreamError("respond_io", "add_tag timed out", {
