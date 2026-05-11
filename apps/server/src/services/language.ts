@@ -32,9 +32,26 @@ const ISO3_TO_LABEL: Record<string, string> = {
   por: "português",
 };
 
+const LABEL_TO_ISO2: Record<string, string> = {
+  español: "es",
+  english: "en",
+  português: "pt",
+};
+
 export function detectLanguage(text: string): string | undefined {
   if (text.trim().length < 60) return undefined;
   const code = franc(text, { only: Object.keys(ISO3_TO_LABEL) });
   if (code === "und") return undefined;
   return ISO3_TO_LABEL[code] ?? code;
+}
+
+/**
+ * Map our human-readable language label ("español", "english", …) to the
+ * ISO-639-1 two-letter code Respond.io's contact.language field expects.
+ * Returns null when the label is unrecognized so callers can decide whether
+ * to skip the push.
+ */
+export function languageLabelToIso2(label: string | null | undefined): string | null {
+  if (!label) return null;
+  return LABEL_TO_ISO2[label.toLowerCase()] ?? null;
 }

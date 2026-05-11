@@ -466,6 +466,15 @@ export class RespondIoClient {
   async updateContactCustomFields(input: {
     contactId: string;
     fields: Record<string, string | number | null>;
+    /**
+     * Optional ISO 639-1 language code (e.g. "es", "en"). When provided,
+     * the PUT body includes a top-level `language` field so Miguel's
+     * workflows that route on contact.language (Spanish vs English
+     * branches in DPM GT - Onboarding Piloto) get the right value.
+     * Skipped from the PUT body when null/undefined so we never overwrite
+     * a value Miguel set manually.
+     */
+    language?: string | null;
   }): Promise<void> {
     const env = loadEnv();
     const log = getLogger();
@@ -533,6 +542,9 @@ export class RespondIoClient {
     const putBody: Record<string, unknown> = { custom_fields: customFields };
     if (existingTags.length > 0) {
       putBody.tags = existingTags;
+    }
+    if (input.language) {
+      putBody.language = input.language;
     }
 
     const controller = new AbortController();

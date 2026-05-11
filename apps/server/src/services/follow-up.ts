@@ -417,13 +417,37 @@ export class FollowUpProcessor {
           return "cancelled";
         }
         const variables = [name ?? "amigo"];
-        await respondIoClient.sendTemplate({
-          conversationId: conv.respondIoConversationId,
-          contactId: conv.respondIoContactId,
-          templateName: template.name,
-          language: template.language,
-          variables,
-        });
+        try {
+          await respondIoClient.sendTemplate({
+            conversationId: conv.respondIoConversationId,
+            contactId: conv.respondIoContactId,
+            templateName: template.name,
+            language: template.language,
+            variables,
+          });
+        } catch (err) {
+          // Respond.io v2 rejects our current sendTemplate body shape with
+          // `Invalid field(s) : message.type = template` (probed 2026-05-11).
+          // We don't have docs for the correct payload yet, so for now we
+          // cancel the follow-up rather than letting `runDue` retry it
+          // forever — the row stays as audit trail with a clear reason so
+          // ops can route it to a human agent if needed. Tomorrow's pilot
+          // launch isn't affected: level-1 (4h) follow-ups use plain text
+          // (sendMessage) which works fine.
+          const errMsg = (err as Error).message ?? "unknown";
+          log.warn(
+            { fuId: fu.id, level: fu.level, template: template.name, err: errMsg },
+            "follow-up template send failed — cancelling row to prevent retry loop",
+          );
+          await db
+            .update(followUps)
+            .set({
+              cancelledAt: new Date(),
+              cancellationReason: `template_send_unsupported:${errMsg.slice(0, 100)}`,
+            })
+            .where(eq(followUps.id, fu.id));
+          return "cancelled";
+        }
         await db
           .update(followUps)
           .set({

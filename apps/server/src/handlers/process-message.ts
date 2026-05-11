@@ -67,7 +67,7 @@ import {
   type SedeKey,
 } from "../services/deposit-instructions.js";
 import { followUpProcessor } from "../services/follow-up.js";
-import { detectLanguage } from "../services/language.js";
+import { detectLanguage, languageLabelToIso2 } from "../services/language.js";
 import { leadStageService } from "../services/lead-stage.js";
 import { buildFourBlockPrompt } from "../services/prompt-builder.js";
 import { promptsService } from "../services/prompts.js";
@@ -596,6 +596,16 @@ export async function processIncomingMessage(
 
   // Step 6: dynamic block + 5: 4-block prompt
   const detectedLanguage = detectLanguage(incomingText) ?? contact.language ?? undefined;
+  // ISO-639-1 code (e.g. "es", "en") for Respond.io's contact.language
+  // field. Pushed through updateContactCustomFields so Miguel's
+  // "DPM GT - Onboarding Piloto" workflow routes Spanish-speaking
+  // customers to Rama 1 (Spanish) instead of falling through to Otra
+  // (English fallback). Tony's 2026-05-11 test got the English chain
+  // even though he wrote Spanish, because contact.language was empty —
+  // this push fixes that for real customers from message 1 forward.
+  // Returns null when the detection didn't fire (text < 60 chars) so
+  // we never overwrite an existing value with a guess.
+  const detectedLanguageIso = languageLabelToIso2(detectedLanguage ?? null);
   // Resolve deposit currency from phone prefix per INSTRUCCIONES_PAGO §3.
   // null when prefix isn't in the table → AI prompts the client to choose.
   const suggestedCurrency = detectCurrencyFromPhone(contact.phone);
@@ -680,6 +690,7 @@ export async function processIncomingMessage(
             programa: input.programa,
             start_date: input.start_date,
           },
+          language: detectedLanguageIso ?? undefined,
         })
         .catch((err) =>
           log.warn({ err }, "respond_io update_custom_fields failed (no-boat path)"),
@@ -773,6 +784,7 @@ export async function processIncomingMessage(
           turno: computeTurno(required) ?? "",
           start_date: input.start_date,
         },
+        language: detectedLanguageIso ?? undefined,
       })
       .catch((err) =>
         log.warn({ err }, "respond_io update_custom_fields failed (proposed path)"),
@@ -876,6 +888,7 @@ export async function processIncomingMessage(
           moneda: currency,
           codigo_referencia: refCode,
         },
+        language: detectedLanguageIso ?? undefined,
       })
       .catch((err) =>
         log.warn({ err }, "respond_io update_custom_fields failed (deposit path)"),
