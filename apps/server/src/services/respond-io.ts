@@ -324,14 +324,33 @@ export class RespondIoClient {
       const tags = Array.isArray(c.tags)
         ? c.tags.filter((t): t is string => typeof t === "string")
         : [];
-      const customFields =
-        typeof c.customFields === "object" && c.customFields !== null
-          ? (c.customFields as Record<string, unknown>)
-          : typeof c.fields === "object" && c.fields !== null
-            ? (c.fields as Record<string, unknown>)
-            : typeof c.custom_fields === "object" && c.custom_fields !== null
-              ? (c.custom_fields as Record<string, unknown>)
-              : {};
+      // Respond.io v2 returns customFields as an ARRAY of {name, value}
+      // objects (observed 2026-05-11 via recovery script). The legacy v1
+      // shape was an object keyed by field name. Handle both — normalize
+      // to a name→value map so callers can read by name regardless.
+      const cfRaw =
+        c.customFields !== undefined
+          ? c.customFields
+          : c.fields !== undefined
+            ? c.fields
+            : c.custom_fields;
+      const customFields: Record<string, unknown> = {};
+      if (Array.isArray(cfRaw)) {
+        for (const entry of cfRaw) {
+          if (
+            entry &&
+            typeof entry === "object" &&
+            "name" in entry &&
+            typeof (entry as { name: unknown }).name === "string"
+          ) {
+            customFields[(entry as { name: string }).name] = (entry as {
+              value: unknown;
+            }).value;
+          }
+        }
+      } else if (typeof cfRaw === "object" && cfRaw !== null) {
+        Object.assign(customFields, cfRaw as Record<string, unknown>);
+      }
       log.info(
         { contactId, tagCount: tags.length, fieldCount: Object.keys(customFields).length },
         "respond_io get_contact ok",
@@ -458,30 +477,47 @@ export class RespondIoClient {
     // canonical path is `PUT /contact/id:{id}` with the customFields array
     // — same unified pattern as addContactTag.
     //
-    // CRITICAL (2026-05-11 Ignacia incident): the same PUT-replace blast
-    // radius that hit addContactTag also hits us here. Sending
-    // `{customFields: [...]}` causes Respond.io to overwrite the WHOLE
-    // contact, wiping tags (including `ai-test`) and any other side
-    // information. Ignacia's contact had tags=[] after we updated her
-    // programa/turno/start_date — the pilot gate then rejected all
-    // subsequent messages because ai-test was gone.
+    // CRITICAL #1 (2026-05-11 Ignacia incident): PUT-replace blast radius
+    // wipes tags. Mitigated by reading existing tags via GET and including
+    // them in the PUT body.
     //
-    // Fix: GET current tags first, then PUT customFields AND tags
-    // together so the existing tag array survives. Same merge pattern
-    // as addContactTag.
+    // CRITICAL #2 (2026-05-11 Miguel post-test inspection): the same PUT-
+    // replace semantics ALSO wipe non-included customFields. Miguel's test
+    // contact 208082561 had ONLY `Branch` and `pax` set even though the
+    // server had pushed programa/turno/start_date/monto/moneda/
+    // codigo_referencia across multiple PUTs — each PUT was clobbering the
+    // previous fields because we only sent the current update. This breaks
+    // (a) Miguel's Sheet Logger which reads all 9 fields on conversation
+    // close, and (b) any future workflow that filters on a previously-
+    // written field. Fix: GET both tags AND customFields, overlay our new
+    // entries on top of existing, PUT the union.
     let existingTags: string[] = [];
+    let existingFields: Record<string, unknown> = {};
     try {
       const current = await this.getContact(input.contactId);
       existingTags = current?.tags ?? [];
+      existingFields = current?.customFields ?? {};
     } catch (err) {
       log.warn(
         { err: (err as Error).message, contactId: input.contactId },
-        "respond_io update_custom_fields: getContact failed before merge — proceeding WITHOUT tag preservation",
+        "respond_io update_custom_fields: getContact failed before merge — proceeding WITHOUT field/tag preservation",
       );
     }
 
     const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
-    const customFields = entries.map(([name, value]) => ({ name, value }));
+    // Merge: existing fields as the base, incoming entries overlay by name.
+    // Skip existing entries whose value is null/empty-string so a stale
+    // empty doesn't crowd the array.
+    const merged = new Map<string, unknown>();
+    for (const [name, value] of Object.entries(existingFields)) {
+      if (value === null || value === undefined) continue;
+      if (typeof value === "string" && value.length === 0) continue;
+      merged.set(name, value);
+    }
+    for (const [name, value] of entries) {
+      merged.set(name, value);
+    }
+    const customFields = Array.from(merged, ([name, value]) => ({ name, value }));
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
@@ -513,7 +549,14 @@ export class RespondIoClient {
         });
       }
       log.info(
-        { contactId: input.contactId, fields: entries.map(([k]) => k) },
+        {
+          contactId: input.contactId,
+          incomingFields: entries.map(([k]) => k),
+          preservedFields: Array.from(merged.keys()).filter(
+            (k) => !entries.some(([ek]) => ek === k),
+          ),
+          totalFields: customFields.length,
+        },
         "respond_io update_custom_fields ok",
       );
     } catch (err) {
