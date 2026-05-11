@@ -479,35 +479,37 @@ export class RespondIoClient {
       body: Record<string, unknown>;
       label: string;
     }> = [
+      // First try the pattern that worked for custom fields: PUT root contact.
       {
-        url: `${baseUrl}/tag`,
-        method: "POST",
+        url: baseUrl,
+        method: "PUT",
+        body: { tags: [input.tag] },
+        label: "PUT-root-contact-tags",
+      },
+      {
+        url: baseUrl,
+        method: "PUT",
         body: { tags: [{ name: input.tag }] },
-        label: "tags-array-of-objects",
+        label: "PUT-root-contact-tags-objects",
+      },
+      {
+        url: baseUrl,
+        method: "PUT",
+        body: { Tags: [input.tag] },
+        label: "PUT-root-contact-capital-Tags",
       },
       {
         url: `${baseUrl}/tag`,
         method: "POST",
-        body: { name: input.tag },
-        label: "name-singular",
+        body: { Tags: [input.tag] },
+        label: "POST-tag-capital-Tags",
       },
-      {
-        url: `${baseUrl}/tag`,
-        method: "POST",
-        body: { tag: input.tag },
-        label: "tag-singular",
-      },
-      {
-        url: `${baseUrl}/tags`,
-        method: "POST",
-        body: { tags: [input.tag] },
-        label: "tags-plural-url",
-      },
+      // The legacy variants that returned 400 — keep last as confirmation.
       {
         url: `${baseUrl}/tag`,
         method: "POST",
         body: { tags: [input.tag] },
-        label: "legacy-array-of-strings",
+        label: "legacy-POST-tag",
       },
     ];
 
@@ -598,29 +600,19 @@ export class RespondIoClient {
       body: Record<string, unknown>;
       label: string;
     }> = [
-      {
-        url: `${baseUrl}/customField`,
-        method: "POST",
-        body: { customField: customFields },
-        label: "POST-customField-subresource",
-      },
-      {
-        url: `${baseUrl}/customField`,
-        method: "PUT",
-        body: { customField: customFields },
-        label: "PUT-customField-subresource",
-      },
-      {
-        url: `${baseUrl}/customFields`,
-        method: "POST",
-        body: { customFields },
-        label: "POST-customFields-plural",
-      },
+      // Confirmed working variant (2026-05-11 logs): PUT /contact/id:{id}
+      // body {customFields: [...]} returns 200. Keep as primary.
       {
         url: baseUrl,
         method: "PUT",
         body: { customFields },
         label: "PUT-root-contact",
+      },
+      {
+        url: `${baseUrl}/customField`,
+        method: "POST",
+        body: { customField: customFields },
+        label: "POST-customField-subresource",
       },
       {
         url: baseUrl,
