@@ -469,28 +469,38 @@ export class RespondIoClient {
   }): Promise<void> {
     const env = loadEnv();
     const log = getLogger();
-    const entries = Object.entries(input.fields).filter(([, v]) => v !== null && v !== undefined);
+    // Filter out null/undefined AND empty strings. An empty string is not a
+    // valid value for any of our typed fields (monto=number, moneda=enum,
+    // codigo_referencia=text-required) and triggers 400 on some types. The
+    // OCR auto-confirm path passed `meta?.deposit_amount ?? ""` which used
+    // to land as empty values across the schema; filtering here means
+    // missing data is silently skipped instead of corrupting the field.
+    const entries = Object.entries(input.fields).filter(
+      ([, v]) => v !== null && v !== undefined && !(typeof v === "string" && v.length === 0),
+    );
     if (entries.length === 0) return;
 
     // Confirmed via Phase F variant probing on 2026-05-11: Respond.io v2's
     // legacy `PATCH /contact/id:{id}` is blocked by AWS WAF (403). The
-    // canonical path is `PUT /contact/id:{id}` with the customFields array
-    // — same unified pattern as addContactTag.
+    // canonical path is `PUT /contact/id:{id}`.
     //
     // CRITICAL #1 (2026-05-11 Ignacia incident): PUT-replace blast radius
     // wipes tags. Mitigated by reading existing tags via GET and including
     // them in the PUT body.
     //
     // CRITICAL #2 (2026-05-11 Miguel post-test inspection): the same PUT-
-    // replace semantics ALSO wipe non-included customFields. Miguel's test
-    // contact 208082561 had ONLY `Branch` and `pax` set even though the
-    // server had pushed programa/turno/start_date/monto/moneda/
-    // codigo_referencia across multiple PUTs — each PUT was clobbering the
-    // previous fields because we only sent the current update. This breaks
-    // (a) Miguel's Sheet Logger which reads all 9 fields on conversation
-    // close, and (b) any future workflow that filters on a previously-
-    // written field. Fix: GET both tags AND customFields, overlay our new
-    // entries on top of existing, PUT the union.
+    // replace semantics ALSO wipe non-included fields. Each PUT was
+    // clobbering previous fields. Fix: GET existing, overlay incoming,
+    // PUT the union.
+    //
+    // CRITICAL #3 (2026-05-11 evening): the API response uses snake_case
+    // `custom_fields` (array of {name, value}) and the PUT body MUST use
+    // the same snake_case key. Earlier code sent `customFields` (camelCase)
+    // which Respond.io silently DROPPED — the PUT returned 200 but only
+    // the `tags` part of the body landed. That's why Miguel's contact had
+    // monto/moneda/codigo_referencia/programa/start_date as null even
+    // after multiple successful-looking PUT responses, and why the
+    // Sheet Logger never had data to read.
     let existingTags: string[] = [];
     let existingFields: Record<string, unknown> = {};
     try {
@@ -518,6 +528,12 @@ export class RespondIoClient {
       merged.set(name, value);
     }
     const customFields = Array.from(merged, ([name, value]) => ({ name, value }));
+    // PUT body MUST use snake_case `custom_fields`. CamelCase is silently
+    // dropped by Respond.io v2 — see CRITICAL #3 above.
+    const putBody: Record<string, unknown> = { custom_fields: customFields };
+    if (existingTags.length > 0) {
+      putBody.tags = existingTags;
+    }
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
@@ -530,12 +546,7 @@ export class RespondIoClient {
           authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          customFields,
-          // Preserve tags only when we successfully read them. Sending an
-          // empty array would wipe them, which is the original bug.
-          ...(existingTags.length > 0 ? { tags: existingTags } : {}),
-        }),
+        body: JSON.stringify(putBody),
       } as RequestInit);
       if (!res.ok) {
         const body = await res.text().catch(() => "");

@@ -417,6 +417,15 @@ export type ConsultarDisponibilidadResult =
       horaActualWita?: string;
       available: boolean; // true iff every required slot is available
       slots: SlotVerdict[];
+      /**
+       * Pre-filtered view of `slots` containing ONLY the entries with
+       * `available=false`. The AI MUST quote these dates/slots literally
+       * when explaining unavailability — direct filtering avoids the
+       * 2026-05-11 incident where Claude misattributed which day was
+       * full (cited Day 2 / 15-May when the actual conflict was Day 3 /
+       * 16-May AM). Omitted when `available=true`.
+       */
+      failingSlots?: SlotVerdict[];
       /** Suggested earlier/later start_date when current is blocked. */
       alternativeStartDate?: string;
       /** Free-form note for the model to surface (e.g. "AM ya zarpó"). */

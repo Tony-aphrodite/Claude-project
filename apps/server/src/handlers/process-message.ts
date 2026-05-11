@@ -453,9 +453,13 @@ export async function processIncomingMessage(
               contactId: payload.contact.id,
               fields: {
                 branch: sede.nombre,
-                monto: meta?.deposit_amount ?? "",
-                moneda: meta?.deposit_currency ?? "",
-                codigo_referencia: meta?.ref_code ?? "",
+                // Pass null for missing values; the client filters them out
+                // so we don't blow away the field with an empty string.
+                monto: meta?.deposit_amount ?? null,
+                moneda: meta?.deposit_currency ?? null,
+                codigo_referencia: meta?.ref_code ?? null,
+                programa: meta?.programa ?? null,
+                start_date: meta?.start_date ?? null,
               },
             });
           } catch (err) {
@@ -774,6 +778,7 @@ export async function processIncomingMessage(
         log.warn({ err }, "respond_io update_custom_fields failed (proposed path)"),
       );
 
+    const failingSlots = slots.filter((s) => !s.available);
     return {
       ok: true,
       programa: input.programa,
@@ -781,6 +786,7 @@ export async function processIncomingMessage(
       horaActualWita: fresh.hora_actual_wita,
       available: allAvailable,
       slots,
+      ...(failingSlots.length > 0 ? { failingSlots } : {}),
       ...(fresh.primer_dia_disponible &&
       fresh.primer_dia_disponible !== input.start_date
         ? { alternativeStartDate: fresh.primer_dia_disponible }

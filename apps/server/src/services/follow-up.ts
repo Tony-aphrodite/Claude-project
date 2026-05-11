@@ -185,6 +185,33 @@ export class FollowUpScheduler {
         continue;
       }
 
+      // CRITICAL re-check (2026-05-11 incident): the `candidates` SELECT
+      // above was a snapshot. By the time this loop reaches a row that was
+      // idle minutes ago, the conversation may have had brand-new activity
+      // (the customer answered, the AI responded). Sending a "still
+      // there?" follow-up 80 seconds after the AI just delivered bank
+      // instructions is intrusive and broke Miguel's trust during his
+      // pilot test. Re-query NOW so the decision uses live state, not the
+      // stale snapshot.
+      const liveLastMessage = await db
+        .select({ at: mensajes.createdAt })
+        .from(mensajes)
+        .where(eq(mensajes.conversacionId, row.conv.id))
+        .orderBy(desc(mensajes.createdAt))
+        .limit(1);
+      const liveLastAt = liveLastMessage[0]?.at;
+      if (liveLastAt) {
+        const liveElapsedHours = (Date.now() - liveLastAt.getTime()) / (60 * 60 * 1000);
+        const liveLevel = pickLevelByElapsed(liveElapsedHours);
+        if (liveLevel !== targetLevel) {
+          // Activity has happened since the candidates query; the level
+          // we picked is no longer applicable. Skip — next scanner pass
+          // (15 min later) will re-evaluate with fresh state.
+          skipped++;
+          continue;
+        }
+      }
+
       await db.insert(followUps).values({
         conversacionId: row.conv.id,
         level: targetLevel,
@@ -300,6 +327,32 @@ export class FollowUpProcessor {
       .orderBy(desc(mensajes.createdAt))
       .limit(20);
     recent.reverse();
+
+    // CRITICAL re-check (2026-05-11): the scheduler may have queued this
+    // follow-up off a stale snapshot. Before actually firing the message,
+    // verify the conversation has been quiet for at least LEVEL_1.hours.
+    // If activity is fresher than that, cancel rather than send — sending
+    // a "still there?" prompt minutes after an AI reply was the bug
+    // Miguel flagged during his pilot test.
+    const newestMsg = recent[recent.length - 1];
+    if (newestMsg) {
+      const elapsedHours =
+        (Date.now() - newestMsg.createdAt.getTime()) / (60 * 60 * 1000);
+      if (elapsedHours < FOLLOW_UP_LEVELS.LEVEL_1.hours) {
+        await db
+          .update(followUps)
+          .set({
+            cancelledAt: new Date(),
+            cancellationReason: "recent_activity_at_send_time",
+          })
+          .where(eq(followUps.id, fu.id));
+        log.info(
+          { convId: conv.id, elapsedHours, followUpId: fu.id },
+          "follow-up cancelled — conversation has recent activity",
+        );
+        return "cancelled";
+      }
+    }
 
     const negative = await detectNegativeIntent(
       recent.map((m) => ({ sender: m.sender, content: m.content })),
