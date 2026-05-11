@@ -11,8 +11,20 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "DPM Diving — Panel",
+  // Browser tab title. `template` lets per-page metadata read "Dashboard · DPM"
+  // etc. while the default fallback for pages that don't set their own title
+  // stays the brand-short form.
+  title: {
+    default: "DPM Panel",
+    template: "%s · DPM",
+  },
   description: "Internal monitoring panel for the Claude integration",
+  // Next.js auto-detects icon.png in this directory and emits <link rel="icon">.
+  // Declaring it here too is redundant but documents the intent + lets future
+  // contributors swap in additional sizes (apple-icon, etc) without surprise.
+  icons: {
+    icon: "/icon.png",
+  },
 };
 
 export default function RootLayout({
