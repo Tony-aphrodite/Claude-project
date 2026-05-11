@@ -212,6 +212,39 @@ export async function processIncomingMessage(
     sedeId: sede.id,
   });
 
+  // Idempotency gate for both text AND attachment paths. Respond.io
+  // re-delivers the same `messageId` (wamid) on its own retry policy when
+  // it doesn't get a snappy 2xx, and the OCR call below can take 8-15s
+  // which sometimes trips that timer. Without this check up-front, a
+  // single PDF upload could fire OCR + comprobante-ack multiple times —
+  // Miguel saw 4 duplicate acks for one PDF 2026-05-11. We move the
+  // check above the non-text branch so both paths share it.
+  const incomingMessageIdForDedup = payload.message.messageId;
+  if (incomingMessageIdForDedup) {
+    const existingDup = await conversationService.findByRespondIoMessageId(
+      conversation.id,
+      incomingMessageIdForDedup,
+    );
+    if (existingDup) {
+      log.info(
+        {
+          conversationId: conversation.id,
+          respondIoMessageId: incomingMessageIdForDedup,
+          existingMensajeId: existingDup.id,
+          path: incomingText ? "text" : "attachment",
+        },
+        "duplicate inbound message — skipping (pre-branch)",
+      );
+      return {
+        ok: true,
+        duplicate: true,
+        conversationId: conversation.id,
+        respondIoMessageId: incomingMessageIdForDedup,
+        latencyMs: Date.now() - t0,
+      };
+    }
+  }
+
   // Non-text handling. Owner spec INSTRUCCIONES_PAGO §5 + §7. When the
   // client sends an image / PDF (typically a payment proof) while the
   // lead is in deposit_pending we:
@@ -222,6 +255,31 @@ export async function processIncomingMessage(
   // The operator still has the final word — a green AI verdict is a hint,
   // not an auto-confirm.
   if (!incomingText) {
+    // Persist the inbound attachment as a mensaje row before any side
+    // effects, so the pre-branch idempotency check above can match on
+    // subsequent retries of the same wamid. content is a small marker
+    // string (the actual file lives at attachment.url) and the
+    // respondIoMessageId is stamped on metadata so findByRespondIoMessageId
+    // works the same way as for text messages.
+    if (incomingMessageIdForDedup) {
+      const att = pickFirstAttachment(payload.message);
+      await conversationService
+        .appendInboundMessage(
+          conversation.id,
+          att
+            ? `[attachment:${att.mimeType ?? "unknown"}]`
+            : "[non-text message]",
+          {
+            respondIoMessageId: incomingMessageIdForDedup,
+            attachmentUrl: att?.url ?? null,
+            attachmentMime: att?.mimeType ?? null,
+          },
+        )
+        .catch((err) =>
+          log.warn({ err }, "failed to persist inbound attachment mensaje"),
+        );
+    }
+
     if (conversation.leadStage === "deposit_pending") {
       const meta = (conversation.leadMetadata as LeadMetadata | null) ?? null;
       const expected =
@@ -442,34 +500,12 @@ export async function processIncomingMessage(
     return { ok: false, ignored: true, reason: "non_text", latencyMs: Date.now() - t0 };
   }
 
-  // Idempotency: Respond.io retries any 5xx, so a network blip during reply
-  // would otherwise re-trigger a Claude call + double reply. If we already
-  // stored the inbound row for this messageId, exit before any expensive work.
-  const incomingMessageId = payload.message.messageId;
-  if (incomingMessageId) {
-    const existing = await conversationService.findByRespondIoMessageId(
-      conversation.id,
-      incomingMessageId,
-    );
-    if (existing) {
-      log.info(
-        {
-          conversationId: conversation.id,
-          respondIoMessageId: incomingMessageId,
-          existingMensajeId: existing.id,
-        },
-        "duplicate inbound message — skipping",
-      );
-      return {
-        ok: true,
-        duplicate: true,
-        conversationId: conversation.id,
-        respondIoMessageId: incomingMessageId,
-        latencyMs: Date.now() - t0,
-      };
-    }
-  }
-
+  // Idempotency was already gated above (before the non-text branch) so by
+  // the time we get here we know this is a fresh wamid. Persist the text
+  // message with the same metadata shape the dedup check expects, so a
+  // late-arriving Respond.io retry of THIS same wamid would hit the
+  // pre-branch check next time.
+  const incomingMessageId = incomingMessageIdForDedup;
   await conversationService.appendInboundMessage(conversation.id, incomingText, {
     respondIoMessageId: incomingMessageId,
   });
