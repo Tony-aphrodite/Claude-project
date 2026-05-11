@@ -102,6 +102,14 @@ export const respondIoIncomingMessageSchema = z.object({
     // message itself rather than nesting under `attachments`. We capture
     // both spellings and the helper picks whichever is non-empty.
     attachment: z.object({}).passthrough().nullish().transform((v) => v ?? undefined),
+    // Meta Click-to-WhatsApp ad referral data, attached to the FIRST
+    // inbound message when a contact reaches the business via a CTWA ad.
+    // Miguel's email 2026-05-11 — to be consumed by the lead-source
+    // attribution flow (see memory `project_lead_source_attribution.md`).
+    // Captured here as passthrough so the shape we get from Meta /
+    // Respond.io survives unchanged for the consumer; we don't act on it
+    // yet (impl deferred until GT pilot stabilizes).
+    referral: z.object({}).passthrough().nullish().transform((v) => v ?? undefined),
   }),
   conversation: z
     .object({

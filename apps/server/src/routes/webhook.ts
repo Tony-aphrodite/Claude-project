@@ -85,6 +85,11 @@ export async function webhookRoutes(app: FastifyInstance) {
           !!parsed.data.message?.attachment ||
           (Array.isArray(parsed.data.message?.attachments) &&
             parsed.data.message.attachments.length > 0),
+        // Boolean only — referral body itself may carry PII (utm tokens
+        // can leak ad campaign names, ctwa_clid is per-user). The full
+        // referral object is preserved on the parsed payload for the
+        // lead-source attribution worker to consume when implemented.
+        hasReferral: !!parsed.data.message?.referral,
         contactId: parsed.data.contact?.id ?? null,
       },
       "webhook payload received",
