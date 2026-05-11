@@ -310,12 +310,27 @@ export async function processIncomingMessage(
         "ocr decision",
       );
 
+      // Beneficiary name per currency (KB-03 INSTRUCCIONES_PAGO). Used as
+      // a strong fallback signal when the customer didn't include the
+      // ref code in their bank's Libellé / Concept / Reference field.
+      const EXPECTED_BENEFICIARY_BY_CURRENCY: Record<string, string> = {
+        EUR: "DPM Diving Gili T LLC",
+        GBP: "DPM Diving Gili T LLC",
+        AUD: "DPM Diving Gili T LLC",
+        USD: "Dpm Diving",
+        IDR: "Dalam Professional Menyelam",
+      };
+      const expectedBeneficiary = expected
+        ? EXPECTED_BENEFICIARY_BY_CURRENCY[expected.currency] ?? undefined
+        : undefined;
+
       let ocrVerdict: OcrVerdict | null = null;
       if (attachment && expected) {
         ocrVerdict = await runOcrOnAttachment({
           attachmentUrl: attachment.url,
           attachmentMime: attachment.mimeType,
           expected,
+          expectedBeneficiary,
         });
         log.info(
           {

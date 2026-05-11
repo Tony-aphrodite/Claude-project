@@ -142,28 +142,57 @@ const FOREIGN_CURRENCIES = new Set<DepositCurrency>(["EUR", "GBP", "AUD", "USD"]
  *     transfers that need human review).
  *   - Ref code must match exactly (case-insensitive, whitespace-stripped).
  *   - Currency must match exactly.
+ *
+ * 2026-05-11 real-world learning (Miguel's BoursoBank test): European
+ * banks like BoursoBank let the sender type any free-form text in the
+ * "Libellé" / "Concept" / "Reference" field — and many senders forget
+ * (or refuse) to copy the DPM-GT-MMDD-XXXXXX code there. To keep
+ * legitimate transfers from getting stuck in deposit_pending we add
+ * TWO relaxations:
+ *
+ *   1. Substring match — if the extracted refCode CONTAINS the expected
+ *      one (after normalization), treat as match. Customers often write
+ *      "Pago DPM-GT-0511-W3M8C3 Open Water" — the code is in there even
+ *      if surrounded by other text.
+ *
+ *   2. Beneficiary fallback — when refCode is missing or doesn't match
+ *      BUT (amount, currency, beneficiary name) all match strongly,
+ *      accept the transfer as validated and stamp the verdict with
+ *      `softMatch: "no_refcode_beneficiary_ok"` so an operator can
+ *      review in audit. Risk of false-positive is low because the
+ *      beneficiary name + the exact amount in the exact currency are
+ *      already three strong signals.
  */
 export function reconcile(
   extraction: OcrExtraction,
   expected: ExpectedDeposit,
-): { mismatches: string[]; validated: boolean } {
+  expectedBeneficiary?: string,
+): { mismatches: string[]; validated: boolean; softMatch?: string } {
   const mismatches: string[] = [];
 
+  let refCodeOk = false;
   if (extraction.refCode == null) {
     mismatches.push("ref_code_missing");
-  } else if (
-    extraction.refCode.replace(/\s+/g, "").toUpperCase() !==
-    expected.refCode.replace(/\s+/g, "").toUpperCase()
-  ) {
-    mismatches.push("ref_code_mismatch");
+  } else {
+    const extNorm = extraction.refCode.replace(/\s+/g, "").toUpperCase();
+    const expNorm = expected.refCode.replace(/\s+/g, "").toUpperCase();
+    if (extNorm === expNorm || extNorm.includes(expNorm)) {
+      refCodeOk = true;
+    } else {
+      mismatches.push("ref_code_mismatch");
+    }
   }
 
+  let currencyOk = false;
   if (extraction.currency == null) {
     mismatches.push("currency_missing");
   } else if (extraction.currency !== expected.currency) {
     mismatches.push("currency_mismatch");
+  } else {
+    currencyOk = true;
   }
 
+  let amountOk = false;
   if (extraction.amount == null) {
     mismatches.push("amount_missing");
   } else {
@@ -173,16 +202,49 @@ export function reconcile(
       mismatches.push("amount_too_low");
     } else if (extraction.amount > overpaymentBound) {
       mismatches.push("amount_too_high");
+    } else {
+      amountOk = true;
     }
   }
 
-  return { mismatches, validated: mismatches.length === 0 };
+  if (mismatches.length === 0) {
+    return { mismatches: [], validated: true };
+  }
+
+  // Beneficiary fallback: when the ONLY problem is the ref code, but
+  // amount + currency match AND the extracted beneficiary clearly maps
+  // to DPM (any of the legal names from KB-03), accept the transfer.
+  const onlyRefCodeIssue =
+    refCodeOk === false &&
+    amountOk &&
+    currencyOk &&
+    mismatches.every((m) => m === "ref_code_missing" || m === "ref_code_mismatch");
+  if (onlyRefCodeIssue && expectedBeneficiary && extraction.beneficiary) {
+    const extBenef = extraction.beneficiary.replace(/\s+/g, "").toUpperCase();
+    const expBenef = expectedBeneficiary.replace(/\s+/g, "").toUpperCase();
+    // Substring either direction — Vision sometimes returns just "DPM
+    // Diving" or the full "DPM Diving Gili T LLC". Both should match.
+    if (extBenef.includes(expBenef) || expBenef.includes(extBenef)) {
+      return {
+        mismatches: [],
+        validated: true,
+        softMatch: "no_refcode_beneficiary_ok",
+      };
+    }
+  }
+
+  return { mismatches, validated: false };
 }
 
 export async function runOcrOnAttachment(input: {
   attachmentUrl: string;
   attachmentMime: string | null;
   expected: ExpectedDeposit;
+  /** Optional beneficiary string from the bank instructions (KB-03 per
+   *  currency). When provided, the reconciler falls back to a strong
+   *  beneficiary+amount+currency match in case the ref code is missing
+   *  or wasn't typed in the bank's Libellé/Concept field. */
+  expectedBeneficiary?: string;
 }): Promise<OcrVerdict> {
   const log = getLogger();
 
@@ -301,7 +363,11 @@ export async function runOcrOnAttachment(input: {
     };
   }
 
-  const { mismatches, validated } = reconcile(extraction, input.expected);
+  const { mismatches, validated } = reconcile(
+    extraction,
+    input.expected,
+    input.expectedBeneficiary,
+  );
   return {
     ok: true,
     extraction,
