@@ -73,22 +73,19 @@ export async function webhookRoutes(app: FastifyInstance) {
     // event field entirely — return 200 so the dashboard can activate the
     // webhook.
     const event = parsed.data.event;
-    // TEMP DEBUG (2026-05-10 pilot bring-up): log every webhook event name +
-    // direction + text presence so we can see why messages are being dropped.
-    // Remove once the inbound path is confirmed working end-to-end.
+    // Structured, PII-safe summary of each webhook for observability. We
+    // log shape — event name, message type, attachment presence — but
+    // NEVER the raw body, phone, or message content (those are persisted
+    // in mensajes table where access is auditable).
     req.log.info(
       {
         event,
-        direction: parsed.data.direction ?? parsed.data.message?.direction ?? null,
         textLen: parsed.data.message?.text?.length ?? 0,
-        sentByType:
-          parsed.data.message?.sentBy?.type ??
-          parsed.data.message?.sender?.type ??
-          null,
+        hasAttachment:
+          !!parsed.data.message?.attachment ||
+          (Array.isArray(parsed.data.message?.attachments) &&
+            parsed.data.message.attachments.length > 0),
         contactId: parsed.data.contact?.id ?? null,
-        tags: parsed.data.contact?.tags ?? [],
-        rawTopLevelKeys: Object.keys(req.body as Record<string, unknown>),
-        rawBodyHead: rawBody.toString("utf-8").slice(0, 1500),
       },
       "webhook payload received",
     );
@@ -96,38 +93,17 @@ export async function webhookRoutes(app: FastifyInstance) {
       return reply.send({ ok: true, ignored: "missing_event" });
     }
     if (!isMessageEvent(event)) {
-      // Status / delivery events (message.delivered, message.failed,
-      // message.read, etc) carry the Meta error code on failures. We don't
-      // ACT on them yet but we DO want the body in logs so we can see what
-      // Meta is rejecting. TEMP DEBUG 2026-05-10.
-      if (
-        event.startsWith("message.") ||
-        event === "delivery_status" ||
-        event === "message_status"
-      ) {
-        req.log.warn(
-          {
-            event,
-            rawBodyHead: rawBody.toString("utf-8").slice(0, 2000),
-          },
-          "webhook status event — capturing for Meta-error diagnosis",
-        );
-      } else {
-        req.log.info({ event }, "webhook ignored — not a message event");
-      }
       return reply.send({ ok: true, ignored: event });
     }
 
     const dispatch = classifyWebhook(parsed.data);
 
     if (dispatch.kind === "ignored") {
-      req.log.info({ reason: dispatch.reason }, "webhook classified as ignored");
       return reply.send({ ok: true, ignored: dispatch.reason });
     }
     if (dispatch.kind === "bot_outbound") {
       // Our own AI reply being echoed back. We already wrote the row in
       // process-message; do not double-store.
-      req.log.info("webhook classified as bot_outbound");
       return reply.send({ ok: true, ignored: "bot_outbound" });
     }
 

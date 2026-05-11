@@ -28,12 +28,6 @@ export type SendMessageInput = {
   // we cannot send via /conversation/{id}/message. The send path tries this
   // contact identifier instead via /contact/id:{contactId}/message.
   contactId?: string | undefined;
-  // Optional explicit channel id from the webhook payload (e.g. "274637" for
-  // Gili Trawangan WAP EN main). Some Respond.io v2 send paths require this
-  // to disambiguate when a contact has multiple channels — Meta returns
-  // generic "Something went wrong" when the channel is implicit and the
-  // session/window state on Respond.io's side disagrees with Meta.
-  channelId?: string | undefined;
 };
 
 export type SendCatalogInput = {
@@ -162,19 +156,13 @@ export class RespondIoClient {
         }),
       });
 
-      // Capture full response body for diagnostics. Respond.io's API
-      // returns 200/202 even when the underlying Meta push will fail
-      // asynchronously; sometimes the success body carries delivery
-      // status / message id we can subsequently query.
-      const bodyText = await res.text().catch(() => "");
-
       if (!res.ok) {
+        const bodyText = await res.text().catch(() => "");
         log.warn(
           {
             status: res.status,
-            body: bodyText.slice(0, 1500),
+            body: bodyText.slice(0, 500),
             via: useContactFallback ? "contact" : "conversation",
-            url,
           },
           "respond_io send_message non-2xx",
         );
@@ -191,42 +179,11 @@ export class RespondIoClient {
       }
       log.info(
         {
-          status: res.status,
           via: useContactFallback ? "contact" : "conversation",
-          // TEMP DEBUG (2026-05-10 Meta-delivery investigation): log full
-          // 2xx body so we can see the message id + any inline status.
-          bodyHead: bodyText.slice(0, 1500),
           textLen: input.text.length,
         },
         "respond_io send_message ok",
       );
-
-      // TEMP DEBUG (2026-05-10): poll the message status 8s after the send
-      // so we can see whether Meta accepted, queued, or rejected the
-      // outbound — and capture the Meta error code surfaced by Respond.io
-      // ("Something went wrong" in the UI is the generic catch-all; the
-      // structured error like 131047 / 132001 is what we need).
-      try {
-        const parsed = JSON.parse(bodyText) as {
-          messageId?: number | string;
-          contactId?: number | string;
-        };
-        const messageId =
-          parsed.messageId !== undefined ? String(parsed.messageId) : null;
-        const contactId =
-          parsed.contactId !== undefined
-            ? String(parsed.contactId)
-            : (input.contactId ?? null);
-        if (messageId && contactId) {
-          setTimeout(() => {
-            this.diagnoseMessageDelivery({ messageId, contactId }).catch((err) =>
-              log.warn({ err, messageId }, "diagnose_message_delivery failed"),
-            );
-          }, 8_000);
-        }
-      } catch {
-        // Body wasn't JSON or didn't have messageId — skip diagnostics.
-      }
     } catch (err) {
       if ((err as { name?: string }).name === "AbortError") {
         throw new UpstreamError("respond_io", "Send message timed out", {
@@ -237,65 +194,6 @@ export class RespondIoClient {
     } finally {
       clearTimeout(timer);
     }
-  }
-
-  /**
-   * TEMP DEBUG (2026-05-10): try several Respond.io v2 endpoint shapes to
-   * pull the delivery status of a recently-sent outbound message. We do
-   * NOT know the canonical URL ahead of time so we probe a few patterns
-   * and log every response that doesn't 404. The first non-404 response
-   * is logged in full so we can see the Meta error code embedded by
-   * Respond.io after async push to Meta.
-   */
-  async diagnoseMessageDelivery(input: {
-    messageId: string;
-    contactId: string;
-  }): Promise<void> {
-    const env = loadEnv();
-    const log = getLogger();
-    const candidates = [
-      `${env.RESPOND_IO_API_BASE_URL}/message/id:${encodeURIComponent(input.messageId)}`,
-      `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/message/${encodeURIComponent(input.messageId)}`,
-      `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/messages?limit=3`,
-      `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/conversations?limit=1`,
-    ];
-    for (const url of candidates) {
-      try {
-        const res = await undiciFetch(url, {
-          method: "GET",
-          dispatcher: keepAliveAgent,
-          headers: {
-            authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
-          },
-        } as RequestInit);
-        const body = await res.text().catch(() => "");
-        if (res.status === 404) {
-          log.info({ url, status: 404 }, "diagnose_message_delivery: 404 (endpoint shape not supported)");
-          continue;
-        }
-        log.warn(
-          {
-            url,
-            status: res.status,
-            bodyHead: body.slice(0, 2000),
-            messageId: input.messageId,
-            contactId: input.contactId,
-          },
-          "diagnose_message_delivery: response captured",
-        );
-        // Stop at first non-404 — that's our endpoint shape.
-        return;
-      } catch (err) {
-        log.info(
-          { url, err: (err as Error).message },
-          "diagnose_message_delivery: probe error",
-        );
-      }
-    }
-    log.warn(
-      { messageId: input.messageId, contactId: input.contactId },
-      "diagnose_message_delivery: no endpoint accepted the request",
-    );
   }
 
   /**
@@ -466,107 +364,48 @@ export class RespondIoClient {
   async addContactTag(input: { contactId: string; tag: string }): Promise<void> {
     const env = loadEnv();
     const log = getLogger();
-    const baseUrl = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
+    // Confirmed via Phase F variant probing on 2026-05-11: Respond.io v2's
+    // dedicated `POST /contact/id:{id}/tag` returns 400 "Tags: Cannot be
+    // empty" regardless of body shape. The canonical path is the unified
+    // `PUT /contact/id:{id}` with the entire tags array — same pattern as
+    // updateContactCustomFields.
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
 
-    // Respond.io v2 changed the add-tag endpoint between docs and reality:
-    // the legacy `{tags: ["..."]}` body returns 400 "Tags: Cannot be empty"
-    // in production. We probe the most likely v2 shapes in order until one
-    // returns 2xx, then log the winning shape so subsequent calls can be
-    // hardcoded to it once confirmed.
-    const variants: Array<{
-      url: string;
-      method: "POST" | "PUT" | "PATCH";
-      body: Record<string, unknown>;
-      label: string;
-    }> = [
-      // First try the pattern that worked for custom fields: PUT root contact.
-      {
-        url: baseUrl,
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+    try {
+      const res = await undiciFetch(url, {
         method: "PUT",
-        body: { tags: [input.tag] },
-        label: "PUT-root-contact-tags",
-      },
-      {
-        url: baseUrl,
-        method: "PUT",
-        body: { tags: [{ name: input.tag }] },
-        label: "PUT-root-contact-tags-objects",
-      },
-      {
-        url: baseUrl,
-        method: "PUT",
-        body: { Tags: [input.tag] },
-        label: "PUT-root-contact-capital-Tags",
-      },
-      {
-        url: `${baseUrl}/tag`,
-        method: "POST",
-        body: { Tags: [input.tag] },
-        label: "POST-tag-capital-Tags",
-      },
-      // The legacy variants that returned 400 — keep last as confirmation.
-      {
-        url: `${baseUrl}/tag`,
-        method: "POST",
-        body: { tags: [input.tag] },
-        label: "legacy-POST-tag",
-      },
-    ];
-
-    let lastErr: { status: number; body: string; label: string } | null = null;
-    for (const variant of variants) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
-      try {
-        const res = await undiciFetch(variant.url, {
-          method: variant.method,
-          signal: controller.signal,
-          dispatcher: keepAliveAgent,
-          headers: {
-            authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify(variant.body),
-        } as RequestInit);
-        const respBody = await res.text().catch(() => "");
-        if (res.ok) {
-          log.info(
-            {
-              contactId: input.contactId,
-              tag: input.tag,
-              winningVariant: variant.label,
-              status: res.status,
-            },
-            "respond_io add_tag ok",
-          );
-          return;
-        }
-        lastErr = { status: res.status, body: respBody.slice(0, 300), label: variant.label };
+        signal: controller.signal,
+        dispatcher: keepAliveAgent,
+        headers: {
+          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ tags: [input.tag] }),
+      } as RequestInit);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
         log.warn(
-          {
-            variant: variant.label,
-            status: res.status,
-            body: respBody.slice(0, 300),
-          },
-          "respond_io add_tag variant failed",
+          { status: res.status, body: body.slice(0, 300), tag: input.tag },
+          "respond_io add_tag non-2xx",
         );
-      } catch (err) {
-        if ((err as { name?: string }).name === "AbortError") {
-          throw new UpstreamError("respond_io", "add_tag timed out", {
-            timeoutMs: TIMEOUTS.RESPOND_IO_MS,
-          });
-        }
-        // Keep probing on non-timeout errors.
-        lastErr = { status: 0, body: (err as Error).message, label: variant.label };
-      } finally {
-        clearTimeout(timer);
+        throw new UpstreamError("respond_io", `add_tag ${res.status}`, {
+          status: res.status,
+          body: body.slice(0, 300),
+        });
       }
+      log.info({ contactId: input.contactId, tag: input.tag }, "respond_io add_tag ok");
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        throw new UpstreamError("respond_io", "add_tag timed out", {
+          timeoutMs: TIMEOUTS.RESPOND_IO_MS,
+        });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    throw new UpstreamError(
-      "respond_io",
-      `add_tag exhausted all ${variants.length} variants`,
-      lastErr ?? {},
-    );
   }
 
   /**
@@ -588,93 +427,51 @@ export class RespondIoClient {
     const entries = Object.entries(input.fields).filter(([, v]) => v !== null && v !== undefined);
     if (entries.length === 0) return;
 
-    const baseUrl = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
+    // Confirmed via Phase F variant probing on 2026-05-11: Respond.io v2's
+    // legacy `PATCH /contact/id:{id}` is blocked by AWS WAF (403). The
+    // canonical path is `PUT /contact/id:{id}` with the customFields array
+    // — same unified pattern as addContactTag.
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
     const customFields = entries.map(([name, value]) => ({ name, value }));
 
-    // Probe v2 variants — the PATCH /contact/id:{id} root resource returns
-    // AWS WAF 403 in production. Try alternative endpoints + methods until
-    // one succeeds.
-    const variants: Array<{
-      url: string;
-      method: "POST" | "PUT" | "PATCH";
-      body: Record<string, unknown>;
-      label: string;
-    }> = [
-      // Confirmed working variant (2026-05-11 logs): PUT /contact/id:{id}
-      // body {customFields: [...]} returns 200. Keep as primary.
-      {
-        url: baseUrl,
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+    try {
+      const res = await undiciFetch(url, {
         method: "PUT",
-        body: { customFields },
-        label: "PUT-root-contact",
-      },
-      {
-        url: `${baseUrl}/customField`,
-        method: "POST",
-        body: { customField: customFields },
-        label: "POST-customField-subresource",
-      },
-      {
-        url: baseUrl,
-        method: "PATCH",
-        body: { customFields },
-        label: "legacy-PATCH-root",
-      },
-    ];
-
-    let lastErr: { status: number; body: string; label: string } | null = null;
-    for (const variant of variants) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
-      try {
-        const res = await undiciFetch(variant.url, {
-          method: variant.method,
-          signal: controller.signal,
-          dispatcher: keepAliveAgent,
-          headers: {
-            authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify(variant.body),
-        } as RequestInit);
-        const respBody = await res.text().catch(() => "");
-        if (res.ok) {
-          log.info(
-            {
-              contactId: input.contactId,
-              fields: entries.map(([k]) => k),
-              winningVariant: variant.label,
-              status: res.status,
-            },
-            "respond_io update_custom_fields ok",
-          );
-          return;
-        }
-        lastErr = { status: res.status, body: respBody.slice(0, 300), label: variant.label };
+        signal: controller.signal,
+        dispatcher: keepAliveAgent,
+        headers: {
+          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ customFields }),
+      } as RequestInit);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
         log.warn(
-          {
-            variant: variant.label,
-            status: res.status,
-            body: respBody.slice(0, 300),
-          },
-          "respond_io update_custom_fields variant failed",
+          { status: res.status, body: body.slice(0, 300), fields: entries.map(([k]) => k) },
+          "respond_io update_custom_fields non-2xx",
         );
-      } catch (err) {
-        if ((err as { name?: string }).name === "AbortError") {
-          throw new UpstreamError("respond_io", "update_custom_fields timed out", {
-            timeoutMs: TIMEOUTS.RESPOND_IO_MS,
-          });
-        }
-        lastErr = { status: 0, body: (err as Error).message, label: variant.label };
-      } finally {
-        clearTimeout(timer);
+        throw new UpstreamError("respond_io", `update_custom_fields ${res.status}`, {
+          status: res.status,
+          body: body.slice(0, 300),
+        });
       }
+      log.info(
+        { contactId: input.contactId, fields: entries.map(([k]) => k) },
+        "respond_io update_custom_fields ok",
+      );
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        throw new UpstreamError("respond_io", "update_custom_fields timed out", {
+          timeoutMs: TIMEOUTS.RESPOND_IO_MS,
+        });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    throw new UpstreamError(
-      "respond_io",
-      `update_custom_fields exhausted all ${variants.length} variants`,
-      lastErr ?? {},
-    );
   }
 }
 

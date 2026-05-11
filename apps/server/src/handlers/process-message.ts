@@ -235,6 +235,23 @@ export async function processIncomingMessage(
 
       const attachment = pickFirstAttachment(payload.message);
 
+      // Diagnostic logging — make the OCR decision path observable so we
+      // can tell from logs alone whether OCR (a) actually ran, (b) was
+      // skipped for lack of attachment, (c) was skipped for lack of
+      // expected metadata. Before this log, OCR skips were silent and
+      // ocr_result columns ended up NULL with no audit trail.
+      log.info(
+        {
+          conversationId: conversation.id,
+          hasAttachment: !!attachment,
+          hasExpected: !!expected,
+          metaRefCode: meta?.ref_code ?? null,
+          metaAmount: meta?.deposit_amount ?? null,
+          metaCurrency: meta?.deposit_currency ?? null,
+        },
+        "ocr decision",
+      );
+
       let ocrVerdict: OcrVerdict | null = null;
       if (attachment && expected) {
         ocrVerdict = await runOcrOnAttachment({
@@ -242,6 +259,15 @@ export async function processIncomingMessage(
           attachmentMime: attachment.mimeType,
           expected,
         });
+        log.info(
+          {
+            conversationId: conversation.id,
+            ocrOk: ocrVerdict.ok,
+            ocrReason: ocrVerdict.ok ? null : ocrVerdict.reason,
+            validated: ocrVerdict.ok ? ocrVerdict.validated : null,
+          },
+          "ocr verdict",
+        );
       }
 
       // Pick the customer-facing message:
@@ -259,7 +285,6 @@ export async function processIncomingMessage(
         await respondIoClient.sendMessage({
           conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
           contactId: payload.contact.id,
-          channelId: payload.channelId,
           text: replyText,
         });
       } catch (err) {
@@ -933,14 +958,27 @@ export async function processIncomingMessage(
       );
   }
 
-  // Step 10: send back to Respond.io
+  // Step 10: send back to Respond.io. Owner spec §flujo: the deposit
+  // step must arrive as 3 separate WhatsApp bubbles (price, bank block,
+  // closing question) — a single long bubble is hard to scan and the
+  // bank block in particular needs to be copy-pasteable on its own. The
+  // system prompt instructs Claude to emit a single `respuesta` string
+  // separated by `\n\n---\n\n` (newline + 3 dashes + newline). We split
+  // here and send each chunk sequentially. Single-segment text is just
+  // one send — no marker, no behavior change.
+  const MESSAGE_SEPARATOR = /\n\n---+\n\n/;
+  const segments = claudeResult.text
+    .split(MESSAGE_SEPARATOR)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
   try {
-    await respondIoClient.sendMessage({
-      conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
-      contactId: payload.contact.id,
-      channelId: payload.channelId,
-      text: claudeResult.text,
-    });
+    for (const segment of segments) {
+      await respondIoClient.sendMessage({
+        conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
+        contactId: payload.contact.id,
+        text: segment,
+      });
+    }
   } catch (err) {
     log.error({ err }, "respond_io send failed; AI text saved but not delivered");
     await getDb()
