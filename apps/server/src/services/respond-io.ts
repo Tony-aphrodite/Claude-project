@@ -457,6 +457,29 @@ export class RespondIoClient {
     // legacy `PATCH /contact/id:{id}` is blocked by AWS WAF (403). The
     // canonical path is `PUT /contact/id:{id}` with the customFields array
     // — same unified pattern as addContactTag.
+    //
+    // CRITICAL (2026-05-11 Ignacia incident): the same PUT-replace blast
+    // radius that hit addContactTag also hits us here. Sending
+    // `{customFields: [...]}` causes Respond.io to overwrite the WHOLE
+    // contact, wiping tags (including `ai-test`) and any other side
+    // information. Ignacia's contact had tags=[] after we updated her
+    // programa/turno/start_date — the pilot gate then rejected all
+    // subsequent messages because ai-test was gone.
+    //
+    // Fix: GET current tags first, then PUT customFields AND tags
+    // together so the existing tag array survives. Same merge pattern
+    // as addContactTag.
+    let existingTags: string[] = [];
+    try {
+      const current = await this.getContact(input.contactId);
+      existingTags = current?.tags ?? [];
+    } catch (err) {
+      log.warn(
+        { err: (err as Error).message, contactId: input.contactId },
+        "respond_io update_custom_fields: getContact failed before merge — proceeding WITHOUT tag preservation",
+      );
+    }
+
     const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
     const customFields = entries.map(([name, value]) => ({ name, value }));
 
@@ -471,7 +494,12 @@ export class RespondIoClient {
           authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ customFields }),
+        body: JSON.stringify({
+          customFields,
+          // Preserve tags only when we successfully read them. Sending an
+          // empty array would wipe them, which is the original bug.
+          ...(existingTags.length > 0 ? { tags: existingTags } : {}),
+        }),
       } as RequestInit);
       if (!res.ok) {
         const body = await res.text().catch(() => "");
