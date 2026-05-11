@@ -225,12 +225,19 @@ export async function runOcrOnAttachment(input: {
     };
   }
 
-  // Anthropic vision currently supports image/jpeg, image/png, image/gif,
-  // image/webp natively. PDFs need the `documents` content block (separate
-  // beta). For v1 we only ship image OCR. PDFs land in the panel for
-  // manual verification with reason `pdf_skipped_v1`.
-  const supported = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-  if (!supported.includes(mimeType.toLowerCase())) {
+  // Anthropic accepts two media-block flavors:
+  //   • `image` block for image/jpeg, image/png, image/gif, image/webp
+  //   • `document` block for application/pdf (multi-page; the model parses
+  //     each page natively, no rasterization needed on our side)
+  // Both go through claude-sonnet-4-x; the model picks the right decoder.
+  // 2026-05-11 owner test (Miguel) confirmed real Wise transfers ship the
+  // receipt as PDF — without document-block support every real deposit
+  // would skip OCR auto-confirm and fall through to manual verification.
+  const normalizedMime = mimeType.toLowerCase();
+  const supportedImageMimes = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
+  const isImage = (supportedImageMimes as readonly string[]).includes(normalizedMime);
+  const isPdf = normalizedMime === "application/pdf";
+  if (!isImage && !isPdf) {
     return {
       ok: false,
       reason: "fetch_failed",
@@ -241,35 +248,46 @@ export async function runOcrOnAttachment(input: {
 
   let modelOut: string;
   try {
+    type ImageMime = (typeof supportedImageMimes)[number];
+    const mediaBlock: Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam = isPdf
+      ? {
+          type: "document",
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: bytes,
+          },
+        }
+      : {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: normalizedMime as ImageMime,
+            data: bytes,
+          },
+        };
     const res = await claude().messages.create({
       model: env.ANTHROPIC_MODEL_PRIMARY,
       max_tokens: 400,
       messages: [
         {
           role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-                data: bytes,
-              },
-            },
-            { type: "text", text: EXTRACTION_PROMPT },
-          ],
+          content: [mediaBlock, { type: "text", text: EXTRACTION_PROMPT }],
         },
       ],
     });
     const textBlock = res.content.find((b) => b.type === "text");
     modelOut = textBlock && "text" in textBlock ? textBlock.text : "";
   } catch (err) {
-    log.warn({ err: (err as Error).message }, "ocr_comprobante: vision call failed");
+    log.warn(
+      { err: (err as Error).message, mimeType: normalizedMime },
+      "ocr_comprobante: vision call failed",
+    );
     return {
       ok: false,
       reason: "model_failed",
       message: (err as Error).message,
-      attachmentMime: mimeType,
+      attachmentMime: normalizedMime,
     };
   }
 

@@ -91,7 +91,31 @@ export class LeadStageService {
 
     const from = current.leadStage as LeadStage;
     if (from === input.to) {
-      return { ok: true, conversation: current, from, to: from };
+      // Same-stage re-entry. Important: still apply the metadataPatch when
+      // present, because callers like `solicitar_deposito` re-invoke this
+      // transition when the AI re-runs the deposit step with a different
+      // currency — without merging the patch, the stale (currency, amount,
+      // ref_code) from the first invocation lingers and the OCR step
+      // afterwards compares the new receipt against the OLD expected values
+      // (Miguel hit this 2026-05-11: IDR→EUR re-quote produced an EUR
+      // receipt that mismatched the stale IDR expectations from
+      // lead_metadata). When no patch is supplied we keep the cheap
+      // no-op.
+      if (!input.metadataPatch || Object.keys(input.metadataPatch).length === 0) {
+        return { ok: true, conversation: current, from, to: from };
+      }
+      const oldMeta = (current.leadMetadata as LeadMetadata | null) ?? {};
+      const newMeta: LeadMetadata = { ...oldMeta, ...input.metadataPatch };
+      const [updated] = await db
+        .update(conversaciones)
+        .set({ leadMetadata: newMeta, updatedAt: new Date() })
+        .where(eq(conversaciones.id, input.conversacionId))
+        .returning();
+      log.info(
+        { convId: input.conversacionId, stage: from, patchKeys: Object.keys(input.metadataPatch) },
+        "lead_stage same-stage metadata merge",
+      );
+      return { ok: true, conversation: updated ?? current, from, to: from };
     }
 
     if (!force) {
