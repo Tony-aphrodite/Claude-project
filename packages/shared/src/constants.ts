@@ -38,7 +38,12 @@ export const CONCURRENCY = {
 
 export const TIMEOUTS = {
   APPS_SCRIPT_MS: 2000,
-  CLAUDE_API_MS: 30000,
+  // Bumped from 30s 2026-05-11 evening — Tony test (conv a8f24502) showed
+  // the solicitar_deposito path can chain 2 tool round-trips plus a
+  // 3-bubble final response, easily exceeding 30s. The first message
+  // landed at 22.6s (close to the limit); the second hung past 30s and
+  // left the conversation half-transitioned (tool ran, no reply sent).
+  CLAUDE_API_MS: 60000,
   RESPOND_IO_MS: 5000,
   // HTTP keep-alive idle timeout for outbound connections
   KEEP_ALIVE_MS: 60000,
