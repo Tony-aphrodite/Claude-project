@@ -143,20 +143,22 @@ export function Sidebar() {
 
   return (
     <aside className="hidden md:flex w-60 shrink-0 flex-col bg-abyss-rail border-r border-ink-200/70 text-ink-700 sticky top-0 h-screen self-start">
-      {/* Brand block — diver mark with bioluminescent ring */}
+      {/* Brand block — DPM Diving official logo (transparent PNG). No
+          background box / border / glow ring; the logo lives on the sidebar
+          surface directly so the cyan stays cyan instead of bleeding into
+          a tinted container. */}
       <div className="px-5 pt-6 pb-5 border-b border-ink-200/70">
         <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-brand-400/30 bg-brand-400/10 text-brand-300 shadow-glow-soft transition-all group-hover:shadow-glow">
-            <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5">
-              <path
-                d="M4 14c2.5-2 5.5-2 8 0s5.5 2 8 0M4 18c2.5-2 5.5-2 8 0s5.5 2 8 0"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-              <circle cx="12" cy="7" r="3" stroke="currentColor" strokeWidth="1.8" />
-            </svg>
-          </div>
+          {/* Plain <img>: icon.png is auto-served by Next.js metadata at the
+              root URL `/icon.png`. object-contain preserves aspect ratio
+              within the 40×40 box even though the source PNG is 115×141. */}
+          <img
+            src="/icon.png"
+            alt="DPM Diving"
+            width={40}
+            height={40}
+            className="h-10 w-10 object-contain transition-transform group-hover:scale-105"
+          />
           <div className="leading-tight">
             <div className="text-sm font-semibold text-ink-900">DPM Diving</div>
             <div className="text-[10px] uppercase tracking-[0.14em] text-ink-500">
