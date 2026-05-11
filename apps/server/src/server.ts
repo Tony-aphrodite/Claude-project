@@ -18,6 +18,7 @@ import Fastify, {
 import { loadEnv } from "./env.js";
 import { AppError } from "./lib/errors.js";
 import { getLogger } from "./logger.js";
+import { adminRoutes } from "./routes/admin.js";
 import { healthRoutes } from "./routes/health.js";
 import { webhookRoutes } from "./routes/webhook.js";
 
@@ -61,6 +62,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(sensible);
   await app.register(healthRoutes);
   await app.register(webhookRoutes);
+  await app.register(adminRoutes);
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof AppError) {

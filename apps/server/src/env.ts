@@ -64,6 +64,15 @@ const envSchema = z.object({
 
   APPS_SCRIPT_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
 
+  /**
+   * Bearer token required to hit /admin/* endpoints. The reset-conversation
+   * endpoint blows away mensajes + lead_metadata + lead_stage for a contact
+   * so testers can start a fresh scenario from the same WhatsApp number
+   * without context bleed. Token must be at least 24 chars; leave empty in
+   * environments that don't expose admin endpoints (e.g. CI).
+   */
+  ADMIN_RESET_TOKEN: z.string().min(24).optional().or(z.literal("")),
+
   SENTRY_DSN: z.string().url().optional().or(z.literal("")),
   AXIOM_TOKEN: z.string().optional().or(z.literal("")),
   AXIOM_DATASET: z.string().default("dpm-server-prod"),
