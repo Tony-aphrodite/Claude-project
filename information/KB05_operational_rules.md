@@ -215,14 +215,22 @@ seguridad). Solo personas que participan activamente.
 
 ## Ferries para llegar a Gili Trawangan {#ferries}
 
-- **Desde Bali (Padangbai):** mínimo 2 hs de fast boat. Para
-  Advanced Día 1 (12:15 PM) tiene que salir antes de las 10:00 AM.
+- **Desde Bali (Padangbai):** mínimo 2 hs de fast boat. **El primer
+  fast boat del día sale alrededor de las 7:00 AM** — no hay servicio
+  más temprano. Por eso un cliente que sale recién de Bali **no
+  puede llegar a Gili Trawangan antes de las ~9:30 AM**. Para
+  Advanced Día 1 (12:15 PM) tiene que salir alrededor de las 7:00 AM.
 - **Desde Lombok (Bangsal):** ~30 min. Más flexible.
 - **Desde Nusa Penida:** mínimo 2 hs.
 
 Para Día 1 con teoría a la tarde (1:30 PM), cliente que recién
-llega a la isla ese día tiene que salir temprano del puerto de
-origen.
+llega a la isla ese día tiene que tomar el fast boat de la mañana.
+
+**REGLA ANTI-HALLUCINATION:** Si el cliente pregunta por horarios
+de fast boat distintos a los listados arriba (p.ej. "¿hay uno a
+las 6 AM?"), responder con la info real del KB **sin inventar
+horarios**. No existen salidas antes de las 7:00 AM desde Bali.
+Para horarios exactos, derivar a 12go.asia.
 
 ---
 

@@ -20,6 +20,7 @@ import {
 import { loadEnv } from "../env.js";
 import { processAgentMessage } from "../handlers/process-agent-message.js";
 import { processIncomingMessage } from "../handlers/process-message.js";
+import { withConversationLock } from "../services/conversation-lock.js";
 import {
   authenticateWebhook,
   pickSignatureHeader,
@@ -117,10 +118,15 @@ export async function webhookRoutes(app: FastifyInstance) {
         const result = await processAgentMessage(parsed.data, dispatch.agentName, req.log);
         return reply.send(result);
       }
-      const result = await processIncomingMessage(parsed.data, req.log);
-      // Pilot gate / non-text rejections come back as ok:false ignored — we
-      // still return HTTP 200 so Respond.io does not retry, but the body
-      // surfaces the reason for ops visibility.
+      // Serialize per-contact so two rapid messages from the same customer
+      // don't fire two Claude calls in parallel. Without this, the second
+      // call reads stale lead_metadata (the first call hasn't written its
+      // updates yet) and can misinterpret context — e.g. Miguel's 2026-05-11
+      // test where a bare "3" was treated as confirmation while the first
+      // call was still proposing.
+      const result = await withConversationLock(parsed.data.contact.id, () =>
+        processIncomingMessage(parsed.data, req.log),
+      );
       return reply.send(result);
     } catch (err) {
       req.log.error({ err }, "process-message failed");
