@@ -452,7 +452,7 @@ export async function processIncomingMessage(
             await respondIoClient.updateContactCustomFields({
               contactId: payload.contact.id,
               fields: {
-                Branch: sede.nombre,
+                branch: sede.nombre,
                 monto: meta?.deposit_amount ?? "",
                 moneda: meta?.deposit_currency ?? "",
                 codigo_referencia: meta?.ref_code ?? "",
@@ -672,7 +672,7 @@ export async function processIncomingMessage(
         .updateContactCustomFields({
           contactId: payload.contact.id,
           fields: {
-            Branch: sede.nombre,
+            branch: sede.nombre,
             programa: input.programa,
             start_date: input.start_date,
           },
@@ -764,7 +764,7 @@ export async function processIncomingMessage(
       .updateContactCustomFields({
         contactId: payload.contact.id,
         fields: {
-          Branch: sede.nombre,
+          branch: sede.nombre,
           programa: input.programa,
           turno: computeTurno(required) ?? "",
           start_date: input.start_date,
@@ -865,7 +865,7 @@ export async function processIncomingMessage(
       .updateContactCustomFields({
         contactId: payload.contact.id,
         fields: {
-          Branch: sede.nombre,
+          branch: sede.nombre,
           monto,
           moneda: currency,
           codigo_referencia: refCode,
@@ -995,7 +995,7 @@ export async function processIncomingMessage(
       .updateContactCustomFields({
         contactId: payload.contact.id,
         fields: {
-          Branch: sede.nombre,
+          branch: sede.nombre,
           motivo_escalation: claudeResult.escalationReason,
         },
       })
