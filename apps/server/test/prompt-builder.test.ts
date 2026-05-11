@@ -143,7 +143,7 @@ describe("formatDynamicBlock", () => {
       incomingMessage: "quiero reservar",
       suggestedCurrency: null,
     });
-    expect(text).toContain("MONEDA SUGERIDA: NO DETECTADA");
+    expect(text).toContain("MONEDA: NO DETECTADA");
     expect(text).toMatch(/preguntá al cliente/);
     // Lists the 5 supported currencies the AI must offer.
     expect(text).toContain("EUR");

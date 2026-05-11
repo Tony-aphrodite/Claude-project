@@ -166,12 +166,15 @@ export function formatDynamicBlock(input: {
     : "IDIOMA: detectá automáticamente del mensaje y responde en el mismo idioma";
 
   // Currency hint resolved server-side from phone prefix (INSTRUCCIONES_PAGO §3).
-  // The AI passes this to solicitar_deposito unless the client explicitly
-  // asks for a different currency.
+  // 2026-05-11 owner feedback (Miguel from +62 number objected to the AI
+  // auto-picking IDR without asking — international travelers with local SIMs
+  // are common): the prefix is now only a HINT for what to PROPOSE first,
+  // never an autopilot. The AI must explicitly ask the client which currency
+  // they prefer BEFORE invoking solicitar_deposito.
   const currencyLine =
     input.suggestedCurrency === undefined || input.suggestedCurrency === null
-      ? "MONEDA SUGERIDA: NO DETECTADA por prefijo telefónico — al activar solicitar_deposito, primero preguntá al cliente qué moneda prefiere de las 5 disponibles (EUR, GBP, AUD, USD, IDR)."
-      : `MONEDA SUGERIDA POR PREFIJO TELEFÓNICO: ${input.suggestedCurrency} — usala como moneda_cliente al invocar solicitar_deposito, salvo que el cliente pida explícitamente otra.`;
+      ? "MONEDA: NO DETECTADA por prefijo telefónico. ANTES de invocar solicitar_deposito, preguntá al cliente qué moneda prefiere de las 5 disponibles (EUR, GBP, AUD, USD, IDR)."
+      : `MONEDA SUGERIDA POR PREFIJO TELEFÓNICO: ${input.suggestedCurrency} (solo HINT, NO automático). ANTES de invocar solicitar_deposito, preguntá al cliente qué moneda prefiere — opciones: EUR / GBP / AUD / USD / IDR. Podés MENCIONAR la sugerida en la pregunta ("normalmente la gente con tu prefijo paga en ${input.suggestedCurrency}, ¿te sirve esa o preferís otra?") pero NO asumas: un cliente con prefijo local puede tener cuenta internacional, y viceversa.`;
 
   return `=== CONTEXTO DINÁMICO ===
 HORA ACTUAL EN LA SEDE: ${sedeNow}
