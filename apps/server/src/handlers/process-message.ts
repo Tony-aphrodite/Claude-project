@@ -440,7 +440,29 @@ export async function processIncomingMessage(
         if (autoConfirmed) {
           const meta = (conversation.leadMetadata as LeadMetadata | null) ?? null;
 
-          // 1. Tag the contact — Respond.io workflow listens for this.
+          // 1. Push deposit-related fields AND Branch BEFORE the tag. Miguel's
+          //    "DPM GT - Onboarding Piloto" workflow trigger is `Etiqueta de
+          //    contacto actualizada` and Rama #2 filters on
+          //    `Branch tiene cualquiera de "Gili Trawangan"`. If Branch is
+          //    unset (v2 webhooks omit customFields, so via=channel contacts
+          //    never had Branch written) the workflow fires but the branch
+          //    condition fails and the 7 onboarding snippets never dispatch.
+          //    We MUST await this so the tag-update event sees Branch=GT.
+          try {
+            await respondIoClient.updateContactCustomFields({
+              contactId: payload.contact.id,
+              fields: {
+                Branch: sede.nombre,
+                monto: meta?.deposit_amount ?? "",
+                moneda: meta?.deposit_currency ?? "",
+                codigo_referencia: meta?.ref_code ?? "",
+              },
+            });
+          } catch (err) {
+            log.warn({ err }, "respond_io update_custom_fields failed (auto-confirm) — proceeding to tag anyway");
+          }
+
+          // 2. Tag the contact — Respond.io workflow listens for this.
           try {
             await respondIoClient.addContactTag({
               contactId: payload.contact.id,
@@ -449,20 +471,6 @@ export async function processIncomingMessage(
           } catch (err) {
             log.error({ err }, "respond_io add deposit_paid tag failed");
           }
-
-          // 2. Push deposit-related fields onto the contact.
-          void respondIoClient
-            .updateContactCustomFields({
-              contactId: payload.contact.id,
-              fields: {
-                monto: meta?.deposit_amount ?? "",
-                moneda: meta?.deposit_currency ?? "",
-                codigo_referencia: meta?.ref_code ?? "",
-              },
-            })
-            .catch((err) =>
-              log.warn({ err }, "respond_io update_custom_fields failed (auto-confirm)"),
-            );
 
           // 3. Move lead to handed_off — operator panel mirrors state.
           await leadStageService
@@ -664,6 +672,7 @@ export async function processIncomingMessage(
         .updateContactCustomFields({
           contactId: payload.contact.id,
           fields: {
+            Branch: sede.nombre,
             programa: input.programa,
             start_date: input.start_date,
           },
@@ -755,6 +764,7 @@ export async function processIncomingMessage(
       .updateContactCustomFields({
         contactId: payload.contact.id,
         fields: {
+          Branch: sede.nombre,
           programa: input.programa,
           turno: computeTurno(required) ?? "",
           start_date: input.start_date,
@@ -855,6 +865,7 @@ export async function processIncomingMessage(
       .updateContactCustomFields({
         contactId: payload.contact.id,
         fields: {
+          Branch: sede.nombre,
           monto,
           moneda: currency,
           codigo_referencia: refCode,
@@ -975,19 +986,28 @@ export async function processIncomingMessage(
   // and nobody is paged. Best-effort: failures here must not block the
   // user reply we are about to send.
   if (claudeResult.escalationReason) {
+    // Push Branch + motivo_escalation FIRST, then tag. The AI Escalation
+    // workflow may also filter on Branch (per-sede routing) — same pattern
+    // as the Onboarding Piloto workflow. We can't `await` here without
+    // delaying the user-facing send, but we sequence them so the tag write
+    // queues after the customFields write resolves.
     void respondIoClient
       .updateContactCustomFields({
         contactId: payload.contact.id,
-        fields: { motivo_escalation: claudeResult.escalationReason },
+        fields: {
+          Branch: sede.nombre,
+          motivo_escalation: claudeResult.escalationReason,
+        },
       })
       .catch((err) =>
         log.warn({ err }, "respond_io update_custom_fields failed (motivo_escalation)"),
-      );
-    void respondIoClient
-      .addContactTag({
-        contactId: payload.contact.id,
-        tag: "ai_escalation",
-      })
+      )
+      .then(() =>
+        respondIoClient.addContactTag({
+          contactId: payload.contact.id,
+          tag: "ai_escalation",
+        }),
+      )
       .catch((err) =>
         log.warn({ err }, "respond_io add_tag failed (ai_escalation)"),
       );
