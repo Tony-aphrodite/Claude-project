@@ -24,6 +24,22 @@ Miguel picked **Option D (webhook-triggered workflows)** for lifecycle sync and 
 | 2 | Does Onboarding Piloto workflow filter on Idioma vs País now? | **Server side: we write to Respond.io's top-level `language` field** (visible in the contact card UI as "Idioma" in Spanish). Tony's contact GET shows `language = "es"` already populated by our server. There is NO separate "Idioma" custom field — Respond.io's UI just labels the built-in language field that way. Miguel's workflow needs to be configured to filter on this **top-level Idioma/language field, NOT País**. We can verify the WRITE side from our end (working) but can't verify Miguel's WORKFLOW filter without seeing his condition — that's the one edit Miguel still needs to make on his side. |
 | 3 | Portuguese language switch fixed (file path → "Obrigado")? | **Yes, shipped in commit `d9a9d08`.** `services/language.ts` now scrubs URLs / file paths / filenames before franc-min runs, then re-checks the length gate. 7 regression tests including the exact Bertrand-Klein input ("NO NINGUNA DUDA. file:///C:/Users/.../virement-de-bertrand-klein.pdf") — `detectLanguage` no longer returns "português" on it. |
 
+### Miguel webhook activation confirmed (2026-05-12 evening, post-cfee0e7 deploy)
+
+Miguel created 4 webhooks pointing at `https://dpmserver-production.up.railway.app/webhook/respond-io`:
+1. `Mensajes entrantes` (was already there — message events for the AI flow)
+2. `Ciclo de vida actualizado` (lifecycle.updated)
+3. `Cesionario de contactos actualizado` (assignee.updated)
+4. `Etiqueta de contacto actualizada` (single v2 event covers BOTH tag.added and tag.removed)
+
+Bidirectional sync incoming side is now live as far as Respond.io knows. Our handler is wired (commit `6d00ed7` plus the v2-unified-tag handling in `cfee0e7`) and dormant until an operator-side change actually fires an event.
+
+**Verification status:** no `by: "human"` transitions in the DB yet — Miguel hasn't done a test operator action. Will become visible when:
+- An operator clears a tag (e.g. `deposit_paid`) in the Respond.io UI → our handler force-transitions `lead_stage` to `proposed` and logs `respond_io_deposit_paid_tag_removed`.
+- An operator changes lifecycle to `New Lead` → handler force-transitions to `new` and logs `respond_io_lifecycle_new_lead`.
+- An operator changes lifecycle to `Lost Lead` → handler force-transitions to `lost`.
+- Forward lifecycle moves (Engaging / Following Up / Customer) are echoes of our own Option D push → handler ignores them.
+
 ### Miguel's follow-up: webhook event URL question (2026-05-12 evening)
 
 After finding the v2 Spanish UI events page, Miguel reported THREE event types map to our handler:
