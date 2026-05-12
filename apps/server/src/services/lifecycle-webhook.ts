@@ -72,6 +72,34 @@ export function lifecycleWebhookUrlFor(leadStage: string): string | null {
 }
 
 /**
+ * Extract the workflow ID from a Respond.io workflow webhook URL.
+ *
+ *   https://hooks.respond.io/workflows/{workflowId}/{secretToken}
+ *                                       └── this ─┘
+ *
+ * Returned as `urlKey` on every log line so we can cross-reference
+ * against Miguel's published URL table (see
+ * 5-12-feedback-lifecycle-debug.md) without leaking the secret token.
+ *
+ * Falls back to a short hash of the URL when the path doesn't match the
+ * expected shape (e.g. Miguel ever moves to a different webhook host).
+ */
+function urlKeyFor(url: string): string {
+  try {
+    const u = new URL(url);
+    // Path looks like "/workflows/{id}/{token}" — slice out the id.
+    const parts = u.pathname.split("/").filter(Boolean);
+    if (parts[0] === "workflows" && parts[1]) {
+      return parts[1];
+    }
+    // Unrecognized path; expose enough to disambiguate but not the token.
+    return `${u.host}:${parts[parts.length - 1]?.slice(0, 6) ?? ""}`;
+  } catch {
+    return "invalid_url";
+  }
+}
+
+/**
  * Fire-and-forget POST to the workflow webhook URL with the contact id.
  * Returns a Promise that resolves even on failure (with a warn log) so
  * the caller can `void` it without try/catch noise. Never throws.
@@ -81,12 +109,20 @@ export async function triggerLifecycleWebhook(input: {
   respondIoContactId: string;
 }): Promise<void> {
   const url = lifecycleWebhookUrlFor(input.leadStage);
+  const log = getLogger();
   if (!url) {
-    // Sync disabled for this stage. Common in dev / staging where Miguel
-    // hasn't shared URLs. Stay silent — not an error.
+    // Sync disabled for this stage. Could mean (a) we deliberately don't
+    // want to emit (e.g. dev/staging without URLs) or (b) the env var
+    // didn't load — most common cause is the `RESPONDIO_*` vs
+    // `RESPOND_IO_*` prefix typo. Log at debug so we can spot the gap
+    // when triaging "lifecycle never updated" without spamming prod.
+    log.debug(
+      { leadStage: input.leadStage, contactId: input.respondIoContactId },
+      "lifecycle webhook skipped — no URL configured for this stage",
+    );
     return;
   }
-  const log = getLogger();
+  const urlKey = urlKeyFor(url);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
   try {
@@ -105,13 +141,18 @@ export async function triggerLifecycleWebhook(input: {
           body: body.slice(0, 250),
           leadStage: input.leadStage,
           contactId: input.respondIoContactId,
+          urlKey,
         },
         "lifecycle webhook non-2xx — lifecycle in Respond.io may be stale",
       );
       return;
     }
     log.info(
-      { leadStage: input.leadStage, contactId: input.respondIoContactId },
+      {
+        leadStage: input.leadStage,
+        contactId: input.respondIoContactId,
+        urlKey,
+      },
       "lifecycle webhook fired ok",
     );
   } catch (err) {
@@ -120,6 +161,7 @@ export async function triggerLifecycleWebhook(input: {
         err: (err as Error).message,
         leadStage: input.leadStage,
         contactId: input.respondIoContactId,
+        urlKey,
       },
       "lifecycle webhook failed — lifecycle in Respond.io may be stale",
     );

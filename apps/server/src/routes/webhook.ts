@@ -58,7 +58,39 @@ export async function webhookRoutes(app: FastifyInstance) {
       workflowToken: env.WEBHOOK_WORKFLOW_TOKEN || undefined,
     });
     if (!verdict.ok) {
-      req.log.warn({ reason: verdict.reason }, "webhook auth rejected");
+      // DIAG (2026-05-12): Sync webhooks still failing after adding
+      // RESPOND_IO_WEBHOOK_SECRETS_EXTRA. Dump enough info to compute the
+      // expected HMAC offline and figure out whether (a) Respond.io is
+      // using a different header/algorithm, (b) the env var didn't parse
+      // into 3 keys as expected, or (c) the body got mangled in transit.
+      // Safe to log temporarily: signature is not a credential, body
+      // already gets dumped on success, secret prefixes are masked to 4
+      // chars (entropy preserved, secret material not).
+      const allHeaders: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(req.headers)) {
+        // Skip the obviously sensitive ones; everything else helps.
+        if (k.toLowerCase() === "authorization" || k.toLowerCase() === "cookie") continue;
+        allHeaders[k] = v;
+      }
+      const bodyStr = rawBody.toString("utf8");
+      const primaryPrefix = env.RESPOND_IO_WEBHOOK_SECRET.slice(0, 4);
+      const extraPrefixes = (env.RESPOND_IO_WEBHOOK_SECRETS_EXTRA ?? []).map(
+        (s) => s.slice(0, 4) + "..." + s.slice(-2),
+      );
+      req.log.warn(
+        {
+          diag: "auth_fail_dump",
+          reason: verdict.reason,
+          signatureHeader: headerSig ?? null,
+          allHeaders,
+          bodyLen: rawBody.length,
+          bodyStr,
+          primarySecretPrefix: `${primaryPrefix}...`,
+          extraSecretCount: env.RESPOND_IO_WEBHOOK_SECRETS_EXTRA?.length ?? 0,
+          extraSecretPrefixes: extraPrefixes,
+        },
+        "webhook auth rejected — diagnostic dump",
+      );
       return reply.status(401).send({ error: { code: "auth_invalid" } });
     }
 
