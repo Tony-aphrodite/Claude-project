@@ -473,6 +473,20 @@ export async function processIncomingMessage(
           }
 
           // 2. Tag the contact — Respond.io workflow listens for this.
+          //    Tag-update events fire on a DIFF, not on tag presence. If
+          //    deposit_paid is already pegged from an earlier test or a
+          //    manual retest, our PUT looks like a no-op and the workflow
+          //    sees nothing (§7 in 5-12-feedback). Forcing a remove → add
+          //    cycle guarantees a fresh "tag added" event so the
+          //    Onboarding Piloto workflow fires regardless of prior state.
+          try {
+            await respondIoClient.removeContactTag({
+              contactId: payload.contact.id,
+              tag: "deposit_paid",
+            });
+          } catch (err) {
+            log.warn({ err }, "respond_io remove deposit_paid (pre-refresh) failed — proceeding to add anyway");
+          }
           try {
             await respondIoClient.addContactTag({
               contactId: payload.contact.id,

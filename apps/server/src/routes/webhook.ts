@@ -20,6 +20,7 @@ import {
 import { loadEnv } from "../env.js";
 import { processAgentMessage } from "../handlers/process-agent-message.js";
 import { processIncomingMessage } from "../handlers/process-message.js";
+import { handleContactStateEvent } from "../handlers/contact-state-event.js";
 import { withConversationLock } from "../services/conversation-lock.js";
 import {
   authenticateWebhook,
@@ -98,6 +99,22 @@ export async function webhookRoutes(app: FastifyInstance) {
     if (!event) {
       return reply.send({ ok: true, ignored: "missing_event" });
     }
+    if (isContactStateEvent(event)) {
+      // Operator-side change in Respond.io (lifecycle moved, tag added/
+      // removed, conversation assignee changed). Forward to the sync
+      // handler which rolls our internal lead_stage back when needed so
+      // the AI can re-engage a contact the operator manually reset.
+      // Miguel must enable these event types in Respond.io workspace
+      // settings ("Webhook events" → check
+      // Contact / Lifecycle / Tag / Conversation Assignee events).
+      try {
+        const result = await handleContactStateEvent(parsed.data, event, req.log);
+        return reply.send(result);
+      } catch (err) {
+        req.log.error({ err, event }, "contact-state event failed");
+        return reply.send({ ok: true, ignored: "contact_state_error" });
+      }
+    }
     if (!isMessageEvent(event)) {
       return reply.send({ ok: true, ignored: event });
     }
@@ -140,4 +157,20 @@ function isMessageEvent(event: string): boolean {
   // Respond.io fires event names like "message.created", "message.received".
   // We accept anything starting with `message.` and ignore typing/presence.
   return event.startsWith("message.") || event === "incoming_message";
+}
+
+function isContactStateEvent(event: string): boolean {
+  // Operator-side mutations we care about for bidirectional sync. The
+  // exact Respond.io event names depend on the workspace settings; we
+  // accept the v2 family + a few legacy aliases so the handler doesn't
+  // miss the wrong name. Adding a new name here is a one-line change.
+  return (
+    event === "contact.lifecycle.updated" ||
+    event === "contact.lifecycle.changed" ||
+    event === "contact.tag.added" ||
+    event === "contact.tag.removed" ||
+    event === "contact.tag.updated" ||
+    event === "conversation.assignee.changed" ||
+    event === "conversation.assignee.updated"
+  );
 }

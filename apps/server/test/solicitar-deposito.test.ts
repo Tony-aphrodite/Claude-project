@@ -74,10 +74,12 @@ describe("parseSolicitarDepositoInput", () => {
       sede_id: "11111111-1111-1111-1111-111111111111",
       cliente_idioma: "es",
       moneda_cliente: "EUR",
+      pax: 2,
     });
     expect(out.ok).toBe(true);
     if (out.ok) {
       expect(out.value.moneda_cliente).toBe("EUR");
+      expect(out.value.pax).toBe(2);
     }
   });
 
@@ -87,6 +89,7 @@ describe("parseSolicitarDepositoInput", () => {
         sede_id: "11111111-1111-1111-1111-111111111111",
         cliente_idioma: "en",
         moneda_cliente: "AUD",
+        pax: 1,
       }).ok,
     ).toBe(true);
     expect(
@@ -94,6 +97,7 @@ describe("parseSolicitarDepositoInput", () => {
         sede_id: "11111111-1111-1111-1111-111111111111",
         cliente_idioma: "en",
         moneda_cliente: "THB",
+        pax: 1,
       }).ok,
     ).toBe(false);
   });
@@ -103,6 +107,7 @@ describe("parseSolicitarDepositoInput", () => {
       sede_id: "11111111-1111-1111-1111-111111111111",
       cliente_idioma: "es",
       moneda_cliente: "JPY",
+      pax: 1,
     });
     expect(out.ok).toBe(false);
   });
@@ -112,8 +117,29 @@ describe("parseSolicitarDepositoInput", () => {
       sede_id: "not-a-uuid",
       cliente_idioma: "es",
       moneda_cliente: "EUR",
+      pax: 1,
     });
     expect(out.ok).toBe(false);
+  });
+
+  it("rejects missing pax (2026-05-12 fraud-risk fix)", () => {
+    const out = parseSolicitarDepositoInput({
+      sede_id: "11111111-1111-1111-1111-111111111111",
+      cliente_idioma: "es",
+      moneda_cliente: "EUR",
+    });
+    expect(out.ok).toBe(false);
+  });
+
+  it("rejects pax = 0 or > 20", () => {
+    const base = {
+      sede_id: "11111111-1111-1111-1111-111111111111",
+      cliente_idioma: "es" as const,
+      moneda_cliente: "EUR" as const,
+    };
+    expect(parseSolicitarDepositoInput({ ...base, pax: 0 }).ok).toBe(false);
+    expect(parseSolicitarDepositoInput({ ...base, pax: 21 }).ok).toBe(false);
+    expect(parseSolicitarDepositoInput({ ...base, pax: 1.5 }).ok).toBe(false);
   });
 
   it("zod schema directly mirrors the parser result", () => {
@@ -121,6 +147,7 @@ describe("parseSolicitarDepositoInput", () => {
       sede_id: "11111111-1111-1111-1111-111111111111",
       cliente_idioma: "en",
       moneda_cliente: "USD",
+      pax: 3,
     });
     expect(ok.success).toBe(true);
   });

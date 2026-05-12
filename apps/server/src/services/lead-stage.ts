@@ -31,6 +31,7 @@ import {
 } from "@dpm/shared";
 
 import { getLogger } from "../logger.js";
+import { respondIoClient, RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE } from "./respond-io.js";
 
 export type TransitionActor = "ai" | "human" | "system" | "negative_intent";
 
@@ -172,6 +173,26 @@ export class LeadStageService {
       { convId: input.conversacionId, from, to: input.to, by: input.by, force },
       "lead_stage transition",
     );
+
+    // Push the matching Respond.io lifecycle so Miguel's workflows that
+    // filter on lifecycle (e.g. "Lifecycle changes to Customer") fire
+    // properly. Fire-and-forget — a Respond.io outage must not block
+    // the server-side state machine, and the next transition will
+    // re-attempt anyway.
+    const lifecycle = RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE[input.to];
+    if (lifecycle && updated.respondIoContactId) {
+      void respondIoClient
+        .updateContactLifecycle({
+          contactId: updated.respondIoContactId,
+          lifecycle,
+        })
+        .catch((err) =>
+          log.warn(
+            { err: (err as Error).message, convId: input.conversacionId, lifecycle },
+            "respond_io lifecycle push failed — server state still advanced",
+          ),
+        );
+    }
 
     return { ok: true, conversation: updated, from, to: input.to };
   }

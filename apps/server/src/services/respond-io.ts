@@ -454,6 +454,172 @@ export class RespondIoClient {
   }
 
   /**
+   * Remove a tag from a Respond.io contact. Mirror of addContactTag. Used
+   * for two scenarios on 2026-05-12:
+   *
+   *   1. "Tag refresh" before re-applying — Respond.io workflow triggers
+   *      fire on tag-update *events*, not on tag *presence*. If
+   *      deposit_paid is already pegged from a previous test run, PUTting
+   *      it again emits no event and the Onboarding Piloto workflow
+   *      doesn't fire. Caller does removeContactTag → addContactTag to
+   *      guarantee a fresh event.
+   *
+   *   2. State rollback — when an operator manually moves a contact
+   *      back to New Lead lifecycle (or our incoming webhook handler
+   *      decides to reset state), we strip stale `deposit_paid` /
+   *      `ai_escalation` tags so the next workflow run starts clean.
+   *
+   * 404 from the GET is treated as "contact gone — nothing to remove",
+   * not an error. The PUT only fires when the tag is actually present,
+   * to avoid emitting spurious tag-update events for no-ops.
+   */
+  async removeContactTag(input: { contactId: string; tag: string }): Promise<void> {
+    const env = loadEnv();
+    const log = getLogger();
+    let current: Awaited<ReturnType<RespondIoClient["getContact"]>> = null;
+    try {
+      current = await this.getContact(input.contactId);
+    } catch (err) {
+      log.warn(
+        { err: (err as Error).message, contactId: input.contactId, tag: input.tag },
+        "respond_io remove_tag: getContact failed — skipping (no-op)",
+      );
+      return;
+    }
+    if (!current) return;
+    if (!current.tags.includes(input.tag)) {
+      log.info(
+        { contactId: input.contactId, tag: input.tag },
+        "respond_io remove_tag: tag already absent — no-op",
+      );
+      return;
+    }
+    const filtered = current.tags.filter((t) => t !== input.tag);
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+    try {
+      const res = await undiciFetch(url, {
+        method: "PUT",
+        signal: controller.signal,
+        dispatcher: keepAliveAgent,
+        headers: {
+          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ tags: filtered }),
+      } as RequestInit);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        log.warn(
+          { status: res.status, body: body.slice(0, 300), tag: input.tag },
+          "respond_io remove_tag non-2xx",
+        );
+        throw new UpstreamError("respond_io", `remove_tag ${res.status}`, {
+          status: res.status,
+          body: body.slice(0, 300),
+        });
+      }
+      log.info(
+        { contactId: input.contactId, tag: input.tag, tagsBefore: current.tags.length, tagsAfter: filtered.length },
+        "respond_io remove_tag ok",
+      );
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        throw new UpstreamError("respond_io", "remove_tag timed out", {
+          timeoutMs: TIMEOUTS.RESPOND_IO_MS,
+        });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Update a Respond.io contact's `lifecycle` field. The lifecycle is a
+   * top-level contact property (NOT a custom field) that drives Miguel's
+   * workflow trigger conditions. Until 2026-05-12 our server only moved
+   * its internal `lead_stage` and never reflected the change on the
+   * Respond.io side, leaving the two systems drifted: Miguel's "Lifecycle
+   * changes to Customer" workflow couldn't fire because the lifecycle
+   * never moved.
+   *
+   * Mapping is fixed in `RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE` at the
+   * bottom of this file so any new lead_stage value forces a compile-time
+   * decision on which lifecycle to emit.
+   */
+  async updateContactLifecycle(input: {
+    contactId: string;
+    lifecycle: string;
+  }): Promise<void> {
+    const env = loadEnv();
+    const log = getLogger();
+    // Read existing tags + customFields and include them in the PUT body
+    // — Respond.io's PUT replaces the whole resource, so we have to write
+    // back what we don't want lost. Same merge guard as updateContactCustomFields.
+    let existingTags: string[] = [];
+    let existingFields: Record<string, unknown> = {};
+    try {
+      const current = await this.getContact(input.contactId);
+      existingTags = current?.tags ?? [];
+      existingFields = current?.customFields ?? {};
+    } catch (err) {
+      log.warn(
+        { err: (err as Error).message, contactId: input.contactId },
+        "respond_io update_lifecycle: getContact failed — proceeding without preservation",
+      );
+    }
+    const customFields = Object.entries(existingFields)
+      .filter(([, v]) => v !== null && v !== undefined && !(typeof v === "string" && v.length === 0))
+      .map(([name, value]) => ({ name, value }));
+
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
+    const putBody: Record<string, unknown> = { lifecycle: input.lifecycle };
+    if (customFields.length > 0) putBody.custom_fields = customFields;
+    if (existingTags.length > 0) putBody.tags = existingTags;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+    try {
+      const res = await undiciFetch(url, {
+        method: "PUT",
+        signal: controller.signal,
+        dispatcher: keepAliveAgent,
+        headers: {
+          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(putBody),
+      } as RequestInit);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        log.warn(
+          { status: res.status, body: body.slice(0, 300), lifecycle: input.lifecycle },
+          "respond_io update_lifecycle non-2xx",
+        );
+        throw new UpstreamError("respond_io", `update_lifecycle ${res.status}`, {
+          status: res.status,
+          body: body.slice(0, 300),
+        });
+      }
+      log.info(
+        { contactId: input.contactId, lifecycle: input.lifecycle },
+        "respond_io update_lifecycle ok",
+      );
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        throw new UpstreamError("respond_io", "update_lifecycle timed out", {
+          timeoutMs: TIMEOUTS.RESPOND_IO_MS,
+        });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * Patch contact custom fields. Owner spec DPM_AI_LAUNCH 2026-05-07
    * reply §2: Miguel created 8 fields (`programa`, `turno`, `pax`,
    * `moneda`, `monto`, `descuento`, `start_date`, `codigo_referencia`).
@@ -654,3 +820,35 @@ function isUnresolvedTemplate(value: string | null | undefined): boolean {
 }
 
 export const respondIoClient = new RespondIoClient();
+
+/**
+ * Map our internal `lead_stage` values to Respond.io contact lifecycle
+ * labels. This is the contract Miguel's workflow trigger conditions can
+ * filter on (e.g. "Lifecycle changes to Customer" fires the Onboarding
+ * Piloto chain). Adding a new lead_stage will fail to compile here —
+ * intentional, so an operator-visible field doesn't drift silently.
+ *
+ * `null` means "don't push" — used for transient stages we don't want to
+ * surface (e.g. server-only `qualified` doesn't yet have a stable
+ * Respond.io meaning).
+ */
+export const RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE: Record<
+  | "new"
+  | "qualified"
+  | "proposed"
+  | "deposit_pending"
+  | "deposit_paid"
+  | "handed_off"
+  | "closed"
+  | "lost",
+  string | null
+> = {
+  new: "New Lead",
+  qualified: "Engaging",
+  proposed: "Engaging",
+  deposit_pending: "Following Up",
+  deposit_paid: "Customer",
+  handed_off: "Customer",
+  closed: "Customer",
+  lost: "Lost Lead",
+};
