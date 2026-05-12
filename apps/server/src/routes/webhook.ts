@@ -63,6 +63,29 @@ export async function webhookRoutes(app: FastifyInstance) {
     // payloads.
     const normalized = normalizeRespondIoPayload(req.body);
 
+    // DIAGNOSTIC (2026-05-12): Respond.io UI doesn't expose webhook delivery
+    // history, and "remove deposit_paid tag" tests aren't reaching the
+    // forceTransition path. Dump the raw + normalized payload for every
+    // inbound request so we can see exactly what Respond.io sends for the
+    // contact.tag.removed action field. Remove or gate behind env flag
+    // once the parsing fix lands.
+    try {
+      req.log.info(
+        {
+          diag: "webhook_raw_payload",
+          headers: {
+            "content-type": req.headers["content-type"] ?? null,
+            "user-agent": req.headers["user-agent"] ?? null,
+          },
+          rawBodyParsed: JSON.parse(rawBody.toString("utf8")),
+          normalized,
+        },
+        "webhook-diag full payload dump",
+      );
+    } catch (logErr) {
+      req.log.warn({ logErr }, "webhook-diag dump failed (non-fatal)");
+    }
+
     // PEEK event_type BEFORE running the strict message schema.
     //
     // 2026-05-12 evening incident: Respond.io auto-disabled the
