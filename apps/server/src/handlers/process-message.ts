@@ -68,6 +68,7 @@ import {
 } from "../services/deposit-instructions.js";
 import { followUpProcessor } from "../services/follow-up.js";
 import { detectLanguage, languageLabelToIso2 } from "../services/language.js";
+import { isNewTopicAfterHandoff } from "../services/new-topic-detector.js";
 import { leadStageService } from "../services/lead-stage.js";
 import { buildFourBlockPrompt } from "../services/prompt-builder.js";
 import { promptsService } from "../services/prompts.js";
@@ -623,6 +624,15 @@ export async function processIncomingMessage(
   // (booking finalized), and `lost` (dead lead). The customer message
   // is still persisted above so the panel timeline is complete; we
   // simply do not generate or send a reply.
+  //
+  // 2026-05-12 follow-up: the silence breaks a real use case Miguel
+  // demonstrated — booked OW, came back hours later to ask about night
+  // dives. With the guard always on, the AI never replied. The
+  // `isNewTopicAfterHandoff` heuristic now lets the AI re-engage IF the
+  // message clearly looks like a new inquiry (intent keyword + length +
+  // time gap). Conservative thresholds tilt toward staying silent on
+  // ambiguous messages so a quick "thanks!" never wakes the AI back up
+  // mid-onboarding-workflow.
   const POST_HANDOFF_STAGES = new Set([
     "deposit_paid",
     "handed_off",
@@ -630,21 +640,35 @@ export async function processIncomingMessage(
     "lost",
   ]);
   if (POST_HANDOFF_STAGES.has(conversation.leadStage)) {
+    const isNewTopic = isNewTopicAfterHandoff({
+      text: incomingText,
+      leadStageChangedAt: conversation.leadStageChangedAt ?? null,
+    });
+    if (!isNewTopic) {
+      log.info(
+        {
+          conversationId: conversation.id,
+          leadStage: conversation.leadStage,
+          contactId: payload.contact.id,
+        },
+        "ai silenced post handoff — message persisted, no reply generated",
+      );
+      return {
+        ok: false,
+        ignored: true,
+        reason: "ai_silenced_post_handoff",
+        branch: sede.nombre,
+        latencyMs: Date.now() - t0,
+      };
+    }
     log.info(
       {
         conversationId: conversation.id,
         leadStage: conversation.leadStage,
         contactId: payload.contact.id,
       },
-      "ai silenced post handoff — message persisted, no reply generated",
+      "ai re-engaging after handoff — new-topic heuristic matched",
     );
-    return {
-      ok: false,
-      ignored: true,
-      reason: "ai_silenced_post_handoff",
-      branch: sede.nombre,
-      latencyMs: Date.now() - t0,
-    };
   }
 
   const history = await conversationService.recentMessages(conversation.id);
