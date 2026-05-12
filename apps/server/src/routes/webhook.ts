@@ -50,6 +50,11 @@ export async function webhookRoutes(app: FastifyInstance) {
       signatureHeader: headerSig,
       tokenHeader,
       hmacSecret: env.RESPOND_IO_WEBHOOK_SECRET,
+      // Sync - Ciclo de vida / Sync - Cesionario / Sync - Etiquetas each
+      // ship with their own immutable Clave de firma. We accept any of
+      // them so all four Respond.io webhooks can target the single
+      // /webhook/respond-io endpoint.
+      hmacSecretsExtra: env.RESPOND_IO_WEBHOOK_SECRETS_EXTRA,
       workflowToken: env.WEBHOOK_WORKFLOW_TOKEN || undefined,
     });
     if (!verdict.ok) {

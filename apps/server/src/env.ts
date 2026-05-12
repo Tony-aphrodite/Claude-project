@@ -27,6 +27,38 @@ const envSchema = z.object({
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
 
   RESPOND_IO_WEBHOOK_SECRET: z.string().min(8),
+  /**
+   * Additional accepted HMAC secrets for Respond.io webhooks (comma-
+   * separated). Use when the workspace has multiple webhook integrations
+   * (e.g. Sync - Ciclo de vida / Sync - Cesionario / Sync - Etiquetas)
+   * and each one was created with an independent `Clave de firma` that
+   * Respond.io won't let operators edit after creation.
+   *
+   * Whitespace around each entry is trimmed; empty entries are dropped.
+   * Each non-empty entry is validated to be at least 8 chars to catch
+   * obvious config typos (a 4-char "key" is almost certainly truncated).
+   */
+  RESPOND_IO_WEBHOOK_SECRETS_EXTRA: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .transform((raw) => {
+      if (!raw) return [] as string[];
+      return raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+    })
+    .superRefine((arr, ctx) => {
+      for (const [i, entry] of arr.entries()) {
+        if (entry.length < 8) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `RESPOND_IO_WEBHOOK_SECRETS_EXTRA[${i}] too short (need >=8 chars)`,
+          });
+        }
+      }
+    }),
   RESPOND_IO_API_KEY: z.string().min(8),
   RESPOND_IO_API_BASE_URL: z.string().url().default("https://api.respond.io/v2"),
   // Alternative shared-secret auth for webhook callers that cannot compute

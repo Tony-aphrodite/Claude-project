@@ -202,3 +202,101 @@ describe("authenticateWebhook — token-first path", () => {
     ).toEqual({ ok: false, reason: "missing_header" });
   });
 });
+
+describe("authenticateWebhook — multi-secret (hmacSecretsExtra)", () => {
+  const PRIMARY = "primary-webhook-secret-1234";
+  const EXTRA_A = "sync-lifecycle-secret-aaaa-bbbb";
+  const EXTRA_B = "sync-assignee-secret-cccc-dddd";
+  const EXTRA_C = "sync-tags-secret-eeee-ffff";
+  const body = '{"event":"contact.tag.updated"}';
+
+  it("accepts a request signed with the primary secret", () => {
+    const header = `sha256=${signHex(body, PRIMARY)}`;
+    expect(
+      authenticateWebhook({
+        rawBody: body,
+        signatureHeader: header,
+        tokenHeader: undefined,
+        hmacSecret: PRIMARY,
+        hmacSecretsExtra: [EXTRA_A, EXTRA_B, EXTRA_C],
+      }),
+    ).toEqual({ ok: true, matched: "hex" });
+  });
+
+  it("accepts a request signed with the first extra secret", () => {
+    const header = `sha256=${signHex(body, EXTRA_A)}`;
+    expect(
+      authenticateWebhook({
+        rawBody: body,
+        signatureHeader: header,
+        tokenHeader: undefined,
+        hmacSecret: PRIMARY,
+        hmacSecretsExtra: [EXTRA_A, EXTRA_B, EXTRA_C],
+      }),
+    ).toEqual({ ok: true, matched: "hex" });
+  });
+
+  it("accepts a request signed with the last extra secret", () => {
+    const header = `sha256=${signHex(body, EXTRA_C)}`;
+    expect(
+      authenticateWebhook({
+        rawBody: body,
+        signatureHeader: header,
+        tokenHeader: undefined,
+        hmacSecret: PRIMARY,
+        hmacSecretsExtra: [EXTRA_A, EXTRA_B, EXTRA_C],
+      }),
+    ).toEqual({ ok: true, matched: "hex" });
+  });
+
+  it("rejects when none of primary or extras match", () => {
+    const header = `sha256=${signHex(body, "wrong-secret-not-in-list")}`;
+    expect(
+      authenticateWebhook({
+        rawBody: body,
+        signatureHeader: header,
+        tokenHeader: undefined,
+        hmacSecret: PRIMARY,
+        hmacSecretsExtra: [EXTRA_A, EXTRA_B, EXTRA_C],
+      }),
+    ).toEqual({ ok: false, reason: "mismatch" });
+  });
+
+  it("skips empty entries in extras (no crash, no false-accept)", () => {
+    const header = `sha256=${signHex(body, EXTRA_B)}`;
+    expect(
+      authenticateWebhook({
+        rawBody: body,
+        signatureHeader: header,
+        tokenHeader: undefined,
+        hmacSecret: PRIMARY,
+        hmacSecretsExtra: ["", EXTRA_B, ""],
+      }),
+    ).toEqual({ ok: true, matched: "hex" });
+  });
+
+  it("does not try extras when primary returns missing_header (short-circuit)", () => {
+    expect(
+      authenticateWebhook({
+        rawBody: body,
+        signatureHeader: undefined,
+        tokenHeader: undefined,
+        hmacSecret: PRIMARY,
+        hmacSecretsExtra: [EXTRA_A, EXTRA_B, EXTRA_C],
+      }),
+    ).toEqual({ ok: false, reason: "missing_header" });
+  });
+
+  it("behaves identically to single-secret mode when extras is empty", () => {
+    const header = `sha256=${signHex(body, PRIMARY)}`;
+    expect(
+      authenticateWebhook({
+        rawBody: body,
+        signatureHeader: header,
+        tokenHeader: undefined,
+        hmacSecret: PRIMARY,
+        hmacSecretsExtra: [],
+      }),
+    ).toEqual({ ok: true, matched: "hex" });
+  });
+});

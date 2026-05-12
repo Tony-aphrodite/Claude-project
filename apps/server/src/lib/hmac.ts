@@ -162,15 +162,34 @@ export function pickWorkflowTokenHeader(
 /**
  * Authenticate a webhook request. Tries the bearer-token path first (if a
  * non-empty token is configured), then falls back to HMAC of the body.
+ *
+ * Multi-secret support (2026-05-12): Respond.io generates an independent
+ * `Clave de firma` per webhook and won't let operators edit them after
+ * creation. A single workspace can therefore have multiple valid secrets
+ * — one for the message webhook, one each for lifecycle/assignee/tag sync.
+ * Pass them in via `hmacSecretsExtra`. We try the primary `hmacSecret`
+ * first (hot path = inbound customer messages) then each extra. Any match
+ * accepts; we collapse to the primary's verdict on full miss so the log
+ * line stays uniform.
  */
 export function authenticateWebhook(args: {
   rawBody: Buffer | string;
   signatureHeader: string | undefined;
   tokenHeader: string | undefined;
   hmacSecret: string;
+  /** Additional accepted HMAC secrets (e.g. per-webhook keys for sync
+   *  webhooks that can't be re-keyed to match the message webhook). */
+  hmacSecretsExtra?: readonly string[];
   workflowToken?: string | undefined;
 }): AuthVerifyResult {
-  const { rawBody, signatureHeader, tokenHeader, hmacSecret, workflowToken } = args;
+  const {
+    rawBody,
+    signatureHeader,
+    tokenHeader,
+    hmacSecret,
+    hmacSecretsExtra,
+    workflowToken,
+  } = args;
 
   if (workflowToken && workflowToken.length > 0 && tokenHeader) {
     if (timingSafeStringEqual(tokenHeader, workflowToken)) {
@@ -180,5 +199,20 @@ export function authenticateWebhook(args: {
     // legitimate Respond.io webhook may still carry the right signature.
   }
 
-  return verifySignature(rawBody, signatureHeader, hmacSecret);
+  const primary = verifySignature(rawBody, signatureHeader, hmacSecret);
+  if (primary.ok) return primary;
+
+  // Only try extras when the primary failed *because the digest didn't
+  // line up*. `missing_header` / `bad_format` won't be fixed by trying
+  // another key, so we short-circuit those.
+  if (primary.reason !== "mismatch" || !hmacSecretsExtra?.length) {
+    return primary;
+  }
+
+  for (const extra of hmacSecretsExtra) {
+    if (!extra || extra.length === 0) continue;
+    const v = verifySignature(rawBody, signatureHeader, extra);
+    if (v.ok) return v;
+  }
+  return primary;
 }
