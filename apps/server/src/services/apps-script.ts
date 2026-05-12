@@ -195,6 +195,25 @@ export class AppsScriptService {
       if (typeof json.hora_actual_wita !== "string") {
         json.hora_actual_wita = undefined;
       }
+      // 2026-05-12: Miguel's GT Apps Script (FOLDER_ID 1AlY3LFHVecVYJpqUzzWU0Y-Ll646ZNmh)
+      // returns turno_nocturno = {disponible: true, espacios: 20} on every
+      // date even though Gili Trawangan doesn't operate night dives. Until
+      // Miguel hardcodes the script-side fix, this defensive belt forces
+      // every nocturno slot to disponible:false so the model can't surface
+      // a night option to the customer. KB-05 §programas-no-ofrece is the
+      // canonical source — when GT eventually does run night dives, remove
+      // this filter (or scope it to the SEDE_NIGHT_DIVES_DISABLED env list).
+      if (sede.nombre === "Gili Trawangan") {
+        for (const day of json.detalle) {
+          if (day && day.turno_nocturno) {
+            day.turno_nocturno = {
+              disponible: false,
+              espacios: 0,
+              capacidad: 0,
+            };
+          }
+        }
+      }
       return json as AvailabilityResponse;
     } catch (err) {
       const aborted = (err as { name?: string }).name === "AbortError";
