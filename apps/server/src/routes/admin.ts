@@ -35,6 +35,7 @@ import {
 } from "@dpm/db";
 
 import { loadEnv } from "../env.js";
+import { respondIoClient } from "../services/respond-io.js";
 
 export async function adminRoutes(app: FastifyInstance) {
   const env = loadEnv();
@@ -127,11 +128,30 @@ export async function adminRoutes(app: FastifyInstance) {
       })
       .where(inArray(conversaciones.id, convIds));
 
+    // Strip our server-emitted tags from Respond.io so the next workflow
+    // run starts clean. Miguel flagged 2026-05-12 (5-12-feedback-round2
+    // §3) that the `deposit_paid` tag from earlier testing persisted on
+    // the contact even after a server-side reset, polluting subsequent
+    // pre-deposit flows. Fire-and-forget per contact — partial failures
+    // log a warn but don't fail the reset.
+    const TAGS_TO_CLEAR = ["deposit_paid", "ai_escalation"];
+    for (const cid of contactIds) {
+      for (const tag of TAGS_TO_CLEAR) {
+        await respondIoClient.removeContactTag({ contactId: cid, tag }).catch((err) =>
+          req.log.warn(
+            { err: (err as Error).message, contactId: cid, tag },
+            "admin reset: tag cleanup failed (continuing)",
+          ),
+        );
+      }
+    }
+
     req.log.info(
       {
         contactIds,
         resetConversations: convIds.length,
         deletedMessages: deletedMsgs.length,
+        tagsClearedPerContact: TAGS_TO_CLEAR,
       },
       "admin reset-conversation ok",
     );
@@ -141,6 +161,7 @@ export async function adminRoutes(app: FastifyInstance) {
       contactIds,
       resetConversations: convIds.length,
       deletedMessages: deletedMsgs.length,
+      tagsCleared: TAGS_TO_CLEAR,
     });
   });
 }

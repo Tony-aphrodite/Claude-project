@@ -513,6 +513,7 @@ export async function processIncomingMessage(
               contactId: payload.contact.id,
               fields: {
                 branch: sede.nombre,
+                sede: sede.nombre,
                 // Pass null for missing values; the client filters them out
                 // so we don't blow away the field with an empty string.
                 monto: meta?.deposit_amount ?? null,
@@ -784,9 +785,15 @@ export async function processIncomingMessage(
           contactId: payload.contact.id,
           fields: {
             branch: sede.nombre,
+            sede: sede.nombre,
             programa: input.programa,
             start_date: input.start_date,
             pax: input.pax,
+            // Early populate moneda from phone-prefix hint so the operations
+            // team sees a likely currency before the deposit is requested.
+            // Null when the prefix isn't in the table — we leave the field
+            // untouched in that case rather than guess.
+            ...(suggestedCurrency ? { moneda: suggestedCurrency } : {}),
           },
           language: detectedLanguageIso ?? undefined,
         })
@@ -879,10 +886,13 @@ export async function processIncomingMessage(
         contactId: payload.contact.id,
         fields: {
           branch: sede.nombre,
+          sede: sede.nombre,
           programa: input.programa,
           turno: computeTurno(required) ?? "",
           start_date: input.start_date,
           pax: input.pax,
+          // Early moneda from phone-prefix hint (see no-boat path above).
+          ...(suggestedCurrency ? { moneda: suggestedCurrency } : {}),
         },
         language: detectedLanguageIso ?? undefined,
       })
@@ -995,6 +1005,7 @@ export async function processIncomingMessage(
         contactId: payload.contact.id,
         fields: {
           branch: sede.nombre,
+          sede: sede.nombre,
           monto: montoTotal, // Sheet Logger sees the total the customer paid
           moneda: currency,
           codigo_referencia: refCode,
@@ -1129,6 +1140,7 @@ export async function processIncomingMessage(
         contactId: payload.contact.id,
         fields: {
           branch: sede.nombre,
+          sede: sede.nombre,
           motivo_escalation: claudeResult.escalationReason,
         },
       })
@@ -1151,11 +1163,26 @@ export async function processIncomingMessage(
   // Logger captures it on conversation close. Anything >10% never reaches
   // here — it gets routed through escalation_reason=discount_over_10
   // instead.
+  //
+  // Also push `descuento_aplicado` as a boolean: true when the value is
+  // anything OTHER than "Sin descuento" / "0%" / empty. Miguel flagged
+  // this field empty in 5-12-feedback-round2 — it's the operations-side
+  // flag for "this contact got a discount", separate from the discount
+  // VALUE (descuento). Boolean encoded as the string "true"/"false"
+  // because Respond.io's text custom fields don't support native bool.
   if (claudeResult.descuento) {
+    const descuento = claudeResult.descuento;
+    const aplicado =
+      descuento.trim().length > 0 &&
+      !descuento.toLowerCase().includes("sin descuento") &&
+      descuento.trim() !== "0%";
     void respondIoClient
       .updateContactCustomFields({
         contactId: payload.contact.id,
-        fields: { descuento: claudeResult.descuento },
+        fields: {
+          descuento,
+          descuento_aplicado: aplicado ? "true" : "false",
+        },
       })
       .catch((err) =>
         log.warn({ err }, "respond_io update_custom_fields failed (descuento)"),
