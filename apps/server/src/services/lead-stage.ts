@@ -31,7 +31,10 @@ import {
 } from "@dpm/shared";
 
 import { getLogger } from "../logger.js";
-import { respondIoClient, RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE } from "./respond-io.js";
+// respondIoClient + RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE were imported here
+// when we tried to push lifecycle updates on every transition. Respond.io
+// v2 silently ignores lifecycle changes via the contact PUT endpoint, so
+// the call was removed. The map stays in respond-io.ts as documentation.
 
 export type TransitionActor = "ai" | "human" | "system" | "negative_intent";
 
@@ -174,25 +177,17 @@ export class LeadStageService {
       "lead_stage transition",
     );
 
-    // Push the matching Respond.io lifecycle so Miguel's workflows that
-    // filter on lifecycle (e.g. "Lifecycle changes to Customer") fire
-    // properly. Fire-and-forget — a Respond.io outage must not block
-    // the server-side state machine, and the next transition will
-    // re-attempt anyway.
-    const lifecycle = RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE[input.to];
-    if (lifecycle && updated.respondIoContactId) {
-      void respondIoClient
-        .updateContactLifecycle({
-          contactId: updated.respondIoContactId,
-          lifecycle,
-        })
-        .catch((err) =>
-          log.warn(
-            { err: (err as Error).message, convId: input.conversacionId, lifecycle },
-            "respond_io lifecycle push failed — server state still advanced",
-          ),
-        );
-    }
+    // Note (2026-05-12): we used to fire `respondIoClient.updateContactLifecycle`
+    // here so Miguel's "Lifecycle changes to X" workflow triggers would
+    // pick up our state machine moves. Probe confirmed Respond.io v2
+    // SILENTLY IGNORES the `lifecycle` key on PUT /contact/id:{id}
+    // (every variant returns 200 with no actual change) and there's no
+    // dedicated lifecycle endpoint either. Lifecycle in v2 is operator-
+    // and workflow-only. Removed the wasted API call. To drive lifecycle
+    // changes from the server, route them through TAG changes — Miguel
+    // can configure a workflow "When `deposit_paid` added → set lifecycle
+    // Customer". The map RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE stays in
+    // respond-io.ts as documentation of the intended mapping.
 
     return { ok: true, conversation: updated, from, to: input.to };
   }

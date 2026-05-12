@@ -50,6 +50,23 @@ What this unlocks: when you manually clear `deposit_paid` or change lifecycle fr
 
 If the event names above are different in your workspace settings (Respond.io has multiple versions of event naming), screenshot the picker and I'll line them up with what our handler accepts (one-line edit in `apps/server/src/routes/webhook.ts`).
 
+### 3b. Lifecycle moves should be workflow-driven, not API (2026-05-12 probe finding)
+
+We probed `PUT /contact/id:{id}` with every conceivable shape of the `lifecycle` field — `lifecycle`, `lifecycle_stage`, `stage`, `lifeCycle`, nested object, dedicated `/lifecycle` endpoint — and Respond.io v2 SILENTLY DROPS all of them (returns 200 OK, no change). The dedicated endpoints return 404. Lifecycle in v2 is operator + workflow only, not API.
+
+So our server can't push lifecycle directly. The workaround is: **lifecycle moves get driven by Respond.io WORKFLOWS that trigger on tag changes.** Our server fully controls tags. Recommended workflow setup on your side:
+
+| Trigger | Action |
+|---|---|
+| Tag added: `proposed` | Set lifecycle to "Engaging" |
+| Tag added: `deposit_paid` | Set lifecycle to "Customer" |
+| Tag added: `ai_escalation` | Set lifecycle to "Following Up" |
+| Tag added: `lost` | Set lifecycle to "Lost Lead" |
+
+(We don't currently emit `proposed`/`lost` as tags — let me know if you want them and I'll wire those in. `deposit_paid` and `ai_escalation` already flow through.)
+
+Once those tag-driven workflows are set up, every lead_stage transition our server makes will propagate to Respond.io lifecycle automatically. No code change on our side.
+
 ---
 
 ## 4. Apps Script — disable night slot for GT (§8)

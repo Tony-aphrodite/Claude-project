@@ -537,17 +537,31 @@ export class RespondIoClient {
   }
 
   /**
-   * Update a Respond.io contact's `lifecycle` field. The lifecycle is a
-   * top-level contact property (NOT a custom field) that drives Miguel's
-   * workflow trigger conditions. Until 2026-05-12 our server only moved
-   * its internal `lead_stage` and never reflected the change on the
-   * Respond.io side, leaving the two systems drifted: Miguel's "Lifecycle
-   * changes to Customer" workflow couldn't fire because the lifecycle
-   * never moved.
+   * Update a Respond.io contact's `lifecycle` field.
    *
-   * Mapping is fixed in `RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE` at the
-   * bottom of this file so any new lead_stage value forces a compile-time
-   * decision on which lifecycle to emit.
+   * **HONEST STATUS (2026-05-12 probe):** Respond.io v2's PUT endpoint
+   * SILENTLY IGNORES the `lifecycle` key in the request body. Every
+   * variant tried returns 200 OK but leaves the value unchanged:
+   *   - `{ lifecycle: "Engaging" }` — 200, no change
+   *   - `{ lifecycle_stage: ... }` — 200, no change
+   *   - `{ stage: ... }` — 200, no change
+   *   - `{ lifecycle: { stage: ... } }` — 200, no change
+   * Dedicated endpoints (PUT/POST /contact/id:{id}/lifecycle) return 404.
+   * Lifecycle in Respond.io v2 is operator-only — workflows can set it,
+   * direct API can't.
+   *
+   * What this method DOES do (intentional side effects via the same PUT):
+   *   1. Preserves tags + custom fields (defensive, since PUT replaces).
+   *   2. Coerces numeric custom field values to numbers before PUT so
+   *      the merge doesn't fail with `monto: Invalid value` — that was
+   *      the silent killer of every PUT to Miguel's test contact.
+   *
+   * The lifecycle key is included in the body in case Respond.io ever
+   * starts honoring it (no harm — they silently drop today). If you
+   * need to drive lifecycle changes from server logic, route them
+   * through TAG changes (workflows triggered by `deposit_paid` /
+   * `ai_escalation` can set lifecycle to Customer / Engaging on
+   * Miguel's side).
    */
   async updateContactLifecycle(input: {
     contactId: string;
@@ -572,7 +586,10 @@ export class RespondIoClient {
     }
     const customFields = Object.entries(existingFields)
       .filter(([, v]) => v !== null && v !== undefined && !(typeof v === "string" && v.length === 0))
-      .map(([name, value]) => ({ name, value }));
+      .map(([name, value]) => ({
+        name,
+        value: coerceCustomFieldValueForPut(name, value),
+      }));
 
     const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
     const putBody: Record<string, unknown> = { lifecycle: input.lifecycle };
@@ -702,7 +719,10 @@ export class RespondIoClient {
     for (const [name, value] of entries) {
       merged.set(name, value);
     }
-    const customFields = Array.from(merged, ([name, value]) => ({ name, value }));
+    const customFields = Array.from(merged, ([name, value]) => ({
+      name,
+      value: coerceCustomFieldValueForPut(name, value),
+    }));
     // PUT body MUST use snake_case `custom_fields`. CamelCase is silently
     // dropped by Respond.io v2 — see CRITICAL #3 above.
     const putBody: Record<string, unknown> = { custom_fields: customFields };
@@ -811,6 +831,36 @@ function buildCatalogMessageBody(
  * cases we cannot reach /conversation/{id}/message and must fall back to the
  * contact endpoint.
  */
+/**
+ * Names of Respond.io custom fields that are typed as number in Miguel's
+ * workspace schema. When we PUT these we MUST send a number — sending a
+ * string (even one that looks numeric) is rejected with
+ * `400: <name>: Invalid value`.
+ *
+ * The wrinkle: Respond.io v2 GET returns these fields as strings (e.g.
+ * `monto = "40"`), so when we read existing custom_fields back to
+ * preserve them in a partial PUT, we need to coerce them back to numbers
+ * or the entire PUT fails. This silent failure burned the 2026-05-12
+ * tony test — every lifecycle update fired but landed as 400 because the
+ * preserved `monto = "40"` (string from prior store) triggered the
+ * validator before any of the lifecycle/custom_field payload could be
+ * applied. Errors were swallowed by the fire-and-forget pattern.
+ */
+const NUMERIC_CUSTOM_FIELDS = new Set(["monto", "pax"]);
+
+function coerceCustomFieldValueForPut(
+  name: string,
+  value: unknown,
+): unknown {
+  if (!NUMERIC_CUSTOM_FIELDS.has(name)) return value;
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : value;
+  }
+  return value;
+}
+
 function isUnresolvedTemplate(value: string | null | undefined): boolean {
   if (!value) return true;
   if (value.startsWith("$")) return true;
