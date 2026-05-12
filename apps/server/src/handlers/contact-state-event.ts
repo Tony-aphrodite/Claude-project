@@ -73,15 +73,30 @@ export async function handleContactStateEvent(
     return { ok: true, action: "no_conversation" };
   }
 
-  // Lifecycle change is the strongest signal. We accept it from any
-  // shape — Respond.io v2 puts the lifecycle on `data.lifecycle`,
-  // `payload.lifecycle`, or as a top-level field depending on the
-  // event variant. We try all three.
+  // Lifecycle change is the strongest signal. Respond.io v2's confirmed
+  // payload shape (verified against live webhook logs 2026-05-12 evening):
+  //   {
+  //     "event_type": "contact.lifecycle.updated",
+  //     "lifecycle": "Payment",          ← top-level: the NEW lifecycle
+  //     "oldLifecycle": "In process",    ← previous value (informational)
+  //     "action": "update",
+  //     "contact": { ..., "lifecycle": "Payment" }
+  //   }
+  // We read the new lifecycle from the top-level field, falling back to
+  // data/payload wrappers for older shapes that other v2 tenants may use.
   if (event.startsWith("contact.lifecycle.")) {
     const lifecycle =
+      readString(payload, "lifecycle") ??
       readString(payload.data, "lifecycle") ??
-      readString(payload.payload, "lifecycle") ??
-      readString(payload, "lifecycle");
+      readString(payload.payload, "lifecycle");
+    const oldLifecycle =
+      readString(payload, "oldLifecycle") ??
+      readString(payload.data, "oldLifecycle") ??
+      readString(payload.payload, "oldLifecycle");
+    log.info(
+      { event, contactId, lifecycle, oldLifecycle },
+      "lifecycle event parsed",
+    );
     if (!lifecycle) {
       log.warn(
         { event, contactId },
@@ -91,7 +106,7 @@ export async function handleContactStateEvent(
     }
     const target = LIFECYCLE_ROLLBACK[lifecycle.toLowerCase()];
     if (!target) {
-      // Forward lifecycle changes (Engaging, Following Up, Customer) are
+      // Forward lifecycle changes (In process, Payment, Customer) are
       // already driven by our own state machine — ignore the echo.
       return { ok: true, action: "noop", reason: `lifecycle_forward:${lifecycle}` };
     }
@@ -126,42 +141,69 @@ export async function handleContactStateEvent(
   // it means the operator wants to undo the deposit confirmation. We
   // drop the stage back to `proposed` so the AI can re-engage the
   // deposit conversation without the operator having to fiddle with
-  // lifecycle. Tag ADDED events are noisy (the operator may apply tags
-  // for filtering, not for state) so we ignore them by default.
+  // lifecycle. Tag ADD events are ignored by default (operators apply
+  // many filtering tags, only a few drive state).
   //
-  // Respond.io v2 Spanish UI exposes a single event "Etiqueta de
-  // contacto actualizada" that fires for BOTH add and remove (Miguel
-  // 2026-05-12). The webhook payload distinguishes the two via an
-  // `action` (or `change`) field — we accept any of the candidate
-  // shapes since v2 has been moving the field name around.
+  // Confirmed payload shape (verified against live webhook logs
+  // 2026-05-12 evening):
+  //   {
+  //     "event_type": "contact.tag.updated",
+  //     "tag": "deposit_paid",
+  //     "action": "add" | "remove",     ← exact values, no "-ed" suffix
+  //     "contact": { ... }
+  //   }
+  // Older code expected "added"/"removed" — this was the silent bug that
+  // made REMOVE-tag tests appear to land but not trigger the rollback.
+  // We still accept legacy `data.*` / `payload.*` wrappers for v2
+  // tenants that haven't moved to the flat shape, and accept the
+  // "-ed" variants in case Respond.io introduces a workspace setting
+  // that toggles between the two.
   if (
     event === "contact.tag.removed" ||
     event === "contact.tag.added" ||
     event === "contact.tag.updated"
   ) {
     const tag =
+      readString(payload, "tag") ??
       readString(payload.data, "tag") ??
-      readString(payload.payload, "tag") ??
-      readString(payload, "tag");
-    // Infer add vs remove. Explicit event name wins; otherwise read
-    // an action/change/operation/type field from the payload.
-    const action =
+      readString(payload.payload, "tag");
+
+    // Resolve add vs remove. Explicit event name wins; otherwise read
+    // from the top-level `action` field, then legacy wrappers/aliases.
+    const rawAction =
       event === "contact.tag.removed"
-        ? "removed"
+        ? "remove"
         : event === "contact.tag.added"
-          ? "added"
-          : readString(payload.data, "action") ??
+          ? "add"
+          : readString(payload, "action") ??
+            readString(payload.data, "action") ??
             readString(payload.payload, "action") ??
-            readString(payload, "action") ??
+            readString(payload, "change") ??
             readString(payload.data, "change") ??
             readString(payload.payload, "change") ??
-            readString(payload, "change") ??
-            readString(payload.data, "operation") ??
-            readString(payload.payload, "operation") ??
-            readString(payload, "operation") ??
             null;
 
-    if (action === "removed" && tag === "deposit_paid" && conv.leadStage !== "proposed") {
+    // Normalize to "add" | "remove" — accept either "add" or "added",
+    // either "remove" or "removed", so a future Respond.io shape change
+    // can't silently break us again.
+    const action: "add" | "remove" | null = rawAction
+      ? rawAction === "remove" || rawAction === "removed"
+        ? "remove"
+        : rawAction === "add" || rawAction === "added"
+          ? "add"
+          : null
+      : null;
+
+    log.info(
+      { event, contactId, tag, action, rawAction },
+      "tag event parsed",
+    );
+
+    if (
+      action === "remove" &&
+      tag === "deposit_paid" &&
+      conv.leadStage !== "proposed"
+    ) {
       const result = await leadStageService.forceTransition({
         conversacionId: conv.id,
         to: "proposed",
@@ -169,10 +211,14 @@ export async function handleContactStateEvent(
         note: "respond_io_deposit_paid_tag_removed",
       });
       log.info(
-        { contactId, from: result.ok ? result.from : null, success: result.ok },
+        {
+          contactId,
+          from: result.ok ? result.from : null,
+          success: result.ok,
+        },
         "deposit_paid removal drove server rollback to proposed",
       );
-      return { ok: true, action: "tag_event_ignored", reason: `removed:${tag}` };
+      return { ok: true, action: "tag_event_ignored", reason: `remove:${tag}` };
     }
     return {
       ok: true,
