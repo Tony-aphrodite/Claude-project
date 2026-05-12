@@ -1328,7 +1328,7 @@ export function pickScreenshotRejection(language: string | null): string {
   if (lang === "en") {
     return 'Thanks 🙏 Could you share the bank confirmation as a PDF instead of a screenshot? Most banks have a "Download" or "Export PDF" option in the transaction details. We need the PDF to validate the transfer properly.';
   }
-  return 'Gracias 🙏 ¿Podés compartir la confirmación del banco en PDF en vez de captura? La mayoría de los bancos tienen una opción "Descargar" o "Exportar PDF" en los detalles de la transacción. Necesitamos el PDF para validar la transferencia correctamente.';
+  return 'Gracias 🙏 ¿Puedes compartir la confirmación del banco en PDF en vez de captura? La mayoría de los bancos tienen una opción "Descargar" o "Exportar PDF" en los detalles de la transacción. Necesitamos el PDF para validar la transferencia correctamente.';
 }
 
 /**
@@ -1372,7 +1372,7 @@ export function pickOcrMismatchMessage(
   ) {
     return isEn
       ? `Just checked the receipt 🙏 The transfer is in ${extracted.currency} but the deposit was set in ${expectedCurrency}. Could you double-check? If it was a mistake, my colleague will help sort the refund / re-quote.`
-      : `Acabo de revisar el comprobante 🙏 La transferencia es en ${extracted.currency} pero el depósito quedó armado en ${expectedCurrency}. ¿Podés revisar? Si fue un error mi compañero/a te ayuda con el reembolso o el ajuste.`;
+      : `Acabo de revisar el comprobante 🙏 La transferencia es en ${extracted.currency} pero el depósito quedó armado en ${expectedCurrency}. ¿Puedes revisar? Si fue un error mi compañero/a te ayuda con el reembolso o el ajuste.`;
   }
 
   // CASE 2: amount way too low (< 80% of expected). This is the
@@ -1390,7 +1390,7 @@ export function pickOcrMismatchMessage(
     const ccy = expectedCurrency ?? "EUR";
     return isEn
       ? `Just checked the receipt 🙏 It shows ${extracted.amount} ${ccy} but the deposit for this booking is ${expectedAmount} ${ccy}. Could you check the transfer? You may need to send a top-up for the difference.`
-      : `Acabo de revisar el comprobante 🙏 Muestra ${extracted.amount} ${ccy} pero el depósito de esta reserva es ${expectedAmount} ${ccy}. ¿Podés revisar la transferencia? Quizá tengas que mandar la diferencia.`;
+      : `Acabo de revisar el comprobante 🙏 Muestra ${extracted.amount} ${ccy} pero el depósito de esta reserva es ${expectedAmount} ${ccy}. ¿Puedes revisar la transferencia? Quizá tengas que mandar la diferencia.`;
   }
 
   // CASE 3: amount way too high (> 130% of expected). Likely the wrong PDF
@@ -1407,7 +1407,7 @@ export function pickOcrMismatchMessage(
     const ccy = expectedCurrency ?? "EUR";
     return isEn
       ? `Just checked the receipt 🙏 The amount is ${extracted.amount} ${ccy} but the deposit for this booking is only ${expectedAmount} ${ccy}. Did you possibly send the wrong PDF? Let me know and my colleague will help sort it.`
-      : `Acabo de revisar el comprobante 🙏 El monto es ${extracted.amount} ${ccy} pero el depósito de esta reserva es solo ${expectedAmount} ${ccy}. ¿Es posible que hayas mandado el PDF equivocado? Avisame y mi compañero/a te ayuda.`;
+      : `Acabo de revisar el comprobante 🙏 El monto es ${extracted.amount} ${ccy} pero el depósito de esta reserva es solo ${expectedAmount} ${ccy}. ¿Es posible que hayas mandado el PDF equivocado? Avísame y mi compañero/a te ayuda.`;
   }
 
   // Everything else (ref_code mismatch alone, amount within 80-100%, etc.)
