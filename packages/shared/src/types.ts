@@ -379,6 +379,11 @@ export const consultarDisponibilidadInputSchema = z.object({
   sede_id: z.string().uuid(),
   programa: z.enum(AVAILABILITY_PROGRAMS),
   start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "ISO date YYYY-MM-DD"),
+  // Number of divers on this booking. Required so the server can stamp
+  // `pax` into lead_metadata and Respond.io custom fields, and so OCR
+  // can validate the deposit against `pax × per-person amount` instead
+  // of the per-person amount alone (2026-05-12 fraud-risk fix).
+  pax: z.number().int().min(1).max(20),
   // Only meaningful for FunDive / DeepAdvFD where the client picks AM or PM.
   // Ignored for fixed-schedule programs.
   fundive_slot: z.enum(SLOT_KEYS).optional(),
@@ -564,6 +569,12 @@ export const solicitarDepositoInputSchema = z.object({
   sede_id: z.string().uuid(),
   cliente_idioma: z.string().min(2).max(10),
   moneda_cliente: z.enum(SUPPORTED_DEPOSIT_CURRENCIES),
+  // Number of divers on this booking. The server stamps this into
+  // lead_metadata so the OCR auto-confirm step can validate the deposit
+  // against `pax × per-person amount` (added 2026-05-12 after Miguel
+  // demonstrated that the Bertrand-Klein 40 EUR PDF auto-validated a
+  // 2-pax booking that should have required 80 EUR).
+  pax: z.number().int().min(1).max(20),
 });
 
 export type SolicitarDepositoInput = z.infer<typeof solicitarDepositoInputSchema>;
@@ -572,7 +583,11 @@ export type SolicitarDepositoResult =
   | {
       ok: true;
       ref_code: string;
+      /** Per-person amount (e.g. 40 EUR). */
       monto: number;
+      /** Total the customer should transfer = monto × pax. */
+      monto_total: number;
+      pax: number;
       moneda: DepositCurrency;
       instrucciones: string;
       // True when this sede has an automatic gateway (Stripe) that will mark
@@ -619,7 +634,18 @@ export const LEAD_STAGE_TRANSITIONS: Record<LeadStage, LeadStage[]> = {
 
 export type LeadMetadata = {
   ref_code?: string;
+  /** Per-person deposit amount (e.g. 40 EUR). */
   deposit_amount?: number;
+  /**
+   * Total amount the customer should transfer = pax × deposit_amount.
+   * This is the value OCR validates against — comparing PDF amount to
+   * per-person would let a multi-pax booking auto-confirm on a 1-pax PDF
+   * (incident 2026-05-12: Bertrand Klein 40 EUR PDF auto-validated a
+   * 2-pax 80 EUR booking).
+   */
+  deposit_amount_total?: number;
+  /** Number of divers on this booking. Captured from solicitar_deposito. */
+  pax?: number;
   deposit_currency?: DepositCurrency;
   payment_instructions_snapshot?: string;
   requires_human_verification?: boolean;

@@ -282,11 +282,17 @@ export async function processIncomingMessage(
 
     if (conversation.leadStage === "deposit_pending") {
       const meta = (conversation.leadMetadata as LeadMetadata | null) ?? null;
+      // OCR target amount is the TOTAL (pax × per-person). Falls back to
+      // per-person for legacy conversations that don't have
+      // deposit_amount_total set — those were created before 2026-05-12 so
+      // they pre-date the fix; the fallback keeps them working at the
+      // (acknowledged) risk of accepting a 1-pax PDF on a multi-pax booking.
+      const expectedAmount = meta?.deposit_amount_total ?? meta?.deposit_amount;
       const expected =
-        meta?.ref_code && meta.deposit_amount && meta.deposit_currency
+        meta?.ref_code && expectedAmount && meta.deposit_currency
           ? {
               refCode: meta.ref_code,
-              amount: meta.deposit_amount,
+              amount: expectedAmount,
               currency: meta.deposit_currency,
             }
           : null;
@@ -676,6 +682,7 @@ export async function processIncomingMessage(
           metadataPatch: {
             programa: input.programa,
             start_date: input.start_date,
+            pax: input.pax,
           },
         })
         .catch(() => {});
@@ -688,6 +695,7 @@ export async function processIncomingMessage(
             branch: sede.nombre,
             programa: input.programa,
             start_date: input.start_date,
+            pax: input.pax,
           },
           language: detectedLanguageIso ?? undefined,
         })
@@ -768,6 +776,7 @@ export async function processIncomingMessage(
         metadataPatch: {
           programa: input.programa,
           start_date: input.start_date,
+          pax: input.pax,
         },
       })
       .catch(() => {});
@@ -782,6 +791,7 @@ export async function processIncomingMessage(
           programa: input.programa,
           turno: computeTurno(required) ?? "",
           start_date: input.start_date,
+          pax: input.pax,
         },
         language: detectedLanguageIso ?? undefined,
       })
@@ -819,7 +829,13 @@ export async function processIncomingMessage(
     // verify that from the AI side, so we trust the client's claim — but
     // we record the decision in lead_metadata for audit.
     const currency = input.moneda_cliente as DepositCurrency;
-    const monto = depositAmountFor(currency);
+    const monto = depositAmountFor(currency); // per-person, e.g. 40 EUR
+    const pax = input.pax;
+    // Total amount the customer should transfer. OCR validates the PDF
+    // against this number (incident 2026-05-12: a 40 EUR PDF auto-confirmed
+    // a 2-pax booking that required 80 EUR — root cause was OCR comparing
+    // the per-person amount instead of the booking total).
+    const montoTotal = monto * pax;
 
     // Reuse the existing reference code if this conversation already has
     // one (owner spec — never mint twice for the same lead). We look at
@@ -842,6 +858,7 @@ export async function processIncomingMessage(
       language: input.cliente_idioma,
       currency,
       refCode,
+      pax,
     });
 
     // Only transition to deposit_pending the first time the tool is
@@ -856,8 +873,12 @@ export async function processIncomingMessage(
         : `solicitar_deposito ${refCode} ${currency}`,
       metadataPatch: {
         ref_code: refCode,
-        deposit_amount: monto,
+        deposit_amount: monto, // per-person, kept for backward compat
+        deposit_amount_total: montoTotal, // pax × per-person — OCR target
         deposit_currency: currency,
+        pax,
+        programa: existingMeta?.programa, // preserve from consultar transition
+        start_date: existingMeta?.start_date,
         payment_instructions_snapshot: instrucciones,
         requires_human_verification: requiresHumanVerification,
       },
@@ -883,9 +904,10 @@ export async function processIncomingMessage(
         contactId: payload.contact.id,
         fields: {
           branch: sede.nombre,
-          monto,
+          monto: montoTotal, // Sheet Logger sees the total the customer paid
           moneda: currency,
           codigo_referencia: refCode,
+          pax,
         },
         language: detectedLanguageIso ?? undefined,
       })
@@ -897,6 +919,8 @@ export async function processIncomingMessage(
       ok: true,
       ref_code: refCode,
       monto,
+      monto_total: montoTotal,
+      pax,
       moneda: currency,
       instrucciones,
       requires_human_verification: requiresHumanVerification,

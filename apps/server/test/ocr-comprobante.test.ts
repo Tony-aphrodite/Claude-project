@@ -87,6 +87,30 @@ describe("reconcile — owner spec INSTRUCCIONES_PAGO §5 validation rules", () 
     expect(r.validated).toBe(false);
   });
 
+  // 2026-05-12 — beneficiary "soft match" tightening. Previously, a PDF
+  // whose ref code mismatched but whose amount + currency + beneficiary
+  // matched would auto-confirm with softMatch: "no_refcode_beneficiary_ok".
+  // Miguel demonstrated that this lets ANY prior DPM transfer (e.g.
+  // Bertrand Klein's 40 EUR Wise PDF from a different booking) re-validate
+  // a new conversation. The fallback now reports softMatch but keeps
+  // validated=false so the lead stays in deposit_pending for human review.
+  it("beneficiary soft match no longer auto-validates a ref-mismatched PDF", () => {
+    const r = reconcile(
+      {
+        amount: 40,
+        currency: "EUR",
+        beneficiary: "DPM Diving Gili T LLC",
+        refCode: "Virement de Bertrand KLEIN", // unrelated bank Libellé
+        date: "2026-05-07",
+      },
+      expected,
+      "DPM Diving Gili T LLC",
+    );
+    expect(r.validated).toBe(false);
+    expect(r.softMatch).toBe("no_refcode_beneficiary_ok");
+    expect(r.mismatches).toContain("ref_code_mismatch");
+  });
+
   it("scales tolerance with amount (IDR 700,000 ±2% = ±14,000)", () => {
     const idrExpected: ExpectedDeposit = { refCode: "DPM-IDR123", currency: "IDR", amount: 700_000 };
     // exact match

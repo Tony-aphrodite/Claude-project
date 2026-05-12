@@ -88,8 +88,18 @@ export const consultarDisponibilidadTool: Anthropic.Tool = {
           "Solo aplica a FunDive y DeepAdvFD donde el cliente elige el turno. " +
           "Omitir para los demás programas (la herramienta deduce los slots).",
       },
+      pax: {
+        type: "integer",
+        minimum: 1,
+        maximum: 20,
+        description:
+          "Cantidad de buzos en esta reserva. OBLIGATORIO — el servidor lo " +
+          "guarda en lead_metadata y lo usa para validar el monto del depósito " +
+          "(pax × monto por persona). Si el cliente todavía no aclaró cuántas " +
+          "personas son, PREGUNTÁ antes de llamar la herramienta — no asumas 1.",
+      },
     },
-    required: ["sede_id", "programa", "start_date"],
+    required: ["sede_id", "programa", "start_date", "pax"],
   },
 };
 

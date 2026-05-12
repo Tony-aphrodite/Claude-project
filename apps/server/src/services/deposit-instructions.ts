@@ -42,6 +42,15 @@ export type BuildInstructionsInput = {
   language: string;
   currency: DepositCurrency;
   refCode: string;
+  /**
+   * Number of divers on the booking. Used to compute the TOTAL the
+   * customer should transfer (pax × per-person). Until 2026-05-12 the
+   * bank block always quoted the per-person amount, which led customers
+   * to under-pay for multi-pax bookings and OCR auto-confirm to accept
+   * the under-payment. Defaults to 1 only as a safety net — callers
+   * SHOULD always pass the real pax captured from `solicitar_deposito`.
+   */
+  pax?: number;
 };
 
 const HEAD_EN = (amt: string, ccy: string) =>
@@ -95,8 +104,8 @@ const BANK_BLOCKS_EN: Record<DepositCurrency, string[]> = {
   ],
 };
 
-function formatAmount(currency: DepositCurrency): string {
-  const amt = depositAmountFor(currency);
+function formatAmount(currency: DepositCurrency, pax: number = 1): string {
+  const amt = depositAmountFor(currency) * Math.max(pax, 1);
   // IDR uses thousand separators (700,000); the others stay as plain "40".
   return currency === "IDR" ? amt.toLocaleString("en-US") : String(amt);
 }
@@ -114,7 +123,7 @@ function formatAmount(currency: DepositCurrency): string {
  */
 export function buildPaymentInstructions(input: BuildInstructionsInput): string {
   const isEnglish = !input.language.toLowerCase().startsWith("es");
-  const amt = formatAmount(input.currency);
+  const amt = formatAmount(input.currency, input.pax ?? 1);
   const head = isEnglish ? HEAD_EN(amt, input.currency) : HEAD_ES(amt, input.currency);
   const lines = BANK_BLOCKS_EN[input.currency];
   const requiresPdf = input.currency !== "IDR";

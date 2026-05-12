@@ -56,8 +56,18 @@ export const solicitarDepositoTool: Anthropic.Tool = {
           "Moneda en la que el cliente prefiere pagar el depósito. " +
           "IDR SOLO si el cliente tiene cuenta bancaria local indonesia.",
       },
+      pax: {
+        type: "integer",
+        minimum: 1,
+        maximum: 20,
+        description:
+          "Cantidad de buzos en esta reserva. OBLIGATORIO — el servidor multiplica " +
+          "el monto por persona por este valor para validar el comprobante de pago " +
+          "vía OCR. Sin este valor un cliente con 2 buzos podría reutilizar un PDF " +
+          "de 40 EUR (1 persona) y validar la reserva (incidente 2026-05-12).",
+      },
     },
-    required: ["sede_id", "cliente_idioma", "moneda_cliente"],
+    required: ["sede_id", "cliente_idioma", "moneda_cliente", "pax"],
   },
 };
 

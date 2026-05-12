@@ -211,9 +211,15 @@ export function reconcile(
     return { mismatches: [], validated: true };
   }
 
-  // Beneficiary fallback: when the ONLY problem is the ref code, but
-  // amount + currency match AND the extracted beneficiary clearly maps
-  // to DPM (any of the legal names from KB-03), accept the transfer.
+  // Beneficiary "soft match" — when the ONLY problem is the ref code,
+  // but amount + currency match AND the extracted beneficiary maps to a
+  // DPM legal name, we used to AUTO-CONFIRM. That was retired 2026-05-12
+  // after Miguel showed that ANY prior DPM PDF (e.g. Bertrand Klein's
+  // 40 EUR Wise transfer from a different booking) would auto-validate
+  // a new conversation as long as amount + beneficiary matched. Real
+  // customers can mis-type the ref code, so we still SURFACE the soft
+  // match to the panel for human review — but `validated: false` keeps
+  // the lead in `deposit_pending` until an operator clicks Confirm.
   const onlyRefCodeIssue =
     refCodeOk === false &&
     amountOk &&
@@ -222,12 +228,10 @@ export function reconcile(
   if (onlyRefCodeIssue && expectedBeneficiary && extraction.beneficiary) {
     const extBenef = extraction.beneficiary.replace(/\s+/g, "").toUpperCase();
     const expBenef = expectedBeneficiary.replace(/\s+/g, "").toUpperCase();
-    // Substring either direction — Vision sometimes returns just "DPM
-    // Diving" or the full "DPM Diving Gili T LLC". Both should match.
     if (extBenef.includes(expBenef) || expBenef.includes(extBenef)) {
       return {
-        mismatches: [],
-        validated: true,
+        mismatches,
+        validated: false,
         softMatch: "no_refcode_beneficiary_ok",
       };
     }
