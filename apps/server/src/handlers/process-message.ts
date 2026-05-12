@@ -41,7 +41,7 @@ import { depositAmountFor } from "@dpm/shared";
 
 import { errores, getDb, mensajes } from "@dpm/db";
 
-import { loadEnv } from "../env.js";
+import { loadEnv, resolveHandoffEmail } from "../env.js";
 import { callClaude } from "../services/anthropic.js";
 import { appsScriptService } from "../services/apps-script.js";
 import { bookableSlots } from "../services/bookable-slots.js";
@@ -490,8 +490,7 @@ export async function processIncomingMessage(
 
           // 4. Queue gilit@dpmdiving.com notification (Wise-side already
           // active per §8; this is the in-AI redundancy).
-          const targetEmail =
-            loadEnv().HANDOFF_NOTIFICATION_EMAIL ?? "gilit@dpmdiving.com";
+          const targetEmail = resolveHandoffEmail(log);
           await getDb()
             .insert(errores)
             .values({

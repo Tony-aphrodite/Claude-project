@@ -48,6 +48,11 @@ const envSchema = z.object({
    * provided them at the time of this commit), the server logs a structured
    * `handoff_email_pending` entry and the actual send happens when the
    * email transport is configured.
+   *
+   * The default value is the sede team mailbox. We don't refuse non-dpm
+   * addresses at boot (would crash production if Railway was left with a
+   * stale value) — the caller is responsible for the recipient check at
+   * use-time. See `resolveHandoffEmail()` in this file.
    */
   HANDOFF_NOTIFICATION_EMAIL: z
     .string()
@@ -96,4 +101,36 @@ export function loadEnv(): Env {
   }
   _env = parsed.data;
   return _env;
+}
+
+const HANDOFF_EMAIL_FALLBACK = "gilit@dpmdiving.com";
+
+/**
+ * Resolve the recipient for "lead handed off" notifications. Enforces a
+ * sede-domain check at use-time (instead of at boot) so a stale Railway
+ * env value can't silently route customer-confirmation notifications to a
+ * personal mailbox — but a misconfigured env doesn't crash the server
+ * either. When the configured value doesn't end in `@dpmdiving.com` we
+ * log a structured warn and fall back to the canonical sede address.
+ *
+ * 2026-05-12 incident this guards against: Railway env had
+ * `aupwork00@gmail.com` (Steve's dev mailbox) left over from the first
+ * week of testing. Five OCR auto-confirm notifications leaked to that
+ * personal Gmail before Miguel caught it. The fix is two-layer: update
+ * Railway env to the right value, AND have the code refuse to use any
+ * non-@dpmdiving.com address regardless of how Railway is configured.
+ */
+export function resolveHandoffEmail(
+  logger?: { warn: (obj: unknown, msg: string) => void },
+): string {
+  const env = loadEnv();
+  const configured = env.HANDOFF_NOTIFICATION_EMAIL;
+  if (!configured || !configured.toLowerCase().endsWith("@dpmdiving.com")) {
+    logger?.warn(
+      { configured, fallback: HANDOFF_EMAIL_FALLBACK },
+      "HANDOFF_NOTIFICATION_EMAIL is not a @dpmdiving.com address — using fallback",
+    );
+    return HANDOFF_EMAIL_FALLBACK;
+  }
+  return configured;
 }
