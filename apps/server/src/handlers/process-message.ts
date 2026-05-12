@@ -430,6 +430,59 @@ export async function processIncomingMessage(
             log.warn({ err }, "ocr_result metadata patch failed"),
           );
 
+        // OCR rejection auto-message for clear cases (5-12-feedback follow-up).
+        // When the verdict is validated=false AND the mismatch is unambiguous
+        // (currency wrong / amount way off), send a specific message so the
+        // customer knows what to fix without waiting for human review. Stays
+        // silent on ambiguous mismatches (ref-code typo, amount within
+        // ±20% — could be bank fees) to preserve the operator-decides path.
+        if (
+          ocrVerdict.ok === true &&
+          ocrVerdict.validated === false &&
+          expected
+        ) {
+          const mismatchMessage = pickOcrMismatchMessage(
+            ocrVerdict,
+            expected.amount,
+            expected.currency,
+            language,
+          );
+          if (mismatchMessage) {
+            try {
+              await respondIoClient.sendMessage({
+                conversationId:
+                  payload.conversation?.id ?? conversation.respondIoConversationId,
+                contactId: payload.contact.id,
+                text: mismatchMessage,
+              });
+              await getDb()
+                .insert(mensajes)
+                .values({
+                  conversacionId: conversation.id,
+                  sender: "ai",
+                  content: mismatchMessage,
+                  metadata: {
+                    synthetic: true,
+                    reason: "ocr_mismatch_auto_message",
+                    mismatches: ocrVerdict.mismatches,
+                  },
+                })
+                .catch((err) =>
+                  log.warn({ err }, "failed to persist ocr_mismatch mensaje"),
+                );
+              log.info(
+                {
+                  convId: conversation.id,
+                  mismatches: ocrVerdict.mismatches,
+                },
+                "ocr mismatch auto-message sent",
+              );
+            } catch (err) {
+              log.warn({ err }, "ocr mismatch auto-message send failed");
+            }
+          }
+        }
+
         // Auto-confirm path. Owner spec DPM_AI_LAUNCH 2026-05-07 reply
         // §3 + §4: the post-venta workflow is wired in Respond.io and
         // dispatches snippets (gten_paperwork with sizes, predive_tips,
@@ -1225,4 +1278,89 @@ export function pickScreenshotRejection(language: string | null): string {
     return 'Thanks 🙏 Could you share the bank confirmation as a PDF instead of a screenshot? Most banks have a "Download" or "Export PDF" option in the transaction details. We need the PDF to validate the transfer properly.';
   }
   return 'Gracias 🙏 ¿Podés compartir la confirmación del banco en PDF en vez de captura? La mayoría de los bancos tienen una opción "Descargar" o "Exportar PDF" en los detalles de la transacción. Necesitamos el PDF para validar la transferencia correctamente.';
+}
+
+/**
+ * Customer-facing message for unambiguous OCR mismatches. Sent ~3-5s after
+ * the generic comprobante ACK so the customer sees:
+ *   1. "Recibido, gracias 🙏 Déjame confirmar..."   (the ACK)
+ *   2. "Acabo de revisar — veo X EUR pero el depósito es Y EUR..."   (this)
+ *
+ * Returns null for AMBIGUOUS mismatches (e.g. ref_code typo, amount within
+ * 80-100% which could be bank fees). Those stay silent so the operator can
+ * decide: confirm manually, or message the customer with the right correction.
+ *
+ * The thresholds are conservative on purpose. False positive (telling a
+ * real-paying customer their PDF is wrong) erodes trust much faster than
+ * false negative (silent rejection that operator catches later).
+ *
+ * Spec source: §3 of 5-12-feedback follow-up — 2026-05-12 Miguel asked
+ * what the workflow should be when OCR rejects; this is the clear-case
+ * subset that's safe to auto-reply to.
+ */
+export function pickOcrMismatchMessage(
+  ocr: import("../services/ocr-comprobante.js").OcrVerdict,
+  expectedAmount: number | null,
+  expectedCurrency: string | null,
+  language: string | null,
+): string | null {
+  if (!ocr.ok || ocr.validated) return null;
+  const mismatches = ocr.mismatches ?? [];
+  const extracted = ocr.extraction;
+  const lang = (language ?? "es").slice(0, 2).toLowerCase();
+  const isEn = lang === "en";
+
+  // CASE 1: currency mismatch (e.g. paid USD when EUR expected). Unambiguous
+  // — different currency means the customer transferred to the wrong account
+  // OR misread the instructions. Always worth flagging.
+  if (
+    mismatches.includes("currency_mismatch") &&
+    extracted?.currency &&
+    expectedCurrency &&
+    extracted.currency !== expectedCurrency
+  ) {
+    return isEn
+      ? `Just checked the receipt 🙏 The transfer is in ${extracted.currency} but the deposit was set in ${expectedCurrency}. Could you double-check? If it was a mistake, my colleague will help sort the refund / re-quote.`
+      : `Acabo de revisar el comprobante 🙏 La transferencia es en ${extracted.currency} pero el depósito quedó armado en ${expectedCurrency}. ¿Podés revisar? Si fue un error mi compañero/a te ayuda con el reembolso o el ajuste.`;
+  }
+
+  // CASE 2: amount way too low (< 80% of expected). This is the
+  // Bertrand-Klein scenario: 40 EUR PDF for an 80 EUR booking. Clear
+  // under-payment, worth telling the customer immediately so they can
+  // top up before the human team gets to it.
+  if (
+    mismatches.includes("amount_too_low") &&
+    extracted?.amount !== null &&
+    extracted?.amount !== undefined &&
+    expectedAmount !== null &&
+    expectedAmount > 0 &&
+    extracted.amount < expectedAmount * 0.8
+  ) {
+    const ccy = expectedCurrency ?? "EUR";
+    return isEn
+      ? `Just checked the receipt 🙏 It shows ${extracted.amount} ${ccy} but the deposit for this booking is ${expectedAmount} ${ccy}. Could you check the transfer? You may need to send a top-up for the difference.`
+      : `Acabo de revisar el comprobante 🙏 Muestra ${extracted.amount} ${ccy} pero el depósito de esta reserva es ${expectedAmount} ${ccy}. ¿Podés revisar la transferencia? Quizá tengas que mandar la diferencia.`;
+  }
+
+  // CASE 3: amount way too high (> 130% of expected). Likely the wrong PDF
+  // entirely or a duplicate payment. Worth flagging so the customer can
+  // confirm vs raising a complaint later.
+  if (
+    mismatches.includes("amount_too_high") &&
+    extracted?.amount !== null &&
+    extracted?.amount !== undefined &&
+    expectedAmount !== null &&
+    expectedAmount > 0 &&
+    extracted.amount > expectedAmount * 1.3
+  ) {
+    const ccy = expectedCurrency ?? "EUR";
+    return isEn
+      ? `Just checked the receipt 🙏 The amount is ${extracted.amount} ${ccy} but the deposit for this booking is only ${expectedAmount} ${ccy}. Did you possibly send the wrong PDF? Let me know and my colleague will help sort it.`
+      : `Acabo de revisar el comprobante 🙏 El monto es ${extracted.amount} ${ccy} pero el depósito de esta reserva es solo ${expectedAmount} ${ccy}. ¿Es posible que hayas mandado el PDF equivocado? Avisame y mi compañero/a te ayuda.`;
+  }
+
+  // Everything else (ref_code mismatch alone, amount within 80-100%, etc.)
+  // stays silent — operator review path. False positives here would tell a
+  // real-paying customer "your PDF is wrong" which is the worst UX.
+  return null;
 }
