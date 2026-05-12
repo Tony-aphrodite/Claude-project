@@ -32,6 +32,8 @@ Miguel created 4 webhooks pointing at `https://dpmserver-production.up.railway.a
 3. `Cesionario de contactos actualizado` (assignee.updated)
 4. `Etiqueta de contacto actualizada` (single v2 event covers BOTH tag.added and tag.removed)
 
+**UI clarification from Miguel:** Respond.io v2's webhook config is one-event-per-webhook (no checkboxes for multiple events on the same webhook URL — only "URL endpoint" + a single-event dropdown). So instead of one webhook with 4 event checkboxes, the workspace has 4 separate webhook entries all pointing to our same URL. Functionally identical from our side: our Fastify handler branches on `event_type` in the payload, so whether the same event comes through Webhook #2 or Webhook #4 is invisible to our code.
+
 Bidirectional sync incoming side is now live as far as Respond.io knows. Our handler is wired (commit `6d00ed7` plus the v2-unified-tag handling in `cfee0e7`) and dormant until an operator-side change actually fires an event.
 
 **Verification status:** no `by: "human"` transitions in the DB yet — Miguel hasn't done a test operator action. Will become visible when:
