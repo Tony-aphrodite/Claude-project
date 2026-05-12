@@ -163,3 +163,6 @@ local-data/
 # OS
 .DS_Store
 Thumbs.db
+
+# Snapshot folders for client-sent prompt updates (originals live in /information/)
+Update prompt/

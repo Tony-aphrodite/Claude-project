@@ -8,7 +8,7 @@
 
 **Sede:** Gili Trawangan
 **Moneda base:** IDR (Rupias indonesias)
-**Última actualización:** 2026-05-07
+**Última actualización:** 2026-05-12 (v2.1 — patch 3 snorkel→Try Scuba, fix tú en frase Night Dive)
 
 ---
 
@@ -266,7 +266,7 @@ Cliente llega 12:00 PM al centro.
 
 - **Buceo nocturno** → derivar a Gili Air (Colomba)
 - **Divemaster training** → derivar a Gili Air
-- **Snorkel guiado**
+- **Snorkel guiado** → **convertir a Try Scuba** (ver `#snorkel-try-scuba`)
 - **Programas para menores de 8 años**
 
 ### Frase de derivación
@@ -278,6 +278,37 @@ Cliente llega 12:00 PM al centro.
 ### Excepción — Night Dive (sí derivar a Gili Air)
 
 - 🇪🇸 ES: "No ofrecemos buceo nocturno en Gili T, pero sí en nuestra
-  sede de Gili Air. ¿Querés que te conecte? 🤿"
+  sede de Gili Air. ¿Quieres que te conecte? 🤿"
 - 🇬🇧 EN: "We don't offer night dives in Gili T — our Gili Air
   location does! Want me to connect you? 🤿"
+
+---
+
+## Snorkel → Try Scuba (reconversión) {#snorkel-try-scuba}
+
+> Patch 3 (v2.1) — Reconversión activa.
+
+GT no ofrece snorkel guiado, pero un cliente que pregunta por snorkel
+es un cliente convertible a Try Scuba. La reconversión es activa, no
+escalación pasiva.
+
+**Patrón:** ofrecer Try Scuba con gancho (tortugas, profundidad,
+instructor), posicionándolo como upgrade natural del snorkel —
+mismo precio rango, experiencia mucho más completa.
+
+- 🇪🇸 ES: "Snorkel guiado no ofrecemos, pero ya que vas a estar bajo
+  el agua — ¿probaste alguna vez bucear? Por un poco más haces algo
+  mucho más completo, ves tortugas de cerca y bajas hasta 12m con
+  instructor 🤿"
+- 🇬🇧 EN: "We don't offer guided snorkeling, but since you're going
+  underwater anyway — have you tried diving? For a bit more you get
+  something way more complete, see turtles up close and go down to
+  12m with an instructor 🤿"
+
+Después de la reconversión:
+- Si el cliente acepta Try Scuba → seguir el flujo normal (calificar
+  + cotizar + cerrar).
+- Si insiste en snorkel sin querer bucear → ahí sí escalar a humano
+  con `out_of_scope` (es un programa que GT no ofrece).
+
+NO escalar automáticamente sin intentar la reconversión primero.

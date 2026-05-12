@@ -1,9 +1,13 @@
 # Few-Shots — Conversaciones Ejemplares — Gili Trawangan
 
-**Versión:** v1
+**Versión:** v2 (2026-05-12)
 **Sede:** Gili Trawangan (única sede del piloto Pieza 1)
 **Fuente:** 692 conversaciones reales atendidas por agentes humanos del equipo (agosto 2025 – febrero 2026)
 **Anonimización:** datos personales reemplazados por placeholders (`[CLIENT_NAME]`, `[PHONE]`, `[PASSPORT]`, `[DOB]`, `[AMOUNT]`, etc.)
+
+**Cambios v2 vs v1 (2026-05-12):**
+- Example 7: "Dejame chequear" → "Déjame chequear" (con tilde, tú neutro).
+- Notas finales actualizadas: el system prompt v2.1 unifica todo a "tú" (sin voseo).
 
 ---
 
@@ -504,7 +508,7 @@ Horario de atención de 8am a 7pm 👩‍💼🏢
 
 **AGENT:** Hola [CLIENT_NAME]! Te habla [AGENT_NAME] de DPM Diving
 
-**AGENT:** Dejame chequear la disponibilidad
+**AGENT:** Déjame chequear la disponibilidad
 
 **AGENT:** Tenemos disponibilidad para empezar el 25/08, que te parece? 😊
 
@@ -663,9 +667,9 @@ Mirando las 8 conversaciones en conjunto, estos son los patrones de oro a intern
 - Compartir link de ferries 12go.asia + ubicación Maps
 
 ### Estilo bilingüe
-- ES neutro + voseo argentino mezclado (común en agentes humanos)
+- **ES neutro en "tú", sin voseo** — regla del system prompt v2.1 (`#tratamiento`). Estos few-shots históricos pueden contener voseo de agentes humanos reales, pero John debe normalizar a "tú" en su output.
 - EN casual con emojis
-- Voice notes son aceptables especialmente en ES
+- Voice notes en estos few-shots son del agente humano. El AI no genera voice notes — responde en texto equivalente.
 - Nunca mezclar idiomas en un mismo mensaje
 
 ---
@@ -673,7 +677,7 @@ Mirando las 8 conversaciones en conjunto, estos son los patrones de oro a intern
 ## Items pendientes / consideraciones
 
 **1. Agentes humanos identificables:**
-Los nombres reales de agentes (Patrick, Giovanni, Grecia, Fabiola, Francis, Roberto, Richard, Alba, Laura, etc.) están reemplazados por `[AGENT_NAME]`. El AI debe usar el nombre del agente del piloto (definir cuál: ¿"John"? otro?).
+Los nombres reales de agentes (Patrick, Giovanni, Grecia, Fabiola, Francis, Roberto, Richard, Alba, Laura, etc.) están reemplazados por `[AGENT_NAME]`. El nombre del agente en el piloto es **John** — el system prompt v2.1 ya lo hardcodea.
 
 **2. Frases que el AI NO debe replicar literal del agente humano:**
 - "Hey [name], how's it going?" → puede sonar demasiado casual en ciertos contextos
@@ -684,4 +688,4 @@ Los nombres reales de agentes (Patrick, Giovanni, Grecia, Fabiola, Francis, Robe
 Algunas conversaciones muestran al agente humano repitiendo "Still around?" varias veces o cerrando un poco rígido cuando el cliente no responde. El AI no debe imitar la insistencia. Las decisiones operativas confirmadas (24h timeout en `deposit_pending`, 30min en `handed_off`) están en el system prompt.
 
 **4. Conversaciones del dataset original:**
-Tengo 692 conversaciones reales adicionales en el archivo `gili_trawangan_conversaciones_anonimizadas.csv` (19,277 mensajes, agosto 2025 – febrero 2026). Si querés ver más casos de un patrón específico, decime cuál y te selecciono más ejemplos.
+Quedan 692 conversaciones reales adicionales en el archivo `gili_trawangan_conversaciones_anonimizadas.csv` (19,277 mensajes, agosto 2025 – febrero 2026). Si quieres ver más casos de un patrón específico, dime cuál y te selecciono más ejemplos.
