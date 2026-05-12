@@ -31,10 +31,10 @@ import {
 } from "@dpm/shared";
 
 import { getLogger } from "../logger.js";
-// respondIoClient + RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE were imported here
-// when we tried to push lifecycle updates on every transition. Respond.io
-// v2 silently ignores lifecycle changes via the contact PUT endpoint, so
-// the call was removed. The map stays in respond-io.ts as documentation.
+// Lifecycle is driven via Respond.io workflow webhooks (5-12-feedback-round2
+// Option D), NOT via the contact PUT endpoint which silently drops the
+// lifecycle field. See `services/lifecycle-webhook.ts` for the actual call.
+import { triggerLifecycleWebhook } from "./lifecycle-webhook.js";
 
 export type TransitionActor = "ai" | "human" | "system" | "negative_intent";
 
@@ -177,17 +177,15 @@ export class LeadStageService {
       "lead_stage transition",
     );
 
-    // Note (2026-05-12): we used to fire `respondIoClient.updateContactLifecycle`
-    // here so Miguel's "Lifecycle changes to X" workflow triggers would
-    // pick up our state machine moves. Probe confirmed Respond.io v2
-    // SILENTLY IGNORES the `lifecycle` key on PUT /contact/id:{id}
-    // (every variant returns 200 with no actual change) and there's no
-    // dedicated lifecycle endpoint either. Lifecycle in v2 is operator-
-    // and workflow-only. Removed the wasted API call. To drive lifecycle
-    // changes from the server, route them through TAG changes — Miguel
-    // can configure a workflow "When `deposit_paid` added → set lifecycle
-    // Customer". The map RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE stays in
-    // respond-io.ts as documentation of the intended mapping.
+    // 5-12-feedback-round2 Option D — fire the matching lifecycle webhook
+    // so Miguel's Respond.io workflow updates the contact's lifecycle.
+    // Fire-and-forget; the function logs failures and never throws.
+    if (updated.respondIoContactId) {
+      void triggerLifecycleWebhook({
+        leadStage: input.to,
+        respondIoContactId: updated.respondIoContactId,
+      });
+    }
 
     return { ok: true, conversation: updated, from, to: input.to };
   }

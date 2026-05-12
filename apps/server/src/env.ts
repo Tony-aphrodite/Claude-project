@@ -78,6 +78,28 @@ const envSchema = z.object({
    */
   ADMIN_RESET_TOKEN: z.string().min(24).optional().or(z.literal("")),
 
+  /**
+   * Per-lifecycle Respond.io workflow webhook URLs (5-12-feedback-round2
+   * Option D, 2026-05-12). Miguel creates one workflow per lifecycle
+   * target with an Incoming Webhook trigger + "Update Lifecycle" step,
+   * and shares the 5 generated URLs.
+   *
+   * On every `leadStageService.applyTransition`, the server picks the
+   * URL matching the new lead_stage and POSTs `{contactId: ...}` so the
+   * workflow fires and updates the Respond.io contact's lifecycle.
+   * Respond.io v2's contact PUT endpoint silently drops the `lifecycle`
+   * field (probed extensively 2026-05-12), so the workflow-trigger path
+   * is the ONLY way to drive lifecycle from server logic.
+   *
+   * Each URL is independent — missing one just disables sync for that
+   * stage. Empty / undefined disables the whole feature gracefully.
+   */
+  RESPONDIO_LIFECYCLE_WEBHOOK_NEW_LEAD: z.string().url().optional().or(z.literal("")),
+  RESPONDIO_LIFECYCLE_WEBHOOK_ENGAGING: z.string().url().optional().or(z.literal("")),
+  RESPONDIO_LIFECYCLE_WEBHOOK_FOLLOWING_UP: z.string().url().optional().or(z.literal("")),
+  RESPONDIO_LIFECYCLE_WEBHOOK_CUSTOMER: z.string().url().optional().or(z.literal("")),
+  RESPONDIO_LIFECYCLE_WEBHOOK_LOST_LEAD: z.string().url().optional().or(z.literal("")),
+
   SENTRY_DSN: z.string().url().optional().or(z.literal("")),
   AXIOM_TOKEN: z.string().optional().or(z.literal("")),
   AXIOM_DATASET: z.string().default("dpm-server-prod"),

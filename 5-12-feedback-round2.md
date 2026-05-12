@@ -2,6 +2,50 @@
 
 Miguel's second feedback round after running 13 tests over 2 hours on top of our morning fixes. 7 perfect, 6 acceptable, 0 critical failures. Confirms the AI logic and most of round-1 fixes landed. Three architectural / wiring gaps remain.
 
+---
+
+## ✅ Round-2 resolution status (updated 2026-05-12 after Miguel's reply)
+
+Miguel picked **Option D (webhook-triggered workflows)** for lifecycle sync and committed to enabling the bidirectional webhook events on his side now. He also flagged 3 confirmation questions — answered with concrete verification below.
+
+### Decisions taken
+
+| Item | Decision / Status |
+|---|---|
+| Lifecycle sync path | **Option D (Incoming Webhook)** — Miguel will create 5 workflows tomorrow + share URLs |
+| Bidirectional sync activation | Miguel enabling `contact.tag.added/removed`, `contact.lifecycle.updated`, `conversation.assignee.updated` events NOW |
+| 7 missing custom fields | 4 shipped (sede / descuento_aplicado / early moneda / tag cleanup on reset); 3 by-design (Monto/codigo_referencia fill on deposit) |
+
+### Miguel's 3 confirmation questions — verified answers
+
+| # | Question | Verified answer |
+|---|---|---|
+| 1 | Email fix done? aupwork00@gmail.com → gilit@dpmdiving.com | **Yes, two-layer fix shipped.** Tony updated `HANDOFF_NOTIFICATION_EMAIL` on Railway earlier today, and our `resolveHandoffEmail()` helper (commit `6b2ad3c`) refuses any non-`@dpmdiving.com` address at use-time and falls back to `gilit@dpmdiving.com`. No live verification entry yet (no successful OCR auto-confirm has fired since the fix because today's tests rejected the PDFs correctly), but the code path is locked. |
+| 2 | Does Onboarding Piloto workflow filter on Idioma vs País now? | **Server side: we write to Respond.io's top-level `language` field** (visible in the contact card UI as "Idioma" in Spanish). Tony's contact GET shows `language = "es"` already populated by our server. There is NO separate "Idioma" custom field — Respond.io's UI just labels the built-in language field that way. Miguel's workflow needs to be configured to filter on this **top-level Idioma/language field, NOT País**. We can verify the WRITE side from our end (working) but can't verify Miguel's WORKFLOW filter without seeing his condition — that's the one edit Miguel still needs to make on his side. |
+| 3 | Portuguese language switch fixed (file path → "Obrigado")? | **Yes, shipped in commit `d9a9d08`.** `services/language.ts` now scrubs URLs / file paths / filenames before franc-min runs, then re-checks the length gate. 7 regression tests including the exact Bertrand-Klein input ("NO NINGUNA DUDA. file:///C:/Users/.../virement-de-bertrand-klein.pdf") — `detectLanguage` no longer returns "português" on it. |
+
+### Server-side Option D implementation — shipped same day
+
+`apps/server/src/services/lifecycle-webhook.ts` is wired into `leadStageService.applyTransition`. Behaviour:
+- Picks the matching URL from 5 env vars (`RESPONDIO_LIFECYCLE_WEBHOOK_NEW_LEAD` / `_ENGAGING` / `_FOLLOWING_UP` / `_CUSTOMER` / `_LOST_LEAD`).
+- Fire-and-forget POST `{contactId: ...}` to the URL.
+- When a URL isn't configured, silently skips (sync disabled for that stage — common during dev/staging).
+- Logs success / failure to standard pino logger; Respond.io workflow failures cannot block the server-side state machine.
+
+Mapping (matches `RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE` documentation in respond-io.ts):
+
+| lead_stage | Webhook env var | Respond.io lifecycle |
+|---|---|---|
+| `new` | `RESPONDIO_LIFECYCLE_WEBHOOK_NEW_LEAD` | New Lead |
+| `qualified`, `proposed` | `RESPONDIO_LIFECYCLE_WEBHOOK_ENGAGING` | Engaging |
+| `deposit_pending` | `RESPONDIO_LIFECYCLE_WEBHOOK_FOLLOWING_UP` | Following Up |
+| `deposit_paid`, `handed_off`, `closed` | `RESPONDIO_LIFECYCLE_WEBHOOK_CUSTOMER` | Customer |
+| `lost` | `RESPONDIO_LIFECYCLE_WEBHOOK_LOST_LEAD` | Lost Lead |
+
+Once Miguel sends the 5 URLs, Tony adds them as Railway env vars — lifecycle sync starts working immediately on the next state transition. No further code change needed.
+
+---
+
 > **Miguel's verbatim priority list (his order):**
 > 1. Lifecycle PATCH on every stage transition
 > 2. Remaining 7 custom fields wiring
