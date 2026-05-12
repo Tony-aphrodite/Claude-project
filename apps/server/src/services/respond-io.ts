@@ -83,12 +83,19 @@ export class RespondIoClient {
           "content-type": "application/json",
           authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
         },
+        // 2026-05-12 — correct Respond.io v2 format after thorough probing:
+        // - message.type must be "whatsapp_template" (NOT "template" — that
+        //   returns `Invalid field(s) : message.type = template`)
+        // - template.languageCode is flat camelCase (NOT `language: { code }`
+        //   nested object — that returns `Missing field(s) : template.languageCode`)
+        // Confirmed against the validator with a fake contact id: 404
+        // "Contact not found!" = shape passed, only the contact lookup failed.
         body: JSON.stringify({
           message: {
-            type: "template",
+            type: "whatsapp_template",
             template: {
               name: input.templateName,
-              language: { code: input.language },
+              languageCode: input.language,
               components: [
                 {
                   type: "body",

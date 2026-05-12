@@ -417,37 +417,18 @@ export class FollowUpProcessor {
           return "cancelled";
         }
         const variables = [name ?? "amigo"];
-        try {
-          await respondIoClient.sendTemplate({
-            conversationId: conv.respondIoConversationId,
-            contactId: conv.respondIoContactId,
-            templateName: template.name,
-            language: template.language,
-            variables,
-          });
-        } catch (err) {
-          // Respond.io v2 rejects our current sendTemplate body shape with
-          // `Invalid field(s) : message.type = template` (probed 2026-05-11).
-          // We don't have docs for the correct payload yet, so for now we
-          // cancel the follow-up rather than letting `runDue` retry it
-          // forever — the row stays as audit trail with a clear reason so
-          // ops can route it to a human agent if needed. Tomorrow's pilot
-          // launch isn't affected: level-1 (4h) follow-ups use plain text
-          // (sendMessage) which works fine.
-          const errMsg = (err as Error).message ?? "unknown";
-          log.warn(
-            { fuId: fu.id, level: fu.level, template: template.name, err: errMsg },
-            "follow-up template send failed — cancelling row to prevent retry loop",
-          );
-          await db
-            .update(followUps)
-            .set({
-              cancelledAt: new Date(),
-              cancellationReason: `template_send_unsupported:${errMsg.slice(0, 100)}`,
-            })
-            .where(eq(followUps.id, fu.id));
-          return "cancelled";
-        }
+        // 2026-05-12 fix verified: the correct Respond.io v2 template body
+        // shape (whatsapp_template type + flat languageCode) is now in
+        // respond-io.ts. Send normally — actual failures propagate to the
+        // outer catch and mark `failed` (re-tried next pass), not the
+        // permanent cancel we used to do for `Invalid field(s)`.
+        await respondIoClient.sendTemplate({
+          conversationId: conv.respondIoConversationId,
+          contactId: conv.respondIoContactId,
+          templateName: template.name,
+          language: template.language,
+          variables,
+        });
         await db
           .update(followUps)
           .set({
