@@ -126,14 +126,42 @@ export async function handleContactStateEvent(
   // it means the operator wants to undo the deposit confirmation. We
   // drop the stage back to `proposed` so the AI can re-engage the
   // deposit conversation without the operator having to fiddle with
-  // lifecycle. Tag ADDED events are noisy (the operator may apply
-  // tags for filtering, not for state) so we ignore them by default.
-  if (event === "contact.tag.removed") {
+  // lifecycle. Tag ADDED events are noisy (the operator may apply tags
+  // for filtering, not for state) so we ignore them by default.
+  //
+  // Respond.io v2 Spanish UI exposes a single event "Etiqueta de
+  // contacto actualizada" that fires for BOTH add and remove (Miguel
+  // 2026-05-12). The webhook payload distinguishes the two via an
+  // `action` (or `change`) field — we accept any of the candidate
+  // shapes since v2 has been moving the field name around.
+  if (
+    event === "contact.tag.removed" ||
+    event === "contact.tag.added" ||
+    event === "contact.tag.updated"
+  ) {
     const tag =
       readString(payload.data, "tag") ??
       readString(payload.payload, "tag") ??
       readString(payload, "tag");
-    if (tag === "deposit_paid" && conv.leadStage !== "proposed") {
+    // Infer add vs remove. Explicit event name wins; otherwise read
+    // an action/change/operation/type field from the payload.
+    const action =
+      event === "contact.tag.removed"
+        ? "removed"
+        : event === "contact.tag.added"
+          ? "added"
+          : readString(payload.data, "action") ??
+            readString(payload.payload, "action") ??
+            readString(payload, "action") ??
+            readString(payload.data, "change") ??
+            readString(payload.payload, "change") ??
+            readString(payload, "change") ??
+            readString(payload.data, "operation") ??
+            readString(payload.payload, "operation") ??
+            readString(payload, "operation") ??
+            null;
+
+    if (action === "removed" && tag === "deposit_paid" && conv.leadStage !== "proposed") {
       const result = await leadStageService.forceTransition({
         conversacionId: conv.id,
         to: "proposed",
@@ -144,8 +172,13 @@ export async function handleContactStateEvent(
         { contactId, from: result.ok ? result.from : null, success: result.ok },
         "deposit_paid removal drove server rollback to proposed",
       );
+      return { ok: true, action: "tag_event_ignored", reason: `removed:${tag}` };
     }
-    return { ok: true, action: "tag_event_ignored", reason: `removed:${tag ?? "unknown"}` };
+    return {
+      ok: true,
+      action: "tag_event_ignored",
+      reason: `${action ?? "unknown_action"}:${tag ?? "unknown_tag"}`,
+    };
   }
 
   return { ok: true, action: "tag_event_ignored", reason: event };

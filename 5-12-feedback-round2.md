@@ -24,6 +24,18 @@ Miguel picked **Option D (webhook-triggered workflows)** for lifecycle sync and 
 | 2 | Does Onboarding Piloto workflow filter on Idioma vs País now? | **Server side: we write to Respond.io's top-level `language` field** (visible in the contact card UI as "Idioma" in Spanish). Tony's contact GET shows `language = "es"` already populated by our server. There is NO separate "Idioma" custom field — Respond.io's UI just labels the built-in language field that way. Miguel's workflow needs to be configured to filter on this **top-level Idioma/language field, NOT País**. We can verify the WRITE side from our end (working) but can't verify Miguel's WORKFLOW filter without seeing his condition — that's the one edit Miguel still needs to make on his side. |
 | 3 | Portuguese language switch fixed (file path → "Obrigado")? | **Yes, shipped in commit `d9a9d08`.** `services/language.ts` now scrubs URLs / file paths / filenames before franc-min runs, then re-checks the length gate. 7 regression tests including the exact Bertrand-Klein input ("NO NINGUNA DUDA. file:///C:/Users/.../virement-de-bertrand-klein.pdf") — `detectLanguage` no longer returns "português" on it. |
 
+### Miguel's follow-up: webhook event URL question (2026-05-12 evening)
+
+After finding the v2 Spanish UI events page, Miguel reported THREE event types map to our handler:
+- "Ciclo de vida actualizado" → `contact.lifecycle.updated`
+- "Cesionario de contactos actualizado" → `conversation.assignee.updated`
+- "Etiqueta de contacto actualizada" → covers BOTH `contact.tag.added` and `contact.tag.removed`
+
+**Answer for Miguel:**
+- **URL**: `https://dpmserver-production.up.railway.app/webhook/respond-io` — the SAME URL Respond.io already uses for "Developer Webhook 1" (message events). All event types go through the same Fastify route; the handler branches on `event_type`.
+- **Configuration**: don't create 3 new webhook endpoints. **Add the 3 event-type checkboxes to the EXISTING "Developer Webhook 1"** (the one already receiving messages). One webhook config, multiple selected events.
+- **Tag add/remove handling**: v2's single "Etiqueta de contacto actualizada" event delivers BOTH adds and removes through one channel — the payload includes an `action` / `change` / `operation` field. The handler now inspects all those candidate field names so it works regardless of which exact key v2 settles on. Only `deposit_paid` *removed* drives a state rollback today; everything else is logged and ignored. Updated in this commit.
+
 ### Server-side Option D implementation — shipped same day
 
 `apps/server/src/services/lifecycle-webhook.ts` is wired into `leadStageService.applyTransition`. Behaviour:
