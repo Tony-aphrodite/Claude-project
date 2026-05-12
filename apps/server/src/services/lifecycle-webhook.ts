@@ -34,9 +34,21 @@ const keepAliveAgent = new Agent({
  * from env. Returns null when the URL isn't configured — caller treats
  * as "lifecycle sync disabled for this stage" and skips the call.
  *
- * The mapping mirrors `RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE` in
- * respond-io.ts so the lifecycle labels stay consistent: the same target
- * we'd use if Respond.io ever exposed direct API writes.
+ * Mapping per Miguel's actual Respond.io workspace stage names
+ * (2026-05-12 evening URL share):
+ *   our `new`                            → "New Lead"
+ *   our `qualified` / `proposed`         → "In process"
+ *   our `deposit_pending`                → "Payment"
+ *   our `deposit_paid` / `handed_off` / `closed`  → "Customer"
+ *   our `lost`                           → "LOST LEAD"
+ *
+ * "On hold" is a sixth lifecycle in Miguel's workspace but he keeps it
+ * as a manual decision by the human team — we don't auto-emit it.
+ *
+ * Env var names use the Respond.io stage labels (IN_PROCESS, PAYMENT)
+ * so they read consistently with the URLs in Railway. The labels we
+ * documented in respond-io.ts (Engaging / Following Up) were placeholder
+ * guesses before we knew Miguel's actual lifecycle config.
  */
 export function lifecycleWebhookUrlFor(leadStage: string): string | null {
   const env = loadEnv();
@@ -45,9 +57,9 @@ export function lifecycleWebhookUrlFor(leadStage: string): string | null {
       return env.RESPONDIO_LIFECYCLE_WEBHOOK_NEW_LEAD || null;
     case "qualified":
     case "proposed":
-      return env.RESPONDIO_LIFECYCLE_WEBHOOK_ENGAGING || null;
+      return env.RESPONDIO_LIFECYCLE_WEBHOOK_IN_PROCESS || null;
     case "deposit_pending":
-      return env.RESPONDIO_LIFECYCLE_WEBHOOK_FOLLOWING_UP || null;
+      return env.RESPONDIO_LIFECYCLE_WEBHOOK_PAYMENT || null;
     case "deposit_paid":
     case "handed_off":
     case "closed":

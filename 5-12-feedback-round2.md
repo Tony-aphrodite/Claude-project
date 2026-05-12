@@ -74,6 +74,56 @@ Mapping (matches `RESPOND_IO_LIFECYCLE_BY_LEAD_STAGE` documentation in respond-i
 
 Once Miguel sends the 5 URLs, Tony adds them as Railway env vars — lifecycle sync starts working immediately on the next state transition. No further code change needed.
 
+### Lifecycle workflow URLs received (2026-05-12 evening, post-c77c572)
+
+Miguel created 5 lifecycle workflows in Respond.io (Incoming Webhook trigger → Update Lifecycle Stage step). His actual workspace stage labels are NOT what we had guessed in the placeholder map — names are:
+
+| Our lead_stage | Miguel's actual lifecycle label | Webhook URL |
+|---|---|---|
+| `new` | New Lead | `https://hooks.respond.io/workflows/CCseYDVhevkF/AUJvpTKZnTpT` |
+| `qualified` / `proposed` | In process | `https://hooks.respond.io/workflows/iRStKYcYiLVU/HmYHPiwYgzTh` |
+| `deposit_pending` | Payment | `https://hooks.respond.io/workflows/EmiaZpZbPkLB/nHKzfhwgRGqD` |
+| `deposit_paid` / `handed_off` / `closed` | Customer | `https://hooks.respond.io/workflows/voNDFGHcGzYz/YcnjDyraisWH` |
+| `lost` | LOST LEAD | `https://hooks.respond.io/workflows/qfXMNHUPteUw/xdIHTfuxaEFz` |
+
+Miguel skipped "On hold" (6th lifecycle in his workspace) — kept as a manual operator decision when a client pauses. We don't auto-emit it.
+
+**Server-side rename:** env var names updated to match Miguel's actual labels (`RESPONDIO_LIFECYCLE_WEBHOOK_IN_PROCESS` / `_PAYMENT` instead of the old guesses `_ENGAGING` / `_FOLLOWING_UP`). Tony pastes these 5 URLs into Railway env vars; sync activates on the next lead_stage transition with no further deploy.
+
+### Onboarding Piloto workflow language fixed (Miguel-side, 2026-05-12 evening)
+
+Miguel confirmed the País → Idioma edit shipped on his side:
+- Before: 17-country `País` filter (Argentina, Spain, etc.) — would default Miguel's +62 Indonesia phone to non-Spanish branch even though he writes Spanish
+- After: built-in `Idioma` field, `es igual a Spanish`
+
+Aligned with the top-level `language` field our server already populates. Spanish-speaking customers in any country now route to the Spanish onboarding chain.
+
+### Webhook auto-disabled — server bug fixed (2026-05-12 late evening)
+
+Miguel reported Respond.io auto-disabled the "Sync - Ciclo de vida" webhook because the endpoint kept returning failed requests. Root cause: our webhook.ts ran the strict message-event zod schema BEFORE the event-type branch, so state events (lifecycle/tag/assignee) without a `message.{...}` payload always failed schema validation with HTTP 422. Respond.io counts 422 as a failure and disables after a threshold.
+
+Fix shipped: peek `event_type` directly off the normalized envelope BEFORE the message schema runs. State events route to `handleContactStateEvent` immediately (it reads the payload defensively, no strict schema needed); only the message path goes through the strict schema. Errors in the state-event handler return 200 with an `ignored` reason so Respond.io still sees a successful response.
+
+After Tony's push of this fix, Miguel re-enables the disabled webhook in Settings → Integrations → Webhooks → Sync - Ciclo de vida → toggle on.
+
+### Miguel's quick test (2026-05-12 evening, contact 208082561)
+
+Miguel did two operator actions to verify bidirectional sync:
+1. Removed `deposit_paid` tag from contact 208082561.
+2. Manually changed lifecycle New Lead → In process.
+
+**Status as of fix-deploy:** neither change resulted in a `by: "human"` transition in our DB because the webhook was either disabled or returning 422 at the moment of the test (per the schema bug above). After deploy + Miguel re-enabling the disabled webhook, the next operator action should fire correctly. Will verify with a fresh test.
+
+### System prompt + KB files for Miguel's v2.1 work
+
+Miguel requested the current `00_SYSTEM_PROMPT.md` + KB files so he can prepare the 11 prompt patches (voseo→tú, snorkel→Try Scuba, "1000 instructors" copy, etc.) and send back v2.1 for redeploy. Files are at `information/`:
+- `information/00_SYSTEM_PROMPT.md` — current v2.0 / v7 in Supabase
+- `information/KB01_programas_precios.md` … `KB06_roster_integration.md`
+- `information/FEW_SHOTS_GiliTrawangan.md`
+- `information/INSTRUCCIONES_PAGO_GiliTrawangansteve.md`
+
+Tony to send these to Miguel.
+
 ---
 
 > **Miguel's verbatim priority list (his order):**

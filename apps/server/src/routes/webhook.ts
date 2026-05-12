@@ -62,6 +62,45 @@ export async function webhookRoutes(app: FastifyInstance) {
     // shape our zod schema + downstream code expects. No-op for legacy
     // payloads.
     const normalized = normalizeRespondIoPayload(req.body);
+
+    // PEEK event_type BEFORE running the strict message schema.
+    //
+    // 2026-05-12 evening incident: Respond.io auto-disabled the
+    // "Sync - Ciclo de vida" webhook after too many failed requests.
+    // Root cause: state events (lifecycle.updated / tag.updated /
+    // assignee.updated) don't have the `message.{type,text,...}` fields
+    // the message schema requires, so safeParse returned 422 for every
+    // one. Respond.io counts 422s as failures and disables the webhook
+    // after a threshold. Fix: branch on event_type FIRST, run the
+    // strict schema only on the message path.
+    const peekedEvent =
+      typeof (normalized as { event?: unknown })?.event === "string"
+        ? ((normalized as { event: string }).event)
+        : null;
+    if (peekedEvent && isContactStateEvent(peekedEvent)) {
+      // Operator-side change in Respond.io (lifecycle moved, tag added/
+      // removed, conversation assignee changed). The handler reads the
+      // raw payload defensively — it doesn't need the message schema.
+      req.log.info(
+        { event: peekedEvent, contactId: (normalized as { contact?: { id?: unknown } })?.contact?.id ?? null },
+        "contact-state webhook received",
+      );
+      try {
+        const result = await handleContactStateEvent(
+          normalized as Parameters<typeof handleContactStateEvent>[0],
+          peekedEvent,
+          req.log,
+        );
+        return reply.send(result);
+      } catch (err) {
+        req.log.error({ err, event: peekedEvent }, "contact-state event failed");
+        // Respond with 200 so Respond.io doesn't count it as a failure
+        // and disable the webhook. The error is captured in logs for ops.
+        return reply.send({ ok: true, ignored: "contact_state_error" });
+      }
+    }
+
+    // Message path — strict schema.
     const parsed = respondIoIncomingMessageSchema.safeParse(normalized);
     if (!parsed.success) {
       req.log.warn({ issues: parsed.error.issues }, "webhook payload invalid");
@@ -98,22 +137,6 @@ export async function webhookRoutes(app: FastifyInstance) {
     );
     if (!event) {
       return reply.send({ ok: true, ignored: "missing_event" });
-    }
-    if (isContactStateEvent(event)) {
-      // Operator-side change in Respond.io (lifecycle moved, tag added/
-      // removed, conversation assignee changed). Forward to the sync
-      // handler which rolls our internal lead_stage back when needed so
-      // the AI can re-engage a contact the operator manually reset.
-      // Miguel must enable these event types in Respond.io workspace
-      // settings ("Webhook events" → check
-      // Contact / Lifecycle / Tag / Conversation Assignee events).
-      try {
-        const result = await handleContactStateEvent(parsed.data, event, req.log);
-        return reply.send(result);
-      } catch (err) {
-        req.log.error({ err, event }, "contact-state event failed");
-        return reply.send({ ok: true, ignored: "contact_state_error" });
-      }
     }
     if (!isMessageEvent(event)) {
       return reply.send({ ok: true, ignored: event });

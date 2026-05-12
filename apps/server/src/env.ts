@@ -95,8 +95,8 @@ const envSchema = z.object({
    * stage. Empty / undefined disables the whole feature gracefully.
    */
   RESPONDIO_LIFECYCLE_WEBHOOK_NEW_LEAD: z.string().url().optional().or(z.literal("")),
-  RESPONDIO_LIFECYCLE_WEBHOOK_ENGAGING: z.string().url().optional().or(z.literal("")),
-  RESPONDIO_LIFECYCLE_WEBHOOK_FOLLOWING_UP: z.string().url().optional().or(z.literal("")),
+  RESPONDIO_LIFECYCLE_WEBHOOK_IN_PROCESS: z.string().url().optional().or(z.literal("")),
+  RESPONDIO_LIFECYCLE_WEBHOOK_PAYMENT: z.string().url().optional().or(z.literal("")),
   RESPONDIO_LIFECYCLE_WEBHOOK_CUSTOMER: z.string().url().optional().or(z.literal("")),
   RESPONDIO_LIFECYCLE_WEBHOOK_LOST_LEAD: z.string().url().optional().or(z.literal("")),
 
