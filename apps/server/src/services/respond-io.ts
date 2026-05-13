@@ -390,53 +390,50 @@ export class RespondIoClient {
   async addContactTag(input: { contactId: string; tag: string }): Promise<void> {
     const env = loadEnv();
     const log = getLogger();
-    // Confirmed via Phase F variant probing on 2026-05-11: Respond.io v2's
-    // dedicated `POST /contact/id:{id}/tag` returns 400 "Tags: Cannot be
-    // empty" regardless of body shape. The canonical path is the unified
-    // `PUT /contact/id:{id}` with the entire tags array.
+    // CORRECT pattern, confirmed against the official respond.io
+    // TypeScript SDK on 2026-05-13:
+    //   POST /v2/contact/id:{id}/tag
+    //   Body: raw JSON array of tag-name strings — e.g. ["deposit_paid"]
+    //         NOT {"tags": ["deposit_paid"]}
     //
-    // CRITICAL (2026-05-11 incident): PUT semantics REPLACE the resource
-    // — sending `{tags: ["deposit_paid"]}` wipes out every other tag the
-    // contact had (ai-test, venta_completa, etc). That kills the pilot
-    // gate (no more ai-test → contact treated as a real customer) AND
-    // sometimes prevents Miguel's "tag added" workflow triggers from
-    // firing because the trigger uses the diff (which for a PUT that
-    // also drops other tags reads as "all replaced", not "deposit_paid
-    // added").
+    // Source: respond-io/typescript-sdk addTags() →
+    //   this.http.post(`/contact/${identifier}/tag`, tags)   // raw string[]
     //
-    // Fix: GET current tags first, merge our new tag in, then PUT the
-    // full union. Costs one extra Respond.io API call per add (~200ms)
-    // but preserves tag history correctly.
-    let existingTags: string[] = [];
-    try {
-      const current = await this.getContact(input.contactId);
-      existingTags = current?.tags ?? [];
-    } catch (err) {
-      log.warn(
-        { err: (err as Error).message, contactId: input.contactId },
-        "respond_io add_tag: getContact failed before merge — proceeding with new tag only (may drop other tags)",
-      );
-    }
-    const merged = Array.from(new Set([...existingTags, input.tag]));
-
-    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
+    // The previous implementation PUT to /contact/id:{id} with
+    // {"tags":[...]}. That endpoint returns 200 but silently drops the
+    // tags field (its body schema only knows about contact fields like
+    // firstName, phone, email, custom_fields). Tony verified this with
+    // a before/after GET on 2026-05-13: PUT 200, but Tags unchanged.
+    // Result: addContactTag had been a no-op in production since May —
+    // every deposit_paid / ai_escalation our server thought it applied
+    // never actually landed on the contact, which is why Miguel's
+    // panel "Confirmar" path produced no onboarding workflow run, no
+    // welcome snippets, and no Round Robin reassignment.
+    //
+    // The dedicated /tag endpoint adds tags additively (no need to GET
+    // existing tags first and merge — that was a workaround for the
+    // PUT-replaces-resource semantics that no longer applies). Adding
+    // an already-present tag is idempotent on Respond.io's side.
+    //
+    // Constraint per SDK: 1–10 tags per call, max 255 chars each.
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/tag`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
     try {
       const res = await undiciFetch(url, {
-        method: "PUT",
+        method: "POST",
         signal: controller.signal,
         dispatcher: keepAliveAgent,
         headers: {
           authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ tags: merged }),
+        body: JSON.stringify([input.tag]),
       } as RequestInit);
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         log.warn(
-          { status: res.status, body: body.slice(0, 300), tag: input.tag, tagCount: merged.length },
+          { status: res.status, body: body.slice(0, 300), tag: input.tag },
           "respond_io add_tag non-2xx",
         );
         throw new UpstreamError("respond_io", `add_tag ${res.status}`, {
@@ -445,7 +442,7 @@ export class RespondIoClient {
         });
       }
       log.info(
-        { contactId: input.contactId, tag: input.tag, tagsBefore: existingTags.length, tagsAfter: merged.length },
+        { contactId: input.contactId, tag: input.tag },
         "respond_io add_tag ok",
       );
     } catch (err) {
@@ -483,39 +480,39 @@ export class RespondIoClient {
   async removeContactTag(input: { contactId: string; tag: string }): Promise<void> {
     const env = loadEnv();
     const log = getLogger();
-    let current: Awaited<ReturnType<RespondIoClient["getContact"]>> = null;
-    try {
-      current = await this.getContact(input.contactId);
-    } catch (err) {
-      log.warn(
-        { err: (err as Error).message, contactId: input.contactId, tag: input.tag },
-        "respond_io remove_tag: getContact failed — skipping (no-op)",
-      );
-      return;
-    }
-    if (!current) return;
-    if (!current.tags.includes(input.tag)) {
-      log.info(
-        { contactId: input.contactId, tag: input.tag },
-        "respond_io remove_tag: tag already absent — no-op",
-      );
-      return;
-    }
-    const filtered = current.tags.filter((t) => t !== input.tag);
-    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`;
+    // Mirror of addContactTag — same canonical /tag sub-resource with a
+    // raw JSON array body, just DELETE instead of POST.
+    //   DELETE /v2/contact/id:{id}/tag
+    //   Body:  ["deposit_paid"]
+    //
+    // The old impl GET'd current tags, filtered out the target, then
+    // PUT the remainder to /contact/id:{id}. That PUT silently dropped
+    // the tags field (same 2026-05-13 bug as addContactTag), so
+    // removeContactTag had been a no-op in production too. Switching to
+    // the dedicated /tag endpoint with raw-array body fixes both.
+    //
+    // 404 / "tag not present" is treated as success (idempotent remove).
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/tag`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
     try {
       const res = await undiciFetch(url, {
-        method: "PUT",
+        method: "DELETE",
         signal: controller.signal,
         dispatcher: keepAliveAgent,
         headers: {
           authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({ tags: filtered }),
+        body: JSON.stringify([input.tag]),
       } as RequestInit);
+      if (res.status === 404) {
+        log.info(
+          { contactId: input.contactId, tag: input.tag },
+          "respond_io remove_tag: contact or tag absent — no-op",
+        );
+        return;
+      }
       if (!res.ok) {
         const body = await res.text().catch(() => "");
         log.warn(
@@ -528,7 +525,7 @@ export class RespondIoClient {
         });
       }
       log.info(
-        { contactId: input.contactId, tag: input.tag, tagsBefore: current.tags.length, tagsAfter: filtered.length },
+        { contactId: input.contactId, tag: input.tag },
         "respond_io remove_tag ok",
       );
     } catch (err) {
