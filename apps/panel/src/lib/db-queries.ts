@@ -321,6 +321,155 @@ export async function listSedes() {
 }
 
 /**
+ * Conversations where the AI auto-confirmed the deposit via OCR (Phase A,
+ * 2026-05-13). Powers the /depositos-auto safety-net dashboard: the sede
+ * team cross-references this list against the Wise/Mandiri/BCA emails
+ * landing in gilit@dpmdiving.com and flags any row where the bank email
+ * doesn't agree (Phase B per Miguel's 2026-05-13 spec).
+ *
+ * "Auto-confirmed" = `lead_metadata.ocr_result.validated === true` AND
+ * `lead_metadata.history` contains an entry with `note = "ocr_auto_confirmed"`.
+ * Filtering on history is the precise signal — `validated` alone would
+ * include manually-confirmed rows where the operator clicked Confirmar.
+ *
+ * Time scope:
+ *   • "today"   — auto-confirm happened on or after midnight Asia/Makassar
+ *                 (Gili Trawangan timezone, the only currently-piloted sede).
+ *   • "7d"      — last 7 days
+ *   • "all"     — every auto-confirm we've ever seen
+ *
+ * `flagged` flag is computed from the `errores` table: when the operator
+ * clicks Flag on a row we insert `errorType = "auto_confirm_review_requested"`
+ * (and Unflag inserts `errorType = "auto_confirm_review_resolved"`). The
+ * row counts as flagged when the latest of those two entries for that
+ * conversation is `_requested`.
+ *
+ * Returns the same shape as listDepositPending plus `flaggedAt`,
+ * `flaggedBy`, and `autoConfirmedAt` so the page can render without
+ * a second hop.
+ */
+export type AutoConfirmedScope = "today" | "7d" | "all";
+
+export async function listAutoConfirmedDeposits(
+  opts: { scope?: AutoConfirmedScope } = {},
+) {
+  const scope = opts.scope ?? "today";
+  if (isMockMode()) return [] as Array<{
+    conv: typeof conversaciones.$inferSelect;
+    contact: typeof chatContacts.$inferSelect | null;
+    sedeName: string | null;
+    autoConfirmedAt: string | null;
+    flaggedAt: Date | null;
+    flaggedBy: string | null;
+  }>;
+  const db = getDb();
+
+  // Cutoff for the time scope. Gili Trawangan is UTC+8 (Asia/Makassar).
+  // We compute "midnight in Makassar today" relative to the request time
+  // so the dashboard's "Hoy" stays consistent for the sede team regardless
+  // of where the operator opens the panel from.
+  const cutoffIso = (() => {
+    if (scope === "all") return null;
+    const now = new Date();
+    if (scope === "7d") {
+      return new Date(now.getTime() - 7 * 86_400_000).toISOString();
+    }
+    // "today" — start of day in Asia/Makassar
+    // Asia/Makassar is fixed UTC+8 (no DST), so we can compute without
+    // pulling a TZ database: format the current Makassar wall-clock day,
+    // then assume midnight local = (00:00 + 08:00) UTC the day before.
+    const makassarMs = now.getTime() + 8 * 3600_000;
+    const md = new Date(makassarMs);
+    const y = md.getUTCFullYear();
+    const m = md.getUTCMonth();
+    const d = md.getUTCDate();
+    // Midnight UTC for that Makassar day, then -8h to get the UTC instant
+    return new Date(Date.UTC(y, m, d, -8, 0, 0)).toISOString();
+  })();
+
+  // Rows where the OCR auto-confirmed (validated=true AND most-recent
+  // history entry note='ocr_auto_confirmed'). We pull the timestamp of
+  // that history entry as autoConfirmedAt for the column. JSONB array
+  // navigation in postgres: use jsonb_path_query_first to grab the most
+  // recent matching entry.
+  //
+  // Note: we filter ocr_result.validated = true first (cheap index-less
+  // scan via the JSONB operator), then in JS filter to the history.note
+  // match. For pilot volumes (<50 auto-confirms/day) this is fine; if it
+  // grows we add a materialized view.
+  const baseRows = await db
+    .select({
+      conv: conversaciones,
+      contact: chatContacts,
+      sedeName: sedes.nombre,
+    })
+    .from(conversaciones)
+    .leftJoin(
+      chatContacts,
+      eq(chatContacts.respondIoContactId, conversaciones.respondIoContactId),
+    )
+    .leftJoin(sedes, eq(sedes.id, conversaciones.sedeId))
+    .where(
+      sql`(${conversaciones.leadMetadata} -> 'ocr_result' ->> 'validated') = 'true'`,
+    )
+    .orderBy(desc(conversaciones.leadStageChangedAt))
+    .limit(200);
+
+  // Filter to actual auto-confirms (history entry with the canonical
+  // note) and resolve flag status.
+  const out: Array<{
+    conv: typeof conversaciones.$inferSelect;
+    contact: typeof chatContacts.$inferSelect | null;
+    sedeName: string | null;
+    autoConfirmedAt: string | null;
+    flaggedAt: Date | null;
+    flaggedBy: string | null;
+  }> = [];
+
+  for (const r of baseRows) {
+    const meta = (r.conv.leadMetadata ?? {}) as {
+      history?: Array<{ at?: string; note?: string }>;
+    };
+    const autoEntry = (meta.history ?? [])
+      .filter((h) => h?.note === "ocr_auto_confirmed")
+      .sort((a, b) =>
+        (b.at ?? "").localeCompare(a.at ?? ""),
+      )[0];
+    if (!autoEntry) continue;
+    if (cutoffIso && (autoEntry.at ?? "") < cutoffIso) continue;
+
+    // Flag status: most-recent error_type in {requested, resolved} for
+    // this conversation.
+    const flagRows = await db
+      .select()
+      .from(errores)
+      .where(
+        and(
+          eq(errores.conversacionId, r.conv.id),
+          sql`${errores.errorType} in ('auto_confirm_review_requested','auto_confirm_review_resolved')`,
+        ),
+      )
+      .orderBy(desc(errores.createdAt))
+      .limit(1);
+    const latestFlag = flagRows[0];
+    const flagged = latestFlag?.errorType === "auto_confirm_review_requested";
+
+    out.push({
+      conv: r.conv,
+      contact: r.contact,
+      sedeName: r.sedeName,
+      autoConfirmedAt: autoEntry.at ?? null,
+      flaggedAt: flagged ? latestFlag.createdAt : null,
+      flaggedBy:
+        flagged && latestFlag.context && typeof latestFlag.context === "object"
+          ? ((latestFlag.context as Record<string, unknown>).flaggedBy as string) ?? null
+          : null,
+    });
+  }
+  return out;
+}
+
+/**
  * Conversations awaiting human deposit verification (panel /payments).
  * Joined with chat_contacts so the operator sees the client name + phone
  * without a second hop.
