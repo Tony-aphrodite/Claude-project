@@ -8,7 +8,19 @@ const expected: ExpectedDeposit = {
   amount: 40,
 };
 
-describe("reconcile — owner spec INSTRUCCIONES_PAGO §5 validation rules", () => {
+// Retuned 2026-05-13 (Miguel feedback after real-customer chat review,
+// see 5-13-feedback-deposit-autoconfirm-spec.md):
+//   - Ref code is INFORMATIONAL only — still extracted + reported in
+//     `mismatches` for audit, but does NOT gate `validated`.
+//   - Amount tolerance widened from ±2 % to ±5 % to absorb the noisier
+//     OCR readings we get from mobile-banking screenshots (vs the old
+//     PDF-only assumption).
+//   - Currency + amount remain hard gates.
+//
+// The "beneficiary soft match" path was removed entirely — it was a
+// partial mitigation for the ref-code gate problem that is solved
+// directly by relaxing the gate itself.
+describe("reconcile — auto-confirm rules (post 2026-05-13 retune)", () => {
   it("validates a perfect match", () => {
     const r = reconcile(
       { amount: 40, currency: "EUR", beneficiary: "DPM Diving Gili T LLC", refCode: "DPM-A1B2C3", date: "2026-05-08" },
@@ -18,9 +30,10 @@ describe("reconcile — owner spec INSTRUCCIONES_PAGO §5 validation rules", () 
     expect(r.mismatches).toEqual([]);
   });
 
-  it("accepts amount within -2% tolerance (bank fees absorbed)", () => {
+  it("accepts amount within -5% tolerance (OCR jitter + bank fees absorbed)", () => {
+    // 40 * 0.96 = 38.4 → inside the new -5% lower bound
     const r = reconcile(
-      { amount: 39.21, currency: "EUR", beneficiary: null, refCode: "DPM-A1B2C3", date: null },
+      { amount: 38.4, currency: "EUR", beneficiary: null, refCode: "DPM-A1B2C3", date: null },
       expected,
     );
     expect(r.validated).toBe(true);
@@ -34,9 +47,10 @@ describe("reconcile — owner spec INSTRUCCIONES_PAGO §5 validation rules", () 
     expect(r.validated).toBe(true);
   });
 
-  it("flags amount_too_low when client paid less than expected -2%", () => {
+  it("flags amount_too_low when client paid less than expected -5%", () => {
+    // 40 * 0.93 = 37.2 → under the new -5% lower bound (which is 38.0)
     const r = reconcile(
-      { amount: 38, currency: "EUR", beneficiary: null, refCode: "DPM-A1B2C3", date: null },
+      { amount: 37.2, currency: "EUR", beneficiary: null, refCode: "DPM-A1B2C3", date: null },
       expected,
     );
     expect(r.validated).toBe(false);
@@ -58,22 +72,39 @@ describe("reconcile — owner spec INSTRUCCIONES_PAGO §5 validation rules", () 
       expected,
     );
     expect(r.mismatches).toContain("currency_mismatch");
+    expect(r.validated).toBe(false);
   });
 
-  it("rejects wrong ref code", () => {
+  it("reports ref_code_mismatch in mismatches but still validates (informational only)", () => {
     const r = reconcile(
       { amount: 40, currency: "EUR", beneficiary: null, refCode: "DPM-XYZXYZ", date: null },
       expected,
     );
     expect(r.mismatches).toContain("ref_code_mismatch");
+    expect(r.validated).toBe(true); // ← amount + currency pass → validated
   });
 
-  it("normalizes ref code whitespace + case before comparing", () => {
+  it("reports ref_code_missing in mismatches but still validates (the >50%-of-clients case)", () => {
+    // Miguel's real-world observation: most clients never paste the
+    // DPM code into the bank's Concept/Libellé field. Auto-confirm
+    // should still fire because amount + currency match.
+    const r = reconcile(
+      { amount: 40, currency: "EUR", beneficiary: null, refCode: null, date: null },
+      expected,
+    );
+    expect(r.mismatches).toContain("ref_code_missing");
+    expect(r.validated).toBe(true);
+  });
+
+  it("normalizes ref code whitespace + case before comparing (still useful for audit)", () => {
     const r = reconcile(
       { amount: 40, currency: "EUR", beneficiary: null, refCode: "  dpm-a1b2c3  ", date: null },
       expected,
     );
     expect(r.validated).toBe(true);
+    // ref code matched normalized → no ref_code_* entry in mismatches
+    expect(r.mismatches).not.toContain("ref_code_mismatch");
+    expect(r.mismatches).not.toContain("ref_code_missing");
   });
 
   it("flags missing required fields explicitly", () => {
@@ -87,14 +118,16 @@ describe("reconcile — owner spec INSTRUCCIONES_PAGO §5 validation rules", () 
     expect(r.validated).toBe(false);
   });
 
-  // 2026-05-12 — beneficiary "soft match" tightening. Previously, a PDF
-  // whose ref code mismatched but whose amount + currency + beneficiary
-  // matched would auto-confirm with softMatch: "no_refcode_beneficiary_ok".
-  // Miguel demonstrated that this lets ANY prior DPM transfer (e.g.
-  // Bertrand Klein's 40 EUR Wise PDF from a different booking) re-validate
-  // a new conversation. The fallback now reports softMatch but keeps
-  // validated=false so the lead stays in deposit_pending for human review.
-  it("beneficiary soft match no longer auto-validates a ref-mismatched PDF", () => {
+  // 2026-05-12 risk that drove the original beneficiary-soft-match
+  // tightening: Bertrand Klein's 40 EUR Wise PDF from an unrelated
+  // booking could re-validate any new EUR/40 conversation. With ref
+  // code now informational the same risk still exists at the amount
+  // layer — that's why the safety net moves to the auto-confirm
+  // dashboard (Phase B): operators cross-reference auto-confirmed
+  // rows against actual bank emails landing in gilit@dpmdiving.com.
+  // This test pins down the new behavior so a future maintainer
+  // doesn't accidentally restore the ref-code gate.
+  it("ref-mismatched PDF with matching amount + currency now auto-confirms (dashboard catches abuse)", () => {
     const r = reconcile(
       {
         amount: 40,
@@ -106,12 +139,11 @@ describe("reconcile — owner spec INSTRUCCIONES_PAGO §5 validation rules", () 
       expected,
       "DPM Diving Gili T LLC",
     );
-    expect(r.validated).toBe(false);
-    expect(r.softMatch).toBe("no_refcode_beneficiary_ok");
+    expect(r.validated).toBe(true);
     expect(r.mismatches).toContain("ref_code_mismatch");
   });
 
-  it("scales tolerance with amount (IDR 700,000 ±2% = ±14,000)", () => {
+  it("scales tolerance with amount (IDR 700,000 ±5% = ±35,000)", () => {
     const idrExpected: ExpectedDeposit = { refCode: "DPM-IDR123", currency: "IDR", amount: 700_000 };
     // exact match
     expect(
@@ -120,17 +152,17 @@ describe("reconcile — owner spec INSTRUCCIONES_PAGO §5 validation rules", () 
         idrExpected,
       ).validated,
     ).toBe(true);
-    // -1.5% — within tolerance
+    // -4% — within new tolerance
     expect(
       reconcile(
-        { amount: 689_500, currency: "IDR", beneficiary: null, refCode: "DPM-IDR123", date: null },
+        { amount: 672_000, currency: "IDR", beneficiary: null, refCode: "DPM-IDR123", date: null },
         idrExpected,
       ).validated,
     ).toBe(true);
-    // -3% — under tolerance
+    // -6% — under tolerance
     expect(
       reconcile(
-        { amount: 679_000, currency: "IDR", beneficiary: null, refCode: "DPM-IDR123", date: null },
+        { amount: 658_000, currency: "IDR", beneficiary: null, refCode: "DPM-IDR123", date: null },
         idrExpected,
       ).validated,
     ).toBe(false);

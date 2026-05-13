@@ -390,11 +390,19 @@ export async function processIncomingMessage(
         );
 
       // Stamp the OCR verdict onto lead_metadata so the panel can show it.
-      // Owner spec DPM_AI_LAUNCH §3.4 (2026-05-07): when OCR validates the
-      // PDF (ref + currency + amount within ±2% / ≤+10%), the AI auto-
-      // confirms — no manual operator click. Mismatches (suspect amounts,
-      // wrong ref, screenshot rejection) stay in deposit_pending and the
-      // operator handles them through the panel.
+      // Auto-confirm rules retuned 2026-05-13 per Miguel feedback (see
+      // 5-13-feedback-deposit-autoconfirm-spec.md):
+      //   - Validate on currency match + amount within ±5 % / ≤+10 %.
+      //   - Ref code is informational only — extracted + reported in
+      //     mismatches for audit but does not gate validation, because
+      //     >50 % of real customers never paste the DPM code into the
+      //     bank's Concept/Libellé field.
+      //   - Screenshots are accepted for all currencies (previously
+      //     hard-rejected for EUR/GBP/AUD/USD).
+      // The safety net for the looser gate is the auto-confirm dashboard
+      // (Phase B, separate work): operators cross-reference auto-confirmed
+      // rows against the Wise/Mandiri bank emails landing in
+      // gilit@dpmdiving.com.
       if (ocrVerdict) {
         const ocrSummary = ocrVerdict.ok
           ? {

@@ -136,49 +136,66 @@ const FOREIGN_CURRENCIES = new Set<DepositCurrency>(["EUR", "GBP", "AUD", "USD"]
 
 /**
  * Cross-check extracted fields against what we know the deposit should be.
- * Owner spec DPM_AI_LAUNCH §3.4 (2026-05-07):
- *   - Amount tolerance: ±2 % to absorb bank fees on international SWIFT.
- *   - Amount must NOT be > expected + 10 % (catches duplicate / wrong-amount
- *     transfers that need human review).
- *   - Ref code must match exactly (case-insensitive, whitespace-stripped).
- *   - Currency must match exactly.
  *
- * 2026-05-11 real-world learning (Miguel's BoursoBank test): European
- * banks like BoursoBank let the sender type any free-form text in the
- * "Libellé" / "Concept" / "Reference" field — and many senders forget
- * (or refuse) to copy the DPM-GT-MMDD-XXXXXX code there. To keep
- * legitimate transfers from getting stuck in deposit_pending we add
- * TWO relaxations:
+ * Owner spec DPM_AI_LAUNCH §3.4 (2026-05-07) originally required THREE
+ * things to validate: ref code match, currency match, amount within ±2 %.
+ * That gate was retuned on 2026-05-13 (Miguel feedback after real-customer
+ * chat review, see 5-13-feedback-deposit-autoconfirm-spec.md):
  *
- *   1. Substring match — if the extracted refCode CONTAINS the expected
- *      one (after normalization), treat as match. Customers often write
- *      "Pago DPM-GT-0511-W3M8C3 Open Water" — the code is in there even
- *      if surrounded by other text.
+ *   1. Ref code is INFORMATIONAL, not a gate.
+ *      Miguel observed in real chats that >50 % of clients never copy
+ *      the DPM-GT-MMDD-XXXXXX code into the bank's Concept / Libellé /
+ *      Reference field. Gating on ref code made the AI flip almost
+ *      every legitimate transfer back to deposit_pending for human
+ *      Confirmar — bad UX. We still EXTRACT and PERSIST the ref code
+ *      in `ocr_result.refCode` so an auditor can spot anomalies, but
+ *      mismatch / missing never affects `validated`.
  *
- *   2. Beneficiary fallback — when refCode is missing or doesn't match
- *      BUT (amount, currency, beneficiary name) all match strongly,
- *      accept the transfer as validated and stamp the verdict with
- *      `softMatch: "no_refcode_beneficiary_ok"` so an operator can
- *      review in audit. Risk of false-positive is low because the
- *      beneficiary name + the exact amount in the exact currency are
- *      already three strong signals.
+ *   2. Currency + amount remain hard gates.
+ *      Currency wrong → almost certainly the wrong receipt.
+ *      Amount outside band → underpayment or duplicate transfer.
+ *
+ *   3. Amount tolerance widened to ±5 %.
+ *      Photo / screenshot OCR is noisier than parseable-PDF OCR
+ *      (decimals can read as commas, currency-symbol bleed, etc.).
+ *      ±5 % keeps obvious mismatches out without trapping legitimate
+ *      transfers with small OCR jitter. The +10 % upper-fraud bound
+ *      (`amount_too_high`) is unchanged — that's a duplicate-transfer
+ *      / wrong-amount guard, not a precision concern.
+ *
+ *   4. Safety net is the auto-confirm dashboard (Phase B, separate
+ *      commit). Operators cross-reference auto-confirmed rows against
+ *      the Wise / Mandiri / BCA bank emails landing in
+ *      gilit@dpmdiving.com (ground truth of cash actually received)
+ *      and flag any drift. This trades hard upfront blocking for
+ *      faster customer onboarding + downstream reconciliation.
+ *
+ * The previous "beneficiary soft match" path is removed: it was a
+ * partial mitigation for the ref-code-gate problem that this change
+ * solves directly. Beneficiary is still extracted for audit but no
+ * longer special-cased in the verdict.
  */
 export function reconcile(
   extraction: OcrExtraction,
   expected: ExpectedDeposit,
-  expectedBeneficiary?: string,
+  _expectedBeneficiary?: string,
 ): { mismatches: string[]; validated: boolean; softMatch?: string } {
+  // The third parameter is retained in the signature for backwards
+  // compatibility with existing call sites (process-message passes it),
+  // but with the ref-code gate gone the beneficiary fallback is
+  // redundant. Silenced with `_` so lint doesn't complain.
+  void _expectedBeneficiary;
   const mismatches: string[] = [];
 
-  let refCodeOk = false;
+  // Ref code — extract for audit, never gate. Push an informational
+  // mismatch if it's wrong/missing so the operator can see it in the
+  // panel diff, but do NOT count it against `validated`.
   if (extraction.refCode == null) {
     mismatches.push("ref_code_missing");
   } else {
     const extNorm = extraction.refCode.replace(/\s+/g, "").toUpperCase();
     const expNorm = expected.refCode.replace(/\s+/g, "").toUpperCase();
-    if (extNorm === expNorm || extNorm.includes(expNorm)) {
-      refCodeOk = true;
-    } else {
+    if (extNorm !== expNorm && !extNorm.includes(expNorm)) {
       mismatches.push("ref_code_mismatch");
     }
   }
@@ -196,7 +213,7 @@ export function reconcile(
   if (extraction.amount == null) {
     mismatches.push("amount_missing");
   } else {
-    const lowerBound = expected.amount * 0.98; // -2% tolerance
+    const lowerBound = expected.amount * 0.95; // -5% tolerance (was -2%)
     const overpaymentBound = expected.amount * 1.1; // >+10% looks suspicious
     if (extraction.amount < lowerBound) {
       mismatches.push("amount_too_low");
@@ -207,34 +224,11 @@ export function reconcile(
     }
   }
 
-  if (mismatches.length === 0) {
-    return { mismatches: [], validated: true };
-  }
-
-  // Beneficiary "soft match" — when the ONLY problem is the ref code,
-  // but amount + currency match AND the extracted beneficiary maps to a
-  // DPM legal name, we used to AUTO-CONFIRM. That was retired 2026-05-12
-  // after Miguel showed that ANY prior DPM PDF (e.g. Bertrand Klein's
-  // 40 EUR Wise transfer from a different booking) would auto-validate
-  // a new conversation as long as amount + beneficiary matched. Real
-  // customers can mis-type the ref code, so we still SURFACE the soft
-  // match to the panel for human review — but `validated: false` keeps
-  // the lead in `deposit_pending` until an operator clicks Confirm.
-  const onlyRefCodeIssue =
-    refCodeOk === false &&
-    amountOk &&
-    currencyOk &&
-    mismatches.every((m) => m === "ref_code_missing" || m === "ref_code_mismatch");
-  if (onlyRefCodeIssue && expectedBeneficiary && extraction.beneficiary) {
-    const extBenef = extraction.beneficiary.replace(/\s+/g, "").toUpperCase();
-    const expBenef = expectedBeneficiary.replace(/\s+/g, "").toUpperCase();
-    if (extBenef.includes(expBenef) || expBenef.includes(extBenef)) {
-      return {
-        mismatches,
-        validated: false,
-        softMatch: "no_refcode_beneficiary_ok",
-      };
-    }
+  // Validated when currency + amount both pass. Ref code is purely
+  // informational from here on — the only way to fail validation is to
+  // fail one of these two hard gates (or be missing them).
+  if (currencyOk && amountOk) {
+    return { mismatches, validated: true };
   }
 
   return { mismatches, validated: false };
@@ -252,18 +246,25 @@ export async function runOcrOnAttachment(input: {
 }): Promise<OcrVerdict> {
   const log = getLogger();
 
-  // Owner spec §5 §validacion-reglas: PDF obligatorio para EUR/GBP/AUD/USD;
-  // IDR acepta PDF o screenshot. We screen this BEFORE calling vision so we
-  // don't burn tokens on a doomed-to-be-rejected payload.
-  if (FOREIGN_CURRENCIES.has(input.expected.currency)) {
-    if (input.attachmentMime && input.attachmentMime.toLowerCase().startsWith("image/")) {
-      return {
-        ok: false,
-        reason: "screenshot_rejected",
-        attachmentMime: input.attachmentMime,
-      };
-    }
-  }
+  // Retuned 2026-05-13 (Miguel feedback, see
+  // 5-13-feedback-deposit-autoconfirm-spec.md change #2): we used to
+  // hard-reject `image/*` MIMEs for foreign currencies (EUR/GBP/AUD/USD)
+  // up-front. The rationale was that international bank PDFs are higher
+  // fidelity than mobile screenshots. Reality is the opposite for our
+  // funnel: many European customers pay from mobile banking apps that
+  // only export an image, and IDR customers always ship Mandiri/BCA
+  // screenshots. Auto-rejecting forced those flows back to manual
+  // Confirmar — friction that loses sales.
+  //
+  // The vision model (Claude Sonnet 4.x) reads both PDFs and images
+  // equally well (see the media-block branch below — `image` vs
+  // `document`), and the validation gate is now amount + currency only
+  // (ref code informational), so we let images through for all
+  // currencies and let `reconcile()` decide. The `screenshot_rejected`
+  // verdict is retained as a possible return shape so call sites'
+  // exhaustiveness checks keep working — it just isn't produced
+  // anymore.
+  void FOREIGN_CURRENCIES;
 
   let env;
   try {
