@@ -27,16 +27,22 @@ function hoursSince(iso: string | null): number {
 export default async function DepositosAutoPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ scope?: string }>;
+  searchParams?: Promise<{ scope?: string; showResolved?: string }>;
 }) {
   const params = (await searchParams) ?? {};
   const scope: AutoConfirmedScope =
     params.scope === "7d" || params.scope === "all" ? params.scope : "today";
+  const showResolved = params.showResolved === "1";
 
-  const rows = await listAutoConfirmedDeposits({ scope });
+  const rows = await listAutoConfirmedDeposits({ scope, showResolved });
   const total = rows.length;
-  const flagged = rows.filter((r) => r.flaggedAt !== null).length;
+  const flagged = rows.filter((r) => r.flagState === "flagged").length;
   const lastHour = rows.filter((r) => hoursSince(r.autoConfirmedAt) <= 1).length;
+
+  // Helper for preserving toggle state across tab clicks.
+  const tabHref = (s: AutoConfirmedScope) =>
+    `/depositos-auto?scope=${s}${showResolved ? "&showResolved=1" : ""}`;
+  const toggleHref = `/depositos-auto?scope=${scope}${showResolved ? "" : "&showResolved=1"}`;
 
   return (
     <>
@@ -50,7 +56,7 @@ export default async function DepositosAutoPage({
         {(Object.keys(SCOPE_LABELS) as AutoConfirmedScope[]).map((s) => (
           <Link
             key={s}
-            href={`/depositos-auto?scope=${s}`}
+            href={tabHref(s)}
             className={`rounded-md px-3 py-1.5 ring-1 ring-inset transition-colors ${
               s === scope
                 ? "bg-brand-500/10 text-brand-700 ring-brand-500/30"
@@ -60,6 +66,18 @@ export default async function DepositosAutoPage({
             {SCOPE_LABELS[s]}
           </Link>
         ))}
+        <span className="mx-2 h-4 w-px bg-ink-200" />
+        <Link
+          href={toggleHref}
+          className={`rounded-md px-3 py-1.5 ring-1 ring-inset transition-colors ${
+            showResolved
+              ? "bg-warn-50 text-warn-700 ring-warn-500/30"
+              : "text-ink-600 ring-ink-200 hover:bg-ink-50"
+          }`}
+          title="Incluye filas marcadas como 'Resuelto' para auditoría"
+        >
+          {showResolved ? "✓ Mostrar resueltos" : "Mostrar resueltos"}
+        </Link>
       </nav>
 
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -114,7 +132,8 @@ export default async function DepositosAutoPage({
                 const ocr = meta.ocr_result;
                 const extraction =
                   ocr && "extraction" in ocr ? ocr.extraction : null;
-                const isFlagged = r.flaggedAt !== null;
+                const isFlagged = r.flagState === "flagged";
+                const isResolved = r.flagState === "resolved";
                 const initials = (r.contact?.name ?? "—")
                   .split(" ")
                   .filter(Boolean)
@@ -134,7 +153,13 @@ export default async function DepositosAutoPage({
                 return (
                   <tr
                     key={r.conv.id}
-                    className={isFlagged ? "bg-warn-50/30" : ""}
+                    className={
+                      isFlagged
+                        ? "bg-warn-50/30"
+                        : isResolved
+                          ? "bg-ink-50/40 text-ink-500"
+                          : ""
+                    }
                   >
                     <td className="pl-5">
                       <Link
@@ -208,6 +233,17 @@ export default async function DepositosAutoPage({
                         >
                           Flag · revisar
                         </span>
+                      ) : isResolved ? (
+                        <span
+                          className="badge-neutral"
+                          title={
+                            r.flaggedBy
+                              ? `Resuelto por ${r.flaggedBy}`
+                              : "Resuelto"
+                          }
+                        >
+                          Resuelto
+                        </span>
                       ) : (
                         <span className="badge-ok">OK</span>
                       )}
@@ -231,6 +267,12 @@ export default async function DepositosAutoPage({
                             Resolver
                           </button>
                         </form>
+                      ) : isResolved ? (
+                        // Resolved rows are read-only in the audit view —
+                        // the operator already triaged them. Re-flagging
+                        // would just re-trigger the comment on Respond.io,
+                        // which isn't useful audit information.
+                        <span className="text-xs text-ink-400">—</span>
                       ) : (
                         <form
                           action={flagAutoConfirm}

@@ -175,6 +175,46 @@ export async function listAutoConfirmedDeposits(opts: {
 4. **Multi-sede future**: when DPM expands beyond GT, the page should
    default-filter by sede. For now (GT-only pilot) we skip the filter.
 
+## Miguel's answers (2026-05-13 evening)
+
+Verbatim:
+
+```
+1) FLAG → (a) + (c). Marca la fila como "to review" en el dashboard
+Y crea una nota en respond.io en ese contacto. La nota en respond.io
+es la pieza clave: si alguien retoma la conversación después (handoff,
+follow-up del cliente), va a ver el flag al toque y entender que hay
+algo a revisar. (b) lo dejamos afuera por ahora — no me hace falta
+email a mí personal. Si más adelante querés sumar email, que sea al
+inbox del equipo (gilit@dpmdiving.com), no a mí.
+
+2) UN-FLAG → dale al default tuyo. Botón "Resuelto" que esconde la
+fila del default view + toggle "Mostrar resueltos" para audit trail.
+Perfecto así.
+
+3) FRECUENCIA → una vez al día. Resumen automático a las 6pm hora
+Bali al email gilit@dpmdiving.com con: depósitos auto-confirmados
+ese día, pendientes en /Depósitos, y flagged sin resolver. Le sirve
+al equipo como checklist de cierre de jornada. Si el volumen crece
+después, subimos la cadencia.
+```
+
+### Decisions locked in
+
+| # | Decision | Implementation note |
+|---|---|---|
+| 1a | Flag marks row as "to review" in dashboard | Already in core (this commit). |
+| 1c | Flag also creates a note on the Respond.io contact | NEW work: needs respond.io API for contact notes. The note text encodes who flagged, when, and the detected-vs-expected delta so anyone re-opening the conversation sees the flag context immediately. |
+| 1b | Personal-email-to-Miguel route is REJECTED | Skip. If we add email later it goes to gilit@dpmdiving.com only. |
+| 2 | Un-flag default plan is approved | Default already chosen: "Resolver" button hides row + `?showResolved=1` toggle reveals audit-only view. NEEDS WIRING. |
+| 3 | Daily summary at 18:00 Asia/Makassar to gilit@dpmdiving.com | NEW work: server endpoint that computes (auto-confirmed today, deposit_pending list, flagged unresolved) and queues the body in `errores` with `error_type = "daily_summary_pending"`. Tony schedules an external cron (Railway Cron / Vercel Cron / cron-job.org) to POST to the endpoint every day at 10:00 UTC (= 18:00 Asia/Makassar). When email transport is wired, the queued rows get drained. |
+
+### Implementation order (this turn)
+
+1. **Un-flag toggle + "Mostrar resueltos"** — UI/DB only, smallest scope.
+2. **Respond.io contact note on Flag** — research API endpoint, add helper.
+3. **Daily summary endpoint** — queue in `errores` like handoff_email_pending.
+
 ## Effort estimate
 
 - DB query: ~1 hour (JSONB navigation in Drizzle is the trickiest part)

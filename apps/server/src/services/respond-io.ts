@@ -541,6 +541,74 @@ export class RespondIoClient {
   }
 
   /**
+   * Create an internal comment / note on a Respond.io contact. The web UI's
+   * "Añadir comentario" field maps to this endpoint — comments are visible
+   * to the operator team in the conversation thread but never sent to the
+   * customer.
+   *
+   * Endpoint:    POST /v2/contact/id:{id}/comment
+   * Body shape:  { "text": "..." }
+   * Verified against the official respond-io/typescript-sdk on 2026-05-13.
+   *
+   * Used by the Phase B auto-confirm dashboard (Miguel spec 2026-05-13):
+   * when an operator flags an auto-confirmed deposit for review, we drop a
+   * comment on that contact so anyone who re-opens the chat later (handoff
+   * agent, follow-up worker) sees the flag context immediately without
+   * cross-referencing the panel.
+   */
+  async addContactComment(input: {
+    contactId: string;
+    text: string;
+  }): Promise<void> {
+    const env = loadEnv();
+    const log = getLogger();
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/comment`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+    try {
+      const res = await undiciFetch(url, {
+        method: "POST",
+        signal: controller.signal,
+        dispatcher: keepAliveAgent,
+        headers: {
+          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ text: input.text }),
+      } as RequestInit);
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        log.warn(
+          {
+            status: res.status,
+            body: body.slice(0, 300),
+            contactId: input.contactId,
+            textLen: input.text.length,
+          },
+          "respond_io add_comment non-2xx",
+        );
+        throw new UpstreamError("respond_io", `add_comment ${res.status}`, {
+          status: res.status,
+          body: body.slice(0, 300),
+        });
+      }
+      log.info(
+        { contactId: input.contactId, textLen: input.text.length },
+        "respond_io add_comment ok",
+      );
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        throw new UpstreamError("respond_io", "add_comment timed out", {
+          timeoutMs: TIMEOUTS.RESPOND_IO_MS,
+        });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * Update a Respond.io contact's `lifecycle` field.
    *
    * **HONEST STATUS (2026-05-12 probe):** Respond.io v2's PUT endpoint

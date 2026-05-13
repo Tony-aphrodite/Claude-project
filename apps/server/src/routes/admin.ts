@@ -25,11 +25,12 @@
 
 import type { FastifyInstance } from "fastify";
 
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 
 import {
   chatContacts,
   conversaciones,
+  errores,
   getDb,
   mensajes,
 } from "@dpm/db";
@@ -314,5 +315,282 @@ export async function adminRoutes(app: FastifyInstance) {
       "admin apply-tag ok",
     );
     return reply.send({ ok: true });
+  });
+
+  // ── /admin/add-comment ──────────────────────────────────────────────────
+  //
+  // Add an internal note ("comentario") to a Respond.io contact. Maps to
+  // their `POST /v2/contact/id:{id}/comment` endpoint. Used by the Phase B
+  // auto-confirm dashboard (Miguel spec 2026-05-13): when an operator
+  // clicks Flag on a row, we also drop a comment on the contact so anyone
+  // re-opening the chat later sees the flag context inline.
+  //
+  // Routing through the server (not the panel directly) keeps the
+  // Respond.io API key out of the Vercel panel env — same reason
+  // /admin/apply-tag exists.
+  app.post("/admin/add-comment", async (req, reply) => {
+    const expected = env.ADMIN_RESET_TOKEN;
+    if (!expected) {
+      return reply.status(503).send({
+        error: { code: "admin_disabled", message: "ADMIN_RESET_TOKEN not configured" },
+      });
+    }
+    const auth = req.headers.authorization;
+    if (auth !== `Bearer ${expected}`) {
+      req.log.warn("admin add-comment auth rejected");
+      return reply.status(401).send({ error: { code: "unauthorized" } });
+    }
+
+    const body = (req.body ?? {}) as {
+      contactId?: string;
+      text?: string;
+    };
+    if (!body.contactId || !body.text) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "Provide contactId and text in the JSON body.",
+        },
+      });
+    }
+    // Hard cap so a buggy caller can't flood Respond.io with a 100KB
+    // comment. UI flags carry <500 chars in practice.
+    const text = String(body.text).slice(0, 2000);
+
+    try {
+      await respondIoClient.addContactComment({
+        contactId: String(body.contactId),
+        text,
+      });
+    } catch (err) {
+      req.log.warn(
+        { err: (err as Error).message, contactId: body.contactId, textLen: text.length },
+        "admin add-comment upstream failed",
+      );
+      return reply.status(502).send({
+        error: {
+          code: "upstream_failed",
+          message: (err as Error).message?.slice(0, 200) ?? "upstream error",
+        },
+      });
+    }
+
+    req.log.info(
+      { contactId: body.contactId, textLen: text.length },
+      "admin add-comment ok",
+    );
+    return reply.send({ ok: true });
+  });
+
+  // ── /admin/send-daily-summary ───────────────────────────────────────────
+  //
+  // Daily end-of-day summary email queue. Miguel spec 2026-05-13: at 18:00
+  // Asia/Makassar (= 10:00 UTC), an external cron POSTs here. We query
+  // three lists and queue the rendered body in `errores` with
+  // `error_type = "daily_summary_pending"` so it surfaces in the panel's
+  // error queue and (once SMTP is configured) gets sent to
+  // gilit@dpmdiving.com — same pattern as `handoff_email_pending`.
+  //
+  // Lists rendered:
+  //   1. Auto-confirmados hoy (lead_metadata.ocr_result.validated = true,
+  //      latest history entry note='ocr_auto_confirmed' since midnight
+  //      Asia/Makassar today)
+  //   2. Depósitos pendientes (lead_stage = 'deposit_pending')
+  //   3. Flagged sin resolver (errores rows of type
+  //      'auto_confirm_review_requested' whose latest follow-up for that
+  //      conversation is NOT 'auto_confirm_review_resolved')
+  //
+  // Cron config (Tony adds to Railway):
+  //   schedule: "0 10 * * *"   (10:00 UTC = 18:00 Asia/Makassar)
+  //   command: curl -X POST -H "Authorization: Bearer $ADMIN_RESET_TOKEN" \
+  //                 https://dpmserver-production.up.railway.app/admin/send-daily-summary
+  app.post("/admin/send-daily-summary", async (req, reply) => {
+    const expected = env.ADMIN_RESET_TOKEN;
+    if (!expected) {
+      return reply.status(503).send({
+        error: { code: "admin_disabled", message: "ADMIN_RESET_TOKEN not configured" },
+      });
+    }
+    const auth = req.headers.authorization;
+    if (auth !== `Bearer ${expected}`) {
+      req.log.warn("admin send-daily-summary auth rejected");
+      return reply.status(401).send({ error: { code: "unauthorized" } });
+    }
+
+    const db = getDb();
+
+    // Cutoff = midnight today in Asia/Makassar (UTC+8, no DST).
+    const now = new Date();
+    const makassarMs = now.getTime() + 8 * 3_600_000;
+    const md = new Date(makassarMs);
+    const cutoffMs = Date.UTC(
+      md.getUTCFullYear(),
+      md.getUTCMonth(),
+      md.getUTCDate(),
+      -8, // -8h to bring midnight-Makassar back to UTC
+      0,
+      0,
+    );
+    const cutoffIso = new Date(cutoffMs).toISOString();
+    const todayLabel = `${md.getUTCFullYear()}-${String(
+      md.getUTCMonth() + 1,
+    ).padStart(2, "0")}-${String(md.getUTCDate()).padStart(2, "0")}`;
+
+    // List 1: auto-confirmed today
+    const autoConfirmedRows = await db
+      .select({ conv: conversaciones })
+      .from(conversaciones)
+      .where(
+        sql`(${conversaciones.leadMetadata} -> 'ocr_result' ->> 'validated') = 'true'`,
+      )
+      .orderBy(conversaciones.leadStageChangedAt);
+    const autoConfirmedToday: Array<{
+      id: string;
+      respondIoContactId: string | null;
+      at: string;
+      amount: number | null;
+      currency: string | null;
+    }> = [];
+    for (const r of autoConfirmedRows) {
+      const meta = (r.conv.leadMetadata ?? {}) as {
+        history?: Array<{ at?: string; note?: string }>;
+        ocr_result?: { extraction?: { amount?: number | null; currency?: string | null } };
+      };
+      const entry = (meta.history ?? [])
+        .filter((h) => h?.note === "ocr_auto_confirmed")
+        .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))[0];
+      if (!entry?.at) continue;
+      if (entry.at < cutoffIso) continue;
+      autoConfirmedToday.push({
+        id: r.conv.id,
+        respondIoContactId: r.conv.respondIoContactId,
+        at: entry.at,
+        amount: meta.ocr_result?.extraction?.amount ?? null,
+        currency: meta.ocr_result?.extraction?.currency ?? null,
+      });
+    }
+
+    // List 2: pending deposit
+    const pendingRows = await db
+      .select({ conv: conversaciones })
+      .from(conversaciones)
+      .where(eq(conversaciones.leadStage, "deposit_pending"))
+      .orderBy(conversaciones.leadStageChangedAt);
+
+    // List 3: flagged unresolved — for each conversacion_id with a
+    // 'auto_confirm_review_requested' row, count it as flagged when its
+    // latest of (requested, resolved) is requested.
+    const flagRows = await db
+      .select()
+      .from(errores)
+      .where(
+        sql`${errores.errorType} in ('auto_confirm_review_requested','auto_confirm_review_resolved')`,
+      )
+      .orderBy(sql`${errores.createdAt} desc`);
+    const latestByConv = new Map<string, typeof flagRows[number]>();
+    for (const row of flagRows) {
+      if (!row.conversacionId) continue;
+      if (!latestByConv.has(row.conversacionId)) {
+        latestByConv.set(row.conversacionId, row);
+      }
+    }
+    const flaggedUnresolved = [...latestByConv.values()].filter(
+      (r) => r.errorType === "auto_confirm_review_requested",
+    );
+
+    // Render plain-text summary. Keep it short — the operator team scans
+    // it as an end-of-day checklist, not a deep report.
+    const lines: string[] = [];
+    lines.push(`DPM Diving — Resumen diario ${todayLabel} (18:00 hora Bali)`);
+    lines.push("");
+    lines.push(
+      `1) DEPÓSITOS AUTO-CONFIRMADOS HOY  (${autoConfirmedToday.length})`,
+    );
+    if (autoConfirmedToday.length === 0) {
+      lines.push("   — ninguno —");
+    } else {
+      for (const r of autoConfirmedToday) {
+        lines.push(
+          `   • ${r.amount ?? "?"} ${r.currency ?? ""}  contact ${r.respondIoContactId ?? "?"}  conv ${r.id.slice(0, 8)}`,
+        );
+      }
+    }
+    lines.push("");
+    lines.push(
+      `2) PENDIENTES EN /Depósitos  (${pendingRows.length} esperando Confirmar)`,
+    );
+    if (pendingRows.length === 0) {
+      lines.push("   — ninguno —");
+    } else {
+      for (const r of pendingRows) {
+        const meta = (r.conv.leadMetadata ?? {}) as {
+          ref_code?: string;
+          deposit_amount_total?: number;
+          deposit_currency?: string;
+        };
+        lines.push(
+          `   • ${meta.deposit_amount_total ?? "?"} ${meta.deposit_currency ?? ""}  ref ${meta.ref_code ?? "—"}  contact ${r.conv.respondIoContactId ?? "?"}`,
+        );
+      }
+    }
+    lines.push("");
+    lines.push(
+      `3) FLAGGED SIN RESOLVER en /depositos-auto  (${flaggedUnresolved.length})`,
+    );
+    if (flaggedUnresolved.length === 0) {
+      lines.push("   — ninguno —");
+    } else {
+      for (const r of flaggedUnresolved) {
+        const ctx = (r.context ?? {}) as Record<string, unknown>;
+        lines.push(
+          `   • flagged ${r.createdAt.toISOString().slice(0, 16)}Z  conv ${r.conversacionId?.slice(0, 8) ?? "?"}  by ${(ctx.flaggedBy as string) ?? "?"}`,
+        );
+      }
+    }
+    lines.push("");
+    lines.push(
+      `— DPM AI server. Cruzar lista (1) contra los emails de Wise/Mandiri/BCA en gilit@dpmdiving.com. Si algo no coincide, abrir /depositos-auto y clickear Flag.`,
+    );
+    const body = lines.join("\n");
+
+    // Queue in errores until SMTP transport lands. Same pattern as
+    // handoff_email_pending — once Resend/SMTP is configured, a drainer
+    // job iterates these rows and sends them.
+    await db.insert(errores).values({
+      source: "internal",
+      conversacionId: null,
+      errorType: "daily_summary_pending",
+      errorMessage: `Daily summary queued for gilit@dpmdiving.com (${todayLabel})`,
+      context: {
+        targetEmail: "gilit@dpmdiving.com",
+        subject: `DPM Diving — Resumen ${todayLabel} (18:00 Bali)`,
+        body,
+        counts: {
+          autoConfirmedToday: autoConfirmedToday.length,
+          pending: pendingRows.length,
+          flaggedUnresolved: flaggedUnresolved.length,
+        },
+      },
+    });
+
+    req.log.info(
+      {
+        date: todayLabel,
+        autoConfirmedToday: autoConfirmedToday.length,
+        pending: pendingRows.length,
+        flaggedUnresolved: flaggedUnresolved.length,
+      },
+      "admin daily-summary queued",
+    );
+    return reply.send({
+      ok: true,
+      date: todayLabel,
+      counts: {
+        autoConfirmedToday: autoConfirmedToday.length,
+        pending: pendingRows.length,
+        flaggedUnresolved: flaggedUnresolved.length,
+      },
+      body,
+    });
   });
 }

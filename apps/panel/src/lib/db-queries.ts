@@ -350,18 +350,25 @@ export async function listSedes() {
  */
 export type AutoConfirmedScope = "today" | "7d" | "all";
 
+export type AutoConfirmedRow = {
+  conv: typeof conversaciones.$inferSelect;
+  contact: typeof chatContacts.$inferSelect | null;
+  sedeName: string | null;
+  autoConfirmedAt: string | null;
+  /** "unflagged" — never had a flag attached.
+   *  "flagged"   — most recent flag-action row is 'requested'.
+   *  "resolved"  — most recent flag-action row is 'resolved'. */
+  flagState: "unflagged" | "flagged" | "resolved";
+  flaggedAt: Date | null;
+  flaggedBy: string | null;
+};
+
 export async function listAutoConfirmedDeposits(
-  opts: { scope?: AutoConfirmedScope } = {},
-) {
+  opts: { scope?: AutoConfirmedScope; showResolved?: boolean } = {},
+): Promise<AutoConfirmedRow[]> {
   const scope = opts.scope ?? "today";
-  if (isMockMode()) return [] as Array<{
-    conv: typeof conversaciones.$inferSelect;
-    contact: typeof chatContacts.$inferSelect | null;
-    sedeName: string | null;
-    autoConfirmedAt: string | null;
-    flaggedAt: Date | null;
-    flaggedBy: string | null;
-  }>;
+  const showResolved = opts.showResolved ?? false;
+  if (isMockMode()) return [];
   const db = getDb();
 
   // Cutoff for the time scope. Gili Trawangan is UTC+8 (Asia/Makassar).
@@ -417,14 +424,7 @@ export async function listAutoConfirmedDeposits(
 
   // Filter to actual auto-confirms (history entry with the canonical
   // note) and resolve flag status.
-  const out: Array<{
-    conv: typeof conversaciones.$inferSelect;
-    contact: typeof chatContacts.$inferSelect | null;
-    sedeName: string | null;
-    autoConfirmedAt: string | null;
-    flaggedAt: Date | null;
-    flaggedBy: string | null;
-  }> = [];
+  const out: AutoConfirmedRow[] = [];
 
   for (const r of baseRows) {
     const meta = (r.conv.leadMetadata ?? {}) as {
@@ -439,7 +439,7 @@ export async function listAutoConfirmedDeposits(
     if (cutoffIso && (autoEntry.at ?? "") < cutoffIso) continue;
 
     // Flag status: most-recent error_type in {requested, resolved} for
-    // this conversation.
+    // this conversation determines current state.
     const flagRows = await db
       .select()
       .from(errores)
@@ -452,17 +452,35 @@ export async function listAutoConfirmedDeposits(
       .orderBy(desc(errores.createdAt))
       .limit(1);
     const latestFlag = flagRows[0];
-    const flagged = latestFlag?.errorType === "auto_confirm_review_requested";
+    let flagState: AutoConfirmedRow["flagState"] = "unflagged";
+    if (latestFlag?.errorType === "auto_confirm_review_requested") {
+      flagState = "flagged";
+    } else if (latestFlag?.errorType === "auto_confirm_review_resolved") {
+      flagState = "resolved";
+    }
+
+    // Default view hides resolved rows — they've been triaged. Audit
+    // trail is visible with ?showResolved=1.
+    if (flagState === "resolved" && !showResolved) continue;
 
     out.push({
       conv: r.conv,
       contact: r.contact,
       sedeName: r.sedeName,
       autoConfirmedAt: autoEntry.at ?? null,
-      flaggedAt: flagged ? latestFlag.createdAt : null,
+      flagState,
+      flaggedAt:
+        latestFlag && flagState !== "unflagged"
+          ? latestFlag.createdAt
+          : null,
       flaggedBy:
-        flagged && latestFlag.context && typeof latestFlag.context === "object"
-          ? ((latestFlag.context as Record<string, unknown>).flaggedBy as string) ?? null
+        latestFlag &&
+        flagState !== "unflagged" &&
+        latestFlag.context &&
+        typeof latestFlag.context === "object"
+          ? ((latestFlag.context as Record<string, unknown>).flaggedBy as string) ??
+            ((latestFlag.context as Record<string, unknown>).resolvedBy as string) ??
+            null
           : null,
     });
   }

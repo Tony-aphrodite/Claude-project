@@ -73,6 +73,69 @@ export async function flagAutoConfirm(formData: FormData) {
     },
   });
 
+  // Miguel spec 2026-05-13 #1c: also drop a comment on the Respond.io
+  // contact so anyone re-opening the chat (handoff agent, follow-up
+  // worker, customer reply on a future day) sees the flag context
+  // inline without cross-referencing the panel.
+  //
+  // Routed through the server's /admin/add-comment endpoint — the
+  // Respond.io API key is server-only (panel deliberately doesn't
+  // carry it, see the auto-confirm key rotation work). Best-effort:
+  // if the comment fails we don't roll back the flag, we just log
+  // (the dashboard signal still works on its own).
+  if (conv.respondIoContactId) {
+    const baseUrl = process.env.DPM_SERVER_URL;
+    const token = process.env.ADMIN_RESET_TOKEN;
+    if (baseUrl && token) {
+      const detected =
+        extraction?.amount != null && extraction.currency
+          ? `${extraction.amount} ${extraction.currency}`
+          : "—";
+      const expected =
+        meta.deposit_amount_total != null && meta.deposit_currency
+          ? `${meta.deposit_amount_total} ${meta.deposit_currency}`
+          : meta.deposit_amount != null && meta.deposit_currency
+            ? `${meta.deposit_amount} ${meta.deposit_currency}`
+            : "—";
+      const commentText =
+        `🚩 Flag para revisar — depósito auto-confirmado por OCR pero el ` +
+        `equipo lo marcó para chequear contra los emails de banco.\n` +
+        `• OCR detectó: ${detected}\n` +
+        `• Esperado: ${expected}\n` +
+        `• Ref: ${meta.ref_code ?? "—"}\n` +
+        `• Flagged por: ${flaggedBy}\n` +
+        `Cruzar contra Wise/Mandiri/BCA en gilit@dpmdiving.com antes de responder al cliente.`;
+
+      try {
+        const res = await fetch(
+          `${baseUrl.replace(/\/+$/, "")}/admin/add-comment`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              contactId: conv.respondIoContactId,
+              text: commentText,
+            }),
+          },
+        );
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          console.warn(
+            `flagAutoConfirm: respond.io comment failed ${res.status}: ${body.slice(0, 200)}`,
+          );
+        }
+      } catch (err) {
+        console.warn(
+          "flagAutoConfirm: respond.io comment threw",
+          (err as Error).message,
+        );
+      }
+    }
+  }
+
   revalidatePath("/depositos-auto");
 }
 
