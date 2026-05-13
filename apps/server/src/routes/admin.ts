@@ -33,8 +33,10 @@ import {
   getDb,
   mensajes,
 } from "@dpm/db";
+import { LEAD_STAGES, type LeadStage } from "@dpm/shared";
 
 import { loadEnv } from "../env.js";
+import { leadStageService } from "../services/lead-stage.js";
 import { respondIoClient } from "../services/respond-io.js";
 
 export async function adminRoutes(app: FastifyInstance) {
@@ -162,6 +164,89 @@ export async function adminRoutes(app: FastifyInstance) {
       resetConversations: convIds.length,
       deletedMessages: deletedMsgs.length,
       tagsCleared: TAGS_TO_CLEAR,
+    });
+  });
+
+  // ── /admin/force-transition ────────────────────────────────────────────
+  //
+  // Panel-driven lead_stage transitions. The panel (apps/panel, deployed on
+  // Vercel) used to write `conversaciones.lead_stage` directly from a
+  // Next.js Server Action. That bypassed `leadStageService.forceTransition`
+  // — so the *outgoing* lifecycle webhook never fired and Respond.io stayed
+  // out of sync (Miguel hit this 2026-05-13 confirming a deposit from the
+  // panel: DB moved deposit_pending → deposit_paid → handed_off correctly,
+  // but the contact's lifecycle in Respond.io stayed at "Payment" and the
+  // onboarding workflow never ran).
+  //
+  // This endpoint is the single funnel: the panel posts here, we run the
+  // same `leadStageService.forceTransition()` that the server uses for
+  // its own AI-driven transitions, and the lifecycle webhook + audit log
+  // entry are guaranteed.
+  //
+  // Auth: shared bearer with /admin/reset-conversation. Panel reads
+  // ADMIN_RESET_TOKEN from its own env (added to Vercel separately).
+  app.post("/admin/force-transition", async (req, reply) => {
+    const expected = env.ADMIN_RESET_TOKEN;
+    if (!expected) {
+      return reply.status(503).send({
+        error: { code: "admin_disabled", message: "ADMIN_RESET_TOKEN not configured" },
+      });
+    }
+    const auth = req.headers.authorization;
+    if (auth !== `Bearer ${expected}`) {
+      req.log.warn("admin force-transition auth rejected");
+      return reply.status(401).send({ error: { code: "unauthorized" } });
+    }
+
+    const body = (req.body ?? {}) as {
+      conversacionId?: string;
+      to?: string;
+      note?: string;
+    };
+    if (!body.conversacionId || !body.to) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "Provide conversacionId and to in the JSON body.",
+        },
+      });
+    }
+    // Guard against typos — only allow declared LeadStage values through so
+    // a misclick in the panel can't park a row in an unknown state.
+    if (!LEAD_STAGES.includes(body.to as LeadStage)) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: `Invalid target stage '${body.to}'. Expected one of: ${LEAD_STAGES.join(", ")}`,
+        },
+      });
+    }
+
+    const result = await leadStageService.forceTransition({
+      conversacionId: body.conversacionId,
+      to: body.to as LeadStage,
+      by: "human",
+      note: body.note,
+    });
+
+    if (!result.ok) {
+      req.log.warn(
+        { convId: body.conversacionId, to: body.to, reason: result.reason },
+        "admin force-transition rejected",
+      );
+      return reply.status(result.reason === "not_found" ? 404 : 400).send({
+        error: { code: result.reason, message: result.message },
+      });
+    }
+
+    req.log.info(
+      { convId: body.conversacionId, from: result.from, to: result.to },
+      "admin force-transition ok",
+    );
+    return reply.send({
+      ok: true,
+      from: result.from,
+      to: result.to,
     });
   });
 }

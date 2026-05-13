@@ -1,14 +1,23 @@
 "use server";
 
 // Server actions for the lead pipeline. The pipeline state machine is owned
-// by the server's LeadStageService; the panel does NOT replicate the
-// transition rules — it just calls the same helpers via direct DB writes
-// and treats them as a forced (human-driven) transition.
+// by the server's LeadStageService — the panel does NOT mutate
+// `conversaciones.lead_stage` directly anymore.
 //
-// Why force-transition: the panel exposes a "human override" path. A sede
-// team member may legitimately need to skip stages (e.g., move a stuck
-// deposit_pending straight to lost). The audit trail in lead_metadata.history
-// records `by: "human"` so we can spot manual interventions later.
+// Why route through the server's HTTP endpoint:
+//   • Force transitions trigger an *outgoing* lifecycle webhook to
+//     Respond.io (so the contact's lifecycle moves to the right stage and
+//     the matching workflow — e.g. "DPM GT - Onboarding Piloto" listening
+//     on the `deposit_paid` tag — fires). Miguel hit this 2026-05-13 from
+//     the panel's "Confirmar depósito" button: DB transitioned correctly
+//     but Respond.io's lifecycle, tag, snippets and assignee were all left
+//     untouched because the panel was bypassing the LeadStageService.
+//   • Audit log + structured server logs end up in one place (Railway).
+//   • Future side effects (email, slack, kb invalidation) only need to be
+//     wired into the server once.
+//
+// The panel keeps writing other rows directly (mensajes, errores, etc.) —
+// only the lead_stage transition itself is delegated.
 
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -29,44 +38,67 @@ import {
 
 import { applyContactTag } from "~/lib/respond-io";
 
-const MAX_HISTORY = 10;
-
+/**
+ * POST to the server's /admin/force-transition endpoint, which runs the
+ * canonical `leadStageService.forceTransition()` and fires the matching
+ * outgoing lifecycle webhook.
+ *
+ * Returns `null` when the server reports the conversation as not found.
+ * Throws on network errors or 4xx/5xx from the server so the parent
+ * action surfaces the failure (we do NOT silently fall back to a local
+ * DB write — that's exactly the data-drift bug we're fixing).
+ *
+ * Required env on the panel deployment (Vercel):
+ *   • DPM_SERVER_URL          base URL of the Railway server (no trailing slash)
+ *   • ADMIN_RESET_TOKEN       shared with the server's same-named env var
+ */
 async function applyForceTransition(
   conversacionId: string,
   to: LeadStage,
   note?: string,
 ): Promise<{ from: LeadStage; to: LeadStage } | null> {
-  const db = getDb();
-  const [current] = await db
-    .select()
-    .from(conversaciones)
-    .where(eq(conversaciones.id, conversacionId))
-    .limit(1);
-  if (!current) return null;
+  const baseUrl = process.env.DPM_SERVER_URL;
+  const token = process.env.ADMIN_RESET_TOKEN;
+  if (!baseUrl || !token) {
+    throw new Error(
+      "applyForceTransition: DPM_SERVER_URL and ADMIN_RESET_TOKEN must be set in panel env",
+    );
+  }
 
-  const from = current.leadStage as LeadStage;
-  if (from === to) return { from, to };
-
-  const meta = (current.leadMetadata as LeadMetadata | null) ?? {};
-  const history = [...(meta.history ?? [])];
-  history.push({
-    from,
-    to,
-    at: new Date().toISOString(),
-    by: "human",
-    ...(note ? { note } : {}),
-  });
-  while (history.length > MAX_HISTORY) history.shift();
-
-  await db
-    .update(conversaciones)
-    .set({
-      leadStage: to,
-      leadStageChangedAt: new Date(),
-      leadMetadata: { ...meta, history },
-    })
-    .where(eq(conversaciones.id, conversacionId));
-  return { from, to };
+  const url = `${baseUrl.replace(/\/+$/, "")}/admin/force-transition`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ conversacionId, to, note }),
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(
+        `force-transition ${res.status}: ${body.slice(0, 200)}`,
+      );
+    }
+    const data = (await res.json()) as {
+      ok: boolean;
+      from?: LeadStage;
+      to?: LeadStage;
+    };
+    if (!data.ok || !data.from || !data.to) {
+      throw new Error(
+        `force-transition response malformed: ${JSON.stringify(data).slice(0, 200)}`,
+      );
+    }
+    return { from: data.from, to: data.to };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // (Long handoff message helper at ~/lib/handoff-text is no longer used
@@ -123,12 +155,43 @@ export async function confirmDepositReceived(formData: FormData) {
   // operator confirms a lead where those fields are stale (e.g. the
   // AI never invoked the tools), the workflow will render snippets
   // with empty $contact.X — that's a Miguel-side concern, not ours.
+  // Use the conversaciones row's respondIoContactId directly. Earlier we
+  // pulled it via `row.contact?.respondIoContactId` (joined chat_contacts),
+  // which is null whenever the contact has no chat_contacts row yet — that
+  // happens for any conversation initialised via webhook before the AI
+  // upsert has fired. Miguel saw this 2026-05-13 (contact 208082561 / 6281237414214):
+  // DB transitions ran but the tag never reached Respond.io. The
+  // conversaciones row always carries the contact id since the row itself
+  // is created from a Respond.io contact.id, so reading it there is
+  // unambiguous.
+  const respondIoContactId =
+    row.conv.respondIoContactId ?? row.contact?.respondIoContactId ?? null;
   let tagApplied = false;
+  let tagError: string | null = null;
   try {
-    await applyContactTag(row.contact?.respondIoContactId ?? null, "deposit_paid");
+    await applyContactTag(respondIoContactId, "deposit_paid");
     tagApplied = true;
   } catch (err) {
+    tagError = (err as Error).message ?? String(err);
     console.error("respond_io add deposit_paid tag failed", err);
+    // Persist so we don't lose the failure in stateless Vercel logs.
+    // `errores` is the operator-visible queue the panel surfaces.
+    await db
+      .insert(errores)
+      .values({
+        source: "internal",
+        conversacionId,
+        errorType: "respond_io_tag_apply_failed",
+        errorMessage: tagError.slice(0, 500),
+        context: {
+          tag: "deposit_paid",
+          respondIoContactId,
+          stage: "confirm_deposit",
+        },
+      })
+      .catch((logErr) =>
+        console.error("failed to persist tag-apply error", logErr),
+      );
   }
 
   await db.insert(mensajes).values({
