@@ -249,4 +249,70 @@ export async function adminRoutes(app: FastifyInstance) {
       to: result.to,
     });
   });
+
+  // ── /admin/apply-tag ────────────────────────────────────────────────────
+  //
+  // Panel-driven contact tag application. The panel used to POST directly
+  // to Respond.io's `/v2/contact/id:{id}/tag` endpoint, which v2 rejects
+  // with 400 "Tags: Cannot be empty" regardless of body shape (Phase F
+  // probing on 2026-05-11). We then tried a GET+PUT pattern in the panel
+  // itself, but Vercel/Next.js Server Action bundling left the call
+  // silently failing on Miguel's contact 208082561 and Tony's contact
+  // 445381935 (no errores row, no tag applied either).
+  //
+  // The server's `respondIoClient.addContactTag` has been working in
+  // production since May for AI-driven tag applies (`deposit_paid`,
+  // `ai_escalation` from process-message.ts). Same code path, same
+  // upstream, just exposed over HTTP so the panel can use it without
+  // re-implementing the GET+merge+PUT dance.
+  app.post("/admin/apply-tag", async (req, reply) => {
+    const expected = env.ADMIN_RESET_TOKEN;
+    if (!expected) {
+      return reply.status(503).send({
+        error: { code: "admin_disabled", message: "ADMIN_RESET_TOKEN not configured" },
+      });
+    }
+    const auth = req.headers.authorization;
+    if (auth !== `Bearer ${expected}`) {
+      req.log.warn("admin apply-tag auth rejected");
+      return reply.status(401).send({ error: { code: "unauthorized" } });
+    }
+
+    const body = (req.body ?? {}) as {
+      contactId?: string;
+      tag?: string;
+    };
+    if (!body.contactId || !body.tag) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "Provide contactId and tag in the JSON body.",
+        },
+      });
+    }
+
+    try {
+      await respondIoClient.addContactTag({
+        contactId: String(body.contactId),
+        tag: String(body.tag),
+      });
+    } catch (err) {
+      req.log.warn(
+        { err: (err as Error).message, contactId: body.contactId, tag: body.tag },
+        "admin apply-tag upstream failed",
+      );
+      return reply.status(502).send({
+        error: {
+          code: "upstream_failed",
+          message: (err as Error).message?.slice(0, 200) ?? "upstream error",
+        },
+      });
+    }
+
+    req.log.info(
+      { contactId: body.contactId, tag: body.tag },
+      "admin apply-tag ok",
+    );
+    return reply.send({ ok: true });
+  });
 }

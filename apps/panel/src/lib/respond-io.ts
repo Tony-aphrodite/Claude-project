@@ -44,31 +44,26 @@ export async function sendRespondIoMessage(input: SendMessageInput): Promise<voi
 }
 
 /**
- * Apply a tag to a Respond.io contact. Owner spec DPM_AI_LAUNCH
- * 2026-05-07 reply §1+§3: handoff is signaled to Respond.io workflows
- * via a contact tag (`deposit_paid` for sale completion, `ai_escalation`
- * for pre-deposit transfer). Miguel's workflow listens on the tag and
+ * Apply a tag to a Respond.io contact by delegating to the server's
+ * `/admin/apply-tag` endpoint.
+ *
+ * History: we used to call Respond.io's REST API directly from the panel,
+ * first with `POST /contact/id:{id}/tag` (rejected with 400 "Tags: Cannot
+ * be empty"), then with a GET+PUT merge on `/contact/id:{id}`. The PUT
+ * variant returned 2xx in production but the tag did not actually land on
+ * Miguel's contact 208082561 nor Tony's contact 445381935 — likely a
+ * Next.js Server Action bundling / Vercel deploy interaction, since the
+ * exact same GET+PUT pattern works from the server's `respondIoClient`.
+ *
+ * Owner spec DPM_AI_LAUNCH 2026-05-07 reply §1+§3: handoff is signaled
+ * to Respond.io workflows via a contact tag (`deposit_paid` for sale
+ * completion, `ai_escalation` for pre-deposit transfer). Miguel's
+ * workflow "DPM GT - Onboarding Piloto" listens on `deposit_paid` and
  * dispatches assignments to the Round Robin team "Agents" (id 21595).
  *
- * Implementation note (2026-05-13): we previously POSTed to the dedicated
- * `/contact/id:{id}/tag` endpoint with `{tags: [tag]}`. Respond.io v2
- * silently rejects that path with 400 "Tags: Cannot be empty" regardless
- * of body shape — Miguel hit this when clicking "Confirmar depósito" in
- * the panel and the deposit_paid tag never landed, which meant the
- * onboarding workflow never fired and the conversation was never
- * reassigned. Server's respond-io.ts confirmed the canonical path back
- * in May (Phase F probing).
- *
- * The working pattern (mirrored from apps/server/src/services/respond-io.ts
- * addContactTag):
- *   1. GET /contact/id:{id} to read the existing tags array
- *   2. Merge the new tag in (Set-dedupe so a re-apply is idempotent)
- *   3. PUT /contact/id:{id} with the FULL merged tags array
- *
- * Why the merge: PUT replaces the resource. Sending `{tags: ["deposit_paid"]}`
- * alone wipes ai-test (pilot gate) and any other contact tags. Workflows
- * trigger on the tag-update diff, so an unintended replacement also fails
- * to fire the "tag added: deposit_paid" trigger reliably.
+ * Required env on the panel deployment (Vercel):
+ *   • DPM_SERVER_URL          base URL of the Railway server (no trailing slash)
+ *   • ADMIN_RESET_TOKEN       shared with the server's same-named env var
  */
 export async function applyContactTag(
   respondIoContactId: string | null,
@@ -77,70 +72,32 @@ export async function applyContactTag(
   if (!respondIoContactId) {
     throw new Error("respondIoContactId missing — cannot apply tag");
   }
-  const apiKey = process.env.RESPOND_IO_API_KEY;
-  const baseUrl = process.env.RESPOND_IO_API_BASE_URL ?? "https://api.respond.io/v2";
-  if (!apiKey) {
-    throw new Error("RESPOND_IO_API_KEY missing — cannot apply contact tag");
+  const baseUrl = process.env.DPM_SERVER_URL;
+  const token = process.env.ADMIN_RESET_TOKEN;
+  if (!baseUrl || !token) {
+    throw new Error(
+      "applyContactTag: DPM_SERVER_URL and ADMIN_RESET_TOKEN must be set in panel env",
+    );
   }
 
-  const contactUrl = `${baseUrl}/contact/id:${encodeURIComponent(respondIoContactId)}`;
-  const headers = {
-    "content-type": "application/json",
-    authorization: `Bearer ${apiKey}`,
-  };
-
-  // Step 1: GET existing tags. Best-effort: if the read fails (404,
-  // network), we proceed with `[tag]` only. That risks dropping other
-  // tags, but a failed-then-skipped tag application would be a worse
-  // user-facing outcome (no onboarding workflow at all). Log/throw on
-  // unrecoverable errors so the caller can persist them to `errores`.
-  let existingTags: string[] = [];
-  {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-    try {
-      const res = await fetch(contactUrl, {
-        method: "GET",
-        signal: controller.signal,
-        headers,
-      });
-      if (res.ok) {
-        const data = (await res.json().catch(() => null)) as
-          | { tags?: unknown }
-          | null;
-        if (data && Array.isArray(data.tags)) {
-          existingTags = data.tags.filter(
-            (t): t is string => typeof t === "string",
-          );
-        }
-      } else if (res.status !== 404) {
-        // 404 = contact gone (we'll fail loudly on the PUT below anyway).
-        // Other non-2xx is suspicious — log via console so it shows up in
-        // Vercel function logs, but keep going with empty existing tags.
-        const body = await res.text().catch(() => "");
-        console.warn(
-          `respond_io get_contact non-2xx (${res.status}) before tag merge: ${body.slice(0, 200)}`,
-        );
-      }
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  const merged = Array.from(new Set([...existingTags, tag]));
-
-  // Step 2: PUT the full merged tags array.
+  const url = `${baseUrl.replace(/\/+$/, "")}/admin/apply-tag`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
+  const timer = setTimeout(() => controller.abort(), 8000);
   try {
-    const res = await fetch(contactUrl, {
-      method: "PUT",
+    const res = await fetch(url, {
+      method: "POST",
       signal: controller.signal,
-      headers,
-      body: JSON.stringify({ tags: merged }),
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ contactId: respondIoContactId, tag }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new Error(`respond_io tag ${res.status}: ${body.slice(0, 200)}`);
+      throw new Error(
+        `apply-tag ${res.status}: ${body.slice(0, 200)}`,
+      );
     }
   } finally {
     clearTimeout(timer);
