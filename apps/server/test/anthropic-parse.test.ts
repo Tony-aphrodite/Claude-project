@@ -13,6 +13,7 @@ describe("parseStructuredAnswer", () => {
       fuentes: ["kb:ow-course", "history:m12"],
       escalationReason: null,
       descuento: null,
+      reasoningLeak: false,
     });
   });
 
@@ -26,6 +27,7 @@ describe("parseStructuredAnswer", () => {
     expect(out.fuentes).toEqual(["kb:greeting"]);
     expect(out.escalationReason).toBeNull();
     expect(out.descuento).toBeNull();
+    expect(out.reasoningLeak).toBe(false);
   });
 
   it("tolerates a small preamble before the JSON object", () => {
@@ -38,16 +40,18 @@ describe("parseStructuredAnswer", () => {
       fuentes: [],
       escalationReason: null,
       descuento: null,
+      reasoningLeak: false,
     });
   });
 
-  it("falls back to raw text when the model returns plain text", () => {
+  it("falls back to raw text when the model returns plain text (no JSON, no leak signals)", () => {
     const raw = "Hola, esto no es JSON.";
     expect(parseStructuredAnswer(raw)).toEqual({
       text: "Hola, esto no es JSON.",
       fuentes: [],
       escalationReason: null,
       descuento: null,
+      reasoningLeak: false,
     });
   });
 
@@ -61,6 +65,7 @@ describe("parseStructuredAnswer", () => {
       fuentes: ["kb:a", "history:m1"],
       escalationReason: null,
       descuento: null,
+      reasoningLeak: false,
     });
   });
 
@@ -70,6 +75,7 @@ describe("parseStructuredAnswer", () => {
       fuentes: [],
       escalationReason: null,
       descuento: null,
+      reasoningLeak: false,
     });
   });
 
@@ -86,6 +92,7 @@ describe("parseStructuredAnswer", () => {
     const out = parseStructuredAnswer(raw);
     expect(out.text).toBe("¡Hola! Qué buena elección el Open Water…");
     expect(out.fuentes).toEqual(["kb:ow"]);
+    expect(out.reasoningLeak).toBe(false);
   });
 
   it("ignores braces inside string literals", () => {
@@ -98,6 +105,7 @@ describe("parseStructuredAnswer", () => {
       fuentes: [],
       escalationReason: null,
       descuento: null,
+      reasoningLeak: false,
     });
   });
 
@@ -110,6 +118,7 @@ describe("parseStructuredAnswer", () => {
       fuentes: [],
       escalationReason: null,
       descuento: null,
+      reasoningLeak: false,
     });
   });
 

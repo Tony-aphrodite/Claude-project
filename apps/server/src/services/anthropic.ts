@@ -176,7 +176,7 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         .map((b) => b.text)
         .join("\n")
         .trim();
-      const { text, fuentes, escalationReason, descuento } =
+      const { text, fuentes, escalationReason, descuento, reasoningLeak } =
         parseStructuredAnswer(rawText);
 
       // Append tool_use to fuentes if Claude actually invoked any. The panel
@@ -199,6 +199,21 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         status: "success",
       });
 
+      if (reasoningLeak) {
+        // Surfaces in Railway logs + the errores audit table can pick this
+        // up later if we want to alert. Forcing escalation in the parser
+        // ensures the customer is routed to a human even if the prompt
+        // didn't include an explicit escalation_reason.
+        log.warn(
+          {
+            sede: input.sedeId,
+            conversacionId: input.conversacionId,
+            rawTextPreview: rawText.slice(0, 200),
+          },
+          "claude reasoning-leak blocked; safe fallback sent + escalation forced",
+        );
+      }
+
       log.info(
         {
           sede: input.sedeId,
@@ -210,6 +225,7 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
           fuentesCount: fuentes.length,
           escalationReason,
           descuento,
+          reasoningLeak,
         },
         "claude call ok",
       );
@@ -343,18 +359,54 @@ async function dispatchTool(
   };
 }
 
+// Hard-coded safe fallback the customer sees when we detect that the model's
+// raw output looks like leaked reasoning (e.g. internal monologue, a partially
+// emitted JSON envelope, language drift mid-stream). Bilingual lean — Spanish
+// is the dominant DPM language; the apology + connect-with-team line is short
+// enough that English customers also understand the intent. Pairs with a
+// forced escalationReason='complaint' so the human routing fires.
+//
+// 2026-05-14 incident (Miguel test, contact 208082561 conv c7c7888a):
+// model emitted a Portuguese reasoning preamble + a malformed JSON envelope
+// using the Portuguese key "resposta" (not "respuesta"). The parser fell
+// through and the ENTIRE raw output reached the customer. This fallback +
+// the multi-key support below close that hole.
+const SAFE_FALLBACK_TEXT =
+  "Un momento por favor, te conecto con un compañero del equipo 🙏";
+
+// Heuristics that an AI output is "leaked reasoning" rather than a clean
+// customer-facing reply. Any hit forces the safe fallback + escalation.
+const REASONING_LEAK_PATTERNS: RegExp[] = [
+  // Markdown code-fence remnants. Legitimate output never contains a fence
+  // after we've stripped the outer wrapper.
+  /```\s*json/i,
+  // Literal JSON keys appearing as plain text — strong signal that a JSON
+  // envelope was emitted but parsing failed mid-string.
+  /["']\s*(?:respuesta|resposta|answer|response)\s*["']\s*:/i,
+  /["']\s*fuentes\s*["']\s*:/i,
+  // Meta-commentary openers in ES / PT / EN. The list is intentionally
+  // narrow: matching a phrase like "the customer is frustrated" anchored
+  // to the start of the text is high-precision (a real reply almost never
+  // begins this way).
+  /^\s*(?:o cliente|el cliente|the customer|the user)\s+(?:está|esta|is)\s+(?:frustrado|frustrada|frustrated|confused|confuso|asking|preguntando|pidiendo)/i,
+  /^\s*(?:vou ser direto|voy a ser directo|let me be direct|preciso ser honesto|necesito ser honesto|i need to be honest|i need to analyze|preciso analisar|let me analyze)/i,
+  /^\s*(?:now i need to|now let me|then i will|i'll explain|i will explain|then i need to|first i'll|first let me)/i,
+];
+
+function looksLikeLeakedReasoning(text: string): boolean {
+  return REASONING_LEAK_PATTERNS.some((p) => p.test(text));
+}
+
 /**
- * Extract the customer-facing reply string from a model output that may
+ * Extract the customer-facing `respuesta` string from a model output that may
  * have used any of several keys. Long Spanish-dominated conversations can
  * cause the model to drift to Portuguese (close cognate language), in which
- * case it sometimes emits the Portuguese key `resposta` — accept it. We
- * also accept English variants for forward-compat with future prompt
- * rewrites.
+ * case it sometimes emits the Portuguese key `resposta` — accept it. We also
+ * accept English variants for forward-compat with future prompt rewrites.
  *
- * 2026-05-14: added after a single observed Portuguese-drift incident
- * (Miguel test, conv c7c7888a) where a missing `respuesta` collapsed the
- * parser into the raw-text fallback and the customer saw the model's
- * internal monologue.
+ * 2026-05-14: added after a single observed Portuguese-drift incident where
+ * a missing `respuesta` collapsed the parser into the raw-text fallback and
+ * the customer saw the model's internal monologue.
  */
 function extractRespuesta(j: Record<string, unknown>): string | null {
   const keys = ["respuesta", "resposta", "answer", "response"] as const;
@@ -367,23 +419,39 @@ function extractRespuesta(j: Record<string, unknown>): string | null {
 
 /**
  * Parse the {respuesta, fuentes, escalation_reason?, descuento?} JSON
- * envelope. Tolerates pre/post fence tokens (markdown, "```json"). On any
- * parse failure we degrade gracefully: the raw text becomes the response,
- * fuentes is empty and the escalation/descuento signals are null — never
- * block the user reply on format drift.
+ * envelope. Tolerates pre/post fence tokens (markdown, "```json").
+ *
+ * Layered defense (added 2026-05-14):
+ *   1. Multi-key extraction: accept respuesta/resposta/answer/response so a
+ *      language drift in the key name doesn't collapse the parse.
+ *   2. Reasoning-leak guard: if the model's text looks like internal
+ *      monologue (meta-commentary, JSON key fragments, code-fence remnants),
+ *      replace it with a safe fallback and force escalation=complaint. The
+ *      caller sees `reasoningLeak: true` so it can log + alert.
+ *   3. On full parse failure we run the same guard against the raw text; a
+ *      clean plain-text reply still passes through (old prompts may legit
+ *      reply without JSON), but anything matching the reasoning patterns
+ *      gets the safe fallback instead of being shown to the customer.
  *
  * `escalation_reason` and `descuento` are validated against the canonical
  * sets (ESCALATION_REASONS, DESCUENTO_VALUES). Anything else collapses to
- * null so we never push junk to Respond.io custom fields.
+ * null so we never write junk to Respond.io custom fields.
  */
 export function parseStructuredAnswer(raw: string): {
   text: string;
   fuentes: string[];
   escalationReason: EscalationReason | null;
   descuento: DescuentoValue | null;
+  reasoningLeak: boolean;
 } {
   if (!raw)
-    return { text: "", fuentes: [], escalationReason: null, descuento: null };
+    return {
+      text: "",
+      fuentes: [],
+      escalationReason: null,
+      descuento: null,
+      reasoningLeak: false,
+    };
 
   // Strip outer code fences if present.
   const stripped = raw
@@ -407,6 +475,15 @@ export function parseStructuredAnswer(raw: string): {
       const j = JSON.parse(blob) as Record<string, unknown>;
       const respuesta = extractRespuesta(j);
       if (respuesta !== null) {
+        if (looksLikeLeakedReasoning(respuesta)) {
+          return {
+            text: SAFE_FALLBACK_TEXT,
+            fuentes: [],
+            escalationReason: "complaint",
+            descuento: null,
+            reasoningLeak: true,
+          };
+        }
         const fuentes = Array.isArray(j.fuentes)
           ? j.fuentes.filter((x): x is string => typeof x === "string")
           : [];
@@ -415,6 +492,7 @@ export function parseStructuredAnswer(raw: string): {
           fuentes,
           escalationReason: coerceEscalationReason(j.escalation_reason),
           descuento: coerceDescuento(j.descuento),
+          reasoningLeak: false,
         };
       }
     } catch {
@@ -422,7 +500,27 @@ export function parseStructuredAnswer(raw: string): {
     }
   }
 
-  return { text: stripped, fuentes: [], escalationReason: null, descuento: null };
+  // No usable JSON envelope. Decide between (a) the model legitimately
+  // replied in plain text — accept as-is for backwards compat with older
+  // prompts — and (b) the model emitted reasoning preamble that the parser
+  // couldn't extract — block with the safe fallback so the customer never
+  // sees internal monologue.
+  if (looksLikeLeakedReasoning(stripped)) {
+    return {
+      text: SAFE_FALLBACK_TEXT,
+      fuentes: [],
+      escalationReason: "complaint",
+      descuento: null,
+      reasoningLeak: true,
+    };
+  }
+  return {
+    text: stripped,
+    fuentes: [],
+    escalationReason: null,
+    descuento: null,
+    reasoningLeak: false,
+  };
 }
 
 function coerceEscalationReason(value: unknown): EscalationReason | null {
