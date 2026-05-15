@@ -161,9 +161,16 @@ export function formatDynamicBlock(input: {
     ? formatRoster(input.roster)
     : "(roster no disponible — usá tool_use consultar_disponibilidad si necesitás)";
 
+  // Language anchor — STRONG form. 2026-05-14 (Miguel test, conv c7c7888a):
+  // long Spanish chat → model drifted to Portuguese for one turn, emitted
+  // its reasoning preamble + a JSON envelope using the PT key `resposta`.
+  // The parser is now hardened (multi-key + reasoning-leak guard) but we
+  // also reinforce the prompt: explicit "do not switch even if you are
+  // reasoning in another language" — ES↔PT cognate drift is the common
+  // failure mode in DPM traffic.
   const langLine = input.detectedLanguage
-    ? `IDIOMA DETECTADO DEL CLIENTE: ${input.detectedLanguage} (responde en ese idioma)`
-    : "IDIOMA: detectá automáticamente del mensaje y responde en el mismo idioma";
+    ? `IDIOMA OBLIGATORIO DE TU RESPUESTA: ${input.detectedLanguage}. NO cambies de idioma bajo ninguna circunstancia. Si tu razonamiento interno empieza a fluir en otro idioma (común con español↔portugués porque son cognados), DESCARTÁ ese razonamiento y regenerá tu respuesta en ${input.detectedLanguage}. Tanto el contenido de "respuesta" como las palabras claves del JSON DEBEN estar en ${input.detectedLanguage}.`
+    : "IDIOMA: detectá del mensaje y respondé en el MISMO idioma. NO mezclés idiomas dentro de una misma respuesta — verificá cada frase antes de emitir.";
 
   // Currency hint resolved server-side from phone prefix (INSTRUCCIONES_PAGO §3).
   // 2026-05-11 owner feedback (Miguel from +62 number objected to the AI
@@ -236,7 +243,18 @@ REGLAS PARA "fuentes":
 - Si la respuesta es solo conversacional (saludo, cortesía), "fuentes" puede
   ser un array vacío [].
 - NO inventes ids. Si no encontrás respaldo en la KB para algo factual,
-  reformulá la respuesta para no afirmar ese dato.`;
+  reformulá la respuesta para no afirmar ese dato.
+
+=== RECORDATORIO CRÍTICO (LEER ANTES DE EMITIR) ===
+Tu salida COMPLETA debe ser EXACTAMENTE un único objeto JSON con la clave
+"respuesta" (en español, NO "resposta" ni "answer" ni "response"). NO emitas:
+  • razonamiento ni análisis antes del JSON ("El cliente está frustrado…",
+    "Voy a ser directo…", "Preciso analisar…", "Let me think…")
+  • bloques de código markdown (\`\`\`json … \`\`\`)
+  • múltiples objetos JSON
+  • texto después del cierre del JSON
+Si emitís cualquiera de las cosas anteriores, el cliente lo VE en su WhatsApp
+y se rompe la conversación. Es un BUG visible al cliente.`;
 }
 
 function formatRoster(roster: AvailabilityResponse): string {
