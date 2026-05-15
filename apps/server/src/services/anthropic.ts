@@ -344,6 +344,28 @@ async function dispatchTool(
 }
 
 /**
+ * Extract the customer-facing reply string from a model output that may
+ * have used any of several keys. Long Spanish-dominated conversations can
+ * cause the model to drift to Portuguese (close cognate language), in which
+ * case it sometimes emits the Portuguese key `resposta` — accept it. We
+ * also accept English variants for forward-compat with future prompt
+ * rewrites.
+ *
+ * 2026-05-14: added after a single observed Portuguese-drift incident
+ * (Miguel test, conv c7c7888a) where a missing `respuesta` collapsed the
+ * parser into the raw-text fallback and the customer saw the model's
+ * internal monologue.
+ */
+function extractRespuesta(j: Record<string, unknown>): string | null {
+  const keys = ["respuesta", "resposta", "answer", "response"] as const;
+  for (const k of keys) {
+    const v = j[k];
+    if (typeof v === "string" && v.length > 0) return v;
+  }
+  return null;
+}
+
+/**
  * Parse the {respuesta, fuentes, escalation_reason?, descuento?} JSON
  * envelope. Tolerates pre/post fence tokens (markdown, "```json"). On any
  * parse failure we degrade gracefully: the raw text becomes the response,
@@ -372,24 +394,24 @@ export function parseStructuredAnswer(raw: string): {
   // The model can emit MULTIPLE JSON envelopes when it self-corrects mid-
   // response (e.g. "{respuesta:'Hola'} Wait — let me retake: {respuesta:
   // 'better answer'}"). We want the LAST envelope that has a usable
-  // `respuesta` string — that is the model's final intent.
+  // respuesta string — that is the model's final intent.
   //
   // We scan all balanced top-level `{ ... }` blocks (depth-tracking, ignoring
   // braces inside string literals) and JSON.parse each; the last one with a
   // valid respuesta wins.
-
   const candidates = extractBalancedObjects(stripped);
 
   for (let i = candidates.length - 1; i >= 0; i--) {
     const blob = candidates[i]!;
     try {
       const j = JSON.parse(blob) as Record<string, unknown>;
-      if (typeof j.respuesta === "string" && j.respuesta.length > 0) {
+      const respuesta = extractRespuesta(j);
+      if (respuesta !== null) {
         const fuentes = Array.isArray(j.fuentes)
           ? j.fuentes.filter((x): x is string => typeof x === "string")
           : [];
         return {
-          text: j.respuesta,
+          text: respuesta,
           fuentes,
           escalationReason: coerceEscalationReason(j.escalation_reason),
           descuento: coerceDescuento(j.descuento),
