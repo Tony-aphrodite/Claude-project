@@ -14,6 +14,9 @@ describe("parseStructuredAnswer", () => {
       escalationReason: null,
       descuento: null,
       reasoningLeak: false,
+      closeReason: null,
+      notes: null,
+      sendProductCardIds: null,
     });
   });
 
@@ -41,6 +44,9 @@ describe("parseStructuredAnswer", () => {
       escalationReason: null,
       descuento: null,
       reasoningLeak: false,
+      closeReason: null,
+      notes: null,
+      sendProductCardIds: null,
     });
   });
 
@@ -52,6 +58,9 @@ describe("parseStructuredAnswer", () => {
       escalationReason: null,
       descuento: null,
       reasoningLeak: false,
+      closeReason: null,
+      notes: null,
+      sendProductCardIds: null,
     });
   });
 
@@ -66,6 +75,9 @@ describe("parseStructuredAnswer", () => {
       escalationReason: null,
       descuento: null,
       reasoningLeak: false,
+      closeReason: null,
+      notes: null,
+      sendProductCardIds: null,
     });
   });
 
@@ -76,6 +88,9 @@ describe("parseStructuredAnswer", () => {
       escalationReason: null,
       descuento: null,
       reasoningLeak: false,
+      closeReason: null,
+      notes: null,
+      sendProductCardIds: null,
     });
   });
 
@@ -106,6 +121,9 @@ describe("parseStructuredAnswer", () => {
       escalationReason: null,
       descuento: null,
       reasoningLeak: false,
+      closeReason: null,
+      notes: null,
+      sendProductCardIds: null,
     });
   });
 
@@ -119,6 +137,9 @@ describe("parseStructuredAnswer", () => {
       escalationReason: null,
       descuento: null,
       reasoningLeak: false,
+      closeReason: null,
+      notes: null,
+      sendProductCardIds: null,
     });
   });
 
@@ -138,6 +159,9 @@ describe("parseStructuredAnswer", () => {
         escalationReason: null,
         descuento: null,
         reasoningLeak: false,
+      closeReason: null,
+      notes: null,
+      sendProductCardIds: null,
       });
     });
 

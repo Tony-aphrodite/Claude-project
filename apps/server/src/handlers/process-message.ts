@@ -33,6 +33,8 @@ import type {
   EnviarCatalogoResult,
   LeadMetadata,
   RespondIoIncomingMessage,
+  SendProductCardInput,
+  SendProductCardResult,
   SlotVerdict,
   SolicitarDepositoInput,
   SolicitarDepositoResult,
@@ -78,6 +80,7 @@ import {
   generateRefCode,
   isValidRefCode,
 } from "../tools/solicitar-deposito.js";
+import { validateProductCardIds } from "../tools/send-product-card.js";
 
 export type ProcessResult =
   | {
@@ -1106,14 +1109,91 @@ export async function processIncomingMessage(
     }
   };
 
+  // send_product_card — Colomba (Gili Air) only. Different surface area
+  // from enviar_catalogo: accepts raw Meta product retailer ids (1 or 2
+  // per turn) and validates against ALLOWED_PRODUCT_IDS_GA. John (GT)
+  // doesn't get this handler — his sede prompts emit enviar_catalogo
+  // calls by programa key instead.
+  const sendProductCardHandler = async (
+    input: SendProductCardInput,
+  ): Promise<SendProductCardResult> => {
+    if (input.sede_id !== sede.id) {
+      log.warn(
+        { claimed: input.sede_id, actual: sede.id },
+        "send_product_card sede_id mismatch — overriding to active sede",
+      );
+    }
+    const validated = validateProductCardIds(input);
+    if (!validated.ok) {
+      log.info(
+        { reason: validated.reason, sede: sede.nombre, rejected: validated.rejected },
+        "send_product_card rejected — AI will degrade to text",
+      );
+      return validated;
+    }
+    const ids = validated.ids;
+    // Send each card sequentially through the existing
+    // respondIoClient.sendCatalogMessage path with a `product` payload.
+    // Spec says cards first then text; the text goes out as the AI's main
+    // `respuesta` after this handler returns, so we just push the cards
+    // here. ~500ms gap between multi-card sends avoids Meta squashing.
+    const sent: string[] = [];
+    for (const id of ids) {
+      try {
+        await respondIoClient.sendCatalogMessage({
+          conversationId:
+            payload.conversation?.id ?? conversation.respondIoConversationId,
+          contactId: payload.contact.id,
+          payload: { type: "product", product_retailer_id: id },
+        });
+        sent.push(id);
+        if (ids.length > 1) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      } catch (err) {
+        log.warn(
+          { err: (err as Error).message, sede: sede.nombre, card_id: id },
+          "send_product_card: send failed",
+        );
+        return {
+          ok: false,
+          reason: "send_failed",
+          message: (err as Error).message,
+          rejected: ids.slice(sent.length),
+        };
+      }
+    }
+    void leadStageService
+      .transition({
+        conversacionId: conversation.id,
+        to: "proposed",
+        by: "ai",
+        note: `send_product_card ${ids.join(",")}`,
+      })
+      .catch(() => {});
+    return { ok: true, sent };
+  };
+
+  // Build the tool surface per sede. Colomba (Gili Air) gets
+  // consultar_disponibilidad + send_product_card (no solicitar_deposito —
+  // GA emits bank info as text from KB-02 per Miguel's "opción B"
+  // decision). Every other sede keeps the John (GT) surface.
+  const toolHandlers: Parameters<typeof callClaude>[0]["toolHandlers"] =
+    sede.nombre === "Gili Air"
+      ? {
+          consultar_disponibilidad: consultarDisponibilidadHandler,
+          send_product_card: sendProductCardHandler,
+        }
+      : {
+          consultar_disponibilidad: consultarDisponibilidadHandler,
+          solicitar_deposito: solicitarDepositoHandler,
+          enviar_catalogo: enviarCatalogoHandler,
+        };
+
   const claudeResult = await callClaude({
     system,
     messages,
-    toolHandlers: {
-      consultar_disponibilidad: consultarDisponibilidadHandler,
-      solicitar_deposito: solicitarDepositoHandler,
-      enviar_catalogo: enviarCatalogoHandler,
-    },
+    toolHandlers,
     conversacionId: conversation.id,
     sedeId: sede.id,
     promptVersionId: promptVersion?.id,
@@ -1168,6 +1248,48 @@ export async function processIncomingMessage(
       );
   }
 
+  // Step 9b-2 (Colomba/GA): close_reason → tag venta_incompleta and let
+  // the Respond.io workflow flip the lifecycle to LOST LEAD. The AI emits
+  // this when the conversation is dead (cliente said "thanks, no", asked
+  // generic info with no booking intent, bad weather refund, etc.). Per
+  // IMPLEMENTATION_NOTES §3 the value is one of CLOSE_REASONS — already
+  // validated in the parser.
+  if (claudeResult.closeReason) {
+    void respondIoClient
+      .updateContactCustomFields({
+        contactId: payload.contact.id,
+        fields: { close_reason: claudeResult.closeReason },
+      })
+      .catch((err) =>
+        log.warn({ err }, "respond_io update_custom_fields failed (close_reason)"),
+      )
+      .then(() =>
+        respondIoClient.addContactTag({
+          contactId: payload.contact.id,
+          tag: "venta_incompleta",
+        }),
+      )
+      .catch((err) =>
+        log.warn({ err }, "respond_io add_tag failed (venta_incompleta)"),
+      );
+  }
+
+  // Step 9b-3 (Colomba/GA): free-text notes from the AI. Most commonly
+  // used during the async instructor_request flow (collect name + email
+  // + WA, then escalate with the summary in `notes`). The note is
+  // appended to the contact's profile in Respond.io via the existing
+  // addContactComment helper so the assigned human sees the context.
+  if (claudeResult.notes) {
+    void respondIoClient
+      .addContactComment({
+        contactId: payload.contact.id,
+        text: claudeResult.notes,
+      })
+      .catch((err) =>
+        log.warn({ err }, "respond_io add_comment failed (ai notes)"),
+      );
+  }
+
   // Step 9c: descuento custom field. If the AI quoted (or confirmed
   // "Sin descuento" after negotiation), push the value so Miguel's Sheet
   // Logger captures it on conversation close. Anything >10% never reaches
@@ -1207,6 +1329,49 @@ export async function processIncomingMessage(
   // separated by `\n\n---\n\n` (newline + 3 dashes + newline). We split
   // here and send each chunk sequentially. Single-segment text is just
   // one send — no marker, no behavior change.
+  // Step 10-pre (Colomba/GA): if the AI declared send_product_card in
+  // its JSON envelope (as opposed to invoking the tool mid-turn), send
+  // the cards FIRST so they land before the text per Miguel's spec
+  // ("Tarjeta primero, luego texto"). Validation goes through the same
+  // allowlist as the tool path. Tool_use cards (which already went out
+  // mid-turn) are NOT re-sent — toolCalls includes "send_product_card"
+  // then.
+  if (
+    claudeResult.sendProductCardIds &&
+    claudeResult.sendProductCardIds.length > 0 &&
+    !claudeResult.toolCalls.includes("send_product_card")
+  ) {
+    const validated = validateProductCardIds({
+      sede_id: sede.id,
+      card_id: claudeResult.sendProductCardIds,
+    });
+    if (validated.ok) {
+      for (const id of validated.ids) {
+        try {
+          await respondIoClient.sendCatalogMessage({
+            conversationId:
+              payload.conversation?.id ?? conversation.respondIoConversationId,
+            contactId: payload.contact.id,
+            payload: { type: "product", product_retailer_id: id },
+          });
+          if (validated.ids.length > 1) {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+        } catch (err) {
+          log.warn(
+            { err: (err as Error).message, card_id: id },
+            "envelope send_product_card failed; continuing with text",
+          );
+        }
+      }
+    } else {
+      log.warn(
+        { reason: validated.reason, rejected: validated.rejected },
+        "envelope send_product_card rejected — skipping",
+      );
+    }
+  }
+
   const MESSAGE_SEPARATOR = /\n\n---+\n\n/;
   const segments = claudeResult.text
     .split(MESSAGE_SEPARATOR)

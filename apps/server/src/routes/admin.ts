@@ -46,6 +46,7 @@ import {
   createSimulatorSession,
   deleteSimulatorSession,
   listSimulatorPromptVersions,
+  listSimulatorSedes,
   listSimulatorSessions,
   loadSimulatorHistory,
   runSimulatorMessage,
@@ -641,6 +642,20 @@ export async function adminRoutes(app: FastifyInstance) {
     }
     const versions = await listSimulatorPromptVersions();
     return reply.send({ ok: true, versions });
+  });
+
+  // GET /admin/simulator/sedes — list sedes for the sede selector. The
+  // simulator can chat as any sede; the panel lets the operator pick.
+  app.get("/admin/simulator/sedes", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") {
+      return reply.status(503).send({ error: { code: "admin_disabled" } });
+    }
+    if (auth === "bad_auth") {
+      return reply.status(401).send({ error: { code: "unauthorized" } });
+    }
+    const sedeList = await listSimulatorSedes();
+    return reply.send({ ok: true, sedes: sedeList });
   });
 
   // POST /admin/simulator/session — create a new simulator conversation.

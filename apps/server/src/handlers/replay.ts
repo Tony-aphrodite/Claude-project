@@ -46,6 +46,7 @@ import { randomUUID } from "node:crypto";
 import type {
   ConsultarDisponibilidadResult,
   EnviarCatalogoResult,
+  SendProductCardResult,
   SolicitarDepositoResult,
 } from "@dpm/shared";
 
@@ -88,6 +89,10 @@ function buildReplayToolHandlers(): ToolHandlers {
       programa: input.programa,
       catalogRef: "replay-stub",
     }),
+    send_product_card: async (input): Promise<SendProductCardResult> => {
+      const ids = Array.isArray(input.card_id) ? input.card_id : [input.card_id];
+      return { ok: true, sent: ids };
+    },
   };
 }
 

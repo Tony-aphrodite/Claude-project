@@ -48,6 +48,7 @@ import type { Sede } from "@dpm/db";
 import type {
   ConsultarDisponibilidadResult,
   EnviarCatalogoResult,
+  SendProductCardResult,
   SolicitarDepositoResult,
 } from "@dpm/shared";
 
@@ -218,6 +219,13 @@ function buildStubbedToolHandlers(): ToolHandlers {
         catalogRef: "simulator-stub",
       };
     },
+    // Colomba/GA — stub the Meta product card send so the prompt flow
+    // doesn't trip. We assume allowlist + delivery success unconditionally
+    // (the operator iterating the prompt isn't validating Meta).
+    send_product_card: async (input): Promise<SendProductCardResult> => {
+      const ids = Array.isArray(input.card_id) ? input.card_id : [input.card_id];
+      return { ok: true, sent: ids };
+    },
   };
 }
 
@@ -379,6 +387,28 @@ export async function listSimulatorPromptVersions(): Promise<
     active: r.active,
     createdAt: r.createdAt,
   }));
+}
+
+/**
+ * List sedes available for the panel's sede selector. Returns the
+ * minimal shape the dropdown needs (id + nombre + currency for
+ * display). Used by the simulator UI to let an operator pick which
+ * sede / which AI persona they want to test against.
+ */
+export async function listSimulatorSedes(): Promise<
+  Array<{ id: string; nombre: string; pais: string; currencyCode: string }>
+> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: sedes.id,
+      nombre: sedes.nombre,
+      pais: sedes.pais,
+      currencyCode: sedes.currencyCode,
+    })
+    .from(sedes)
+    .orderBy(sedes.nombre);
+  return rows;
 }
 
 /**

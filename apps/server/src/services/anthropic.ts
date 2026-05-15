@@ -38,6 +38,11 @@ import {
   type EnviarCatalogoHandler,
 } from "../tools/enviar-catalogo.js";
 import {
+  parseSendProductCardInput,
+  sendProductCardTool,
+  type SendProductCardHandler,
+} from "../tools/send-product-card.js";
+import {
   parseSolicitarDepositoInput,
   solicitarDepositoTool,
   type SolicitarDepositoHandler,
@@ -56,10 +61,15 @@ function getClient(): Anthropic {
   return _client;
 }
 
+// All tools the platform knows. Per-sede tool sets are expressed by leaving
+// the unused handlers undefined — Anthropic's tools[] array is built from
+// the keys actually present on the input. John (GT) uses consultar +
+// solicitar + enviar_catalogo; Colomba (GA) uses consultar + send_product_card.
 export type ToolHandlers = {
-  consultar_disponibilidad: ConsultarDisponibilidadHandler;
-  solicitar_deposito: SolicitarDepositoHandler;
-  enviar_catalogo: EnviarCatalogoHandler;
+  consultar_disponibilidad?: ConsultarDisponibilidadHandler;
+  solicitar_deposito?: SolicitarDepositoHandler;
+  enviar_catalogo?: EnviarCatalogoHandler;
+  send_product_card?: SendProductCardHandler;
 };
 
 export type CallClaudeInput = {
@@ -106,6 +116,10 @@ export const ESCALATION_REASONS = [
   "complaint",
   "prohibited_topic",
   "out_of_scope",
+  // Colomba/GA addition (IMPLEMENTATION_NOTES §2): cliente writes in a
+  // language we don't support (EN/ES). Triggers a sede-agnostic round-
+  // robin across every online agent, not just the sede's pool.
+  "language_not_supported",
 ] as const;
 export type EscalationReason = (typeof ESCALATION_REASONS)[number];
 
@@ -114,6 +128,24 @@ export type EscalationReason = (typeof ESCALATION_REASONS)[number];
 // (escalates instead), so these 3 cover the full range.
 export const DESCUENTO_VALUES = ["Sin descuento", "5%", "10%"] as const;
 export type DescuentoValue = (typeof DESCUENTO_VALUES)[number];
+
+// Canonical close_reason taxonomy (Colomba/GA — IMPLEMENTATION_NOTES §3).
+// Matches DPM's official 10 closing-notes categories. When the AI emits
+// one of these, the server applies tag `venta_incompleta` + moves the
+// contact to lifecycle "LOST LEAD" in Respond.io.
+export const CLOSE_REASONS = [
+  "Just_Asking_for_Info",
+  "No_Specific_Date",
+  "Too_Expensive",
+  "Bad_Weather",
+  "Health_Issue",
+  "Booked_Elsewhere",
+  "Changed_Plans",
+  "No_Response_After_FollowUps",
+  "Wrong_Contact",
+  "Spam",
+] as const;
+export type CloseReason = (typeof CLOSE_REASONS)[number];
 
 export type CallClaudeResult = {
   text: string;
@@ -124,6 +156,13 @@ export type CallClaudeResult = {
   cost: CostBreakdown;
   latencyMs: number;
   model: AnthropicModel;
+  // ── Colomba/GA additions ──────────────────────────────────────────────
+  /** AI-emitted close_reason (one of CLOSE_REASONS) when the convo is dead. */
+  closeReason: CloseReason | null;
+  /** Free-text note from the AI for the human team (Respond.io contact note). */
+  notes: string | null;
+  /** Card ids the AI asked to send (1 or 2). Allowlist validation happens here. */
+  sendProductCardIds: string[] | null;
 };
 
 export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResult> {
@@ -142,6 +181,17 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
   // Mutable copy — we may push tool_use / tool_result turns and re-call.
   let messages: Anthropic.MessageParam[] = [...input.messages];
 
+  // Build the tools[] from the handlers the caller actually provided so
+  // John (GT) only sees consultar/solicitar/enviar_catalogo and Colomba
+  // (GA) only sees consultar/send_product_card. Anthropic charges by the
+  // tools-defined surface area, so trimming per sede also saves a few
+  // hundred input tokens per cached request.
+  const tools: Anthropic.Tool[] = [];
+  if (input.toolHandlers.consultar_disponibilidad) tools.push(consultarDisponibilidadTool);
+  if (input.toolHandlers.solicitar_deposito) tools.push(solicitarDepositoTool);
+  if (input.toolHandlers.enviar_catalogo) tools.push(enviarCatalogoTool);
+  if (input.toolHandlers.send_product_card) tools.push(sendProductCardTool);
+
   // We allow up to two tool_use round-trips per request. Two is enough for
   // common combos (e.g. enviar_catalogo + solicitar_deposito on the same
   // turn) without unbounded latency. The system prompt still encourages
@@ -155,11 +205,7 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         model,
         max_tokens: maxTokens,
         system: input.system,
-        tools: [
-          consultarDisponibilidadTool,
-          solicitarDepositoTool,
-          enviarCatalogoTool,
-        ],
+        tools,
         messages,
       });
     } catch (err) {
@@ -195,11 +241,19 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         .map((b) => b.text)
         .join("\n")
         .trim();
-      const { text, fuentes, escalationReason, descuento, reasoningLeak } =
-        parseStructuredAnswer(rawText, {
-          expectedLanguage: input.expectedLanguage,
-          incomingMessage: input.incomingMessage,
-        });
+      const {
+        text,
+        fuentes,
+        escalationReason,
+        descuento,
+        reasoningLeak,
+        closeReason,
+        notes,
+        sendProductCardIds,
+      } = parseStructuredAnswer(rawText, {
+        expectedLanguage: input.expectedLanguage,
+        incomingMessage: input.incomingMessage,
+      });
 
       // Append tool_use to fuentes if Claude actually invoked any. The panel
       // surfaces these so a human can audit which tool the AI relied on.
@@ -248,6 +302,9 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
           escalationReason,
           descuento,
           reasoningLeak,
+          closeReason,
+          hasNotes: notes !== null,
+          sendProductCardCount: sendProductCardIds?.length ?? 0,
         },
         "claude call ok",
       );
@@ -261,6 +318,9 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         cost,
         latencyMs,
         model,
+        closeReason,
+        notes,
+        sendProductCardIds,
       };
     }
 
@@ -293,6 +353,9 @@ async function dispatchTool(
   handlers: ToolHandlers,
 ): Promise<Anthropic.ToolResultBlockParam> {
   if (tu.name === "consultar_disponibilidad") {
+    if (!handlers.consultar_disponibilidad) {
+      return notSupported(tu);
+    }
     const parsed = parseConsultarDisponibilidadInput(tu.input);
     if (!parsed.ok) {
       return {
@@ -320,6 +383,9 @@ async function dispatchTool(
   }
 
   if (tu.name === "solicitar_deposito") {
+    if (!handlers.solicitar_deposito) {
+      return notSupported(tu);
+    }
     const parsed = parseSolicitarDepositoInput(tu.input);
     if (!parsed.ok) {
       return {
@@ -347,6 +413,9 @@ async function dispatchTool(
   }
 
   if (tu.name === "enviar_catalogo") {
+    if (!handlers.enviar_catalogo) {
+      return notSupported(tu);
+    }
     const parsed = parseEnviarCatalogoInput(tu.input);
     if (!parsed.ok) {
       return {
@@ -373,10 +442,44 @@ async function dispatchTool(
     }
   }
 
+  if (tu.name === "send_product_card") {
+    if (!handlers.send_product_card) {
+      return notSupported(tu);
+    }
+    const parsed = parseSendProductCardInput(tu.input);
+    if (!parsed.ok) {
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: parsed.message,
+        is_error: true,
+      };
+    }
+    try {
+      const result = await handlers.send_product_card(parsed.value);
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: JSON.stringify(result),
+      };
+    } catch (err) {
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: `Error enviando product card: ${(err as Error).message}`,
+        is_error: true,
+      };
+    }
+  }
+
+  return notSupported(tu);
+}
+
+function notSupported(tu: Anthropic.ToolUseBlock): Anthropic.ToolResultBlockParam {
   return {
     type: "tool_result",
     tool_use_id: tu.id,
-    content: `Error: tool "${tu.name}" no soportada`,
+    content: `Error: tool "${tu.name}" no soportada para esta sede`,
     is_error: true,
   };
 }
@@ -574,6 +677,10 @@ export function parseStructuredAnswer(
   escalationReason: EscalationReason | null;
   descuento: DescuentoValue | null;
   reasoningLeak: boolean;
+  // ── Colomba/GA additions ───────────────────────────────────────────────
+  closeReason: CloseReason | null;
+  notes: string | null;
+  sendProductCardIds: string[] | null;
 } {
   // Conversation-language drift check (only fires when the caller passed
   // an expectedLanguage). Spanish is the only mismatch we currently flag
@@ -597,6 +704,9 @@ export function parseStructuredAnswer(
       escalationReason: null,
       descuento: null,
       reasoningLeak: false,
+      closeReason: null,
+      notes: null,
+      sendProductCardIds: null,
     };
 
   // Strip outer code fences if present.
@@ -631,6 +741,9 @@ export function parseStructuredAnswer(
             escalationReason: "complaint",
             descuento: null,
             reasoningLeak: true,
+            closeReason: null,
+            notes: null,
+            sendProductCardIds: null,
           };
         }
         const fuentes = Array.isArray(j.fuentes)
@@ -659,6 +772,9 @@ export function parseStructuredAnswer(
           escalationReason,
           descuento: coerceDescuento(j.descuento),
           reasoningLeak: false,
+          closeReason: coerceCloseReason(j.close_reason),
+          notes: coerceNotes(j.notes),
+          sendProductCardIds: coerceSendProductCard(j.send_product_card),
         };
       }
     } catch {
@@ -681,6 +797,9 @@ export function parseStructuredAnswer(
       escalationReason: "complaint",
       descuento: null,
       reasoningLeak: true,
+      closeReason: null,
+      notes: null,
+      sendProductCardIds: null,
     };
   }
   // L10 + L11 same safety nets for the no-JSON branch — plain-text
@@ -694,6 +813,9 @@ export function parseStructuredAnswer(
     escalationReason,
     descuento: null,
     reasoningLeak: false,
+    closeReason: null,
+    notes: null,
+    sendProductCardIds: null,
   };
 }
 
@@ -703,6 +825,45 @@ function coerceEscalationReason(value: unknown): EscalationReason | null {
   return (ESCALATION_REASONS as readonly string[]).includes(normalized)
     ? (normalized as EscalationReason)
     : null;
+}
+
+/** Coerce close_reason value to canonical CLOSE_REASONS or null. */
+function coerceCloseReason(value: unknown): CloseReason | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return (CLOSE_REASONS as readonly string[]).includes(trimmed)
+    ? (trimmed as CloseReason)
+    : null;
+}
+
+/** Free-text notes field (Colomba — used mostly for instructor_request async). */
+function coerceNotes(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > 2000) return null;
+  return trimmed;
+}
+
+/**
+ * Normalise send_product_card to a string[] of up to 2 ids, or null. The
+ * allowlist (per-sede ALLOWED_PRODUCT_IDS_*) is enforced separately by the
+ * tool handler — here we just shape the value.
+ */
+function coerceSendProductCard(value: unknown): string[] | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim().length > 0) return [value.trim()];
+  if (Array.isArray(value)) {
+    const ids = value
+      .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+      .map((x) => x.trim());
+    if (ids.length === 0) return null;
+    // Spec caps at 2 cards per turn. We TRUNCATE silently rather than
+    // reject the whole call — the tool handler will report 'too_many_cards'
+    // separately if it sees > 2, but at the parser level we just hand the
+    // caller a clean slice and let the handler enforce.
+    return ids.slice(0, 2);
+  }
+  return null;
 }
 
 function coerceDescuento(value: unknown): DescuentoValue | null {
