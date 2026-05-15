@@ -566,7 +566,6 @@ export async function processIncomingMessage(
             await respondIoClient.updateContactCustomFields({
               contactId: payload.contact.id,
               fields: {
-                branch: sede.nombre,
                 sede: sede.nombre,
                 // Pass null for missing values; the client filters them out
                 // so we don't blow away the field with an empty string.
@@ -712,7 +711,6 @@ export async function processIncomingMessage(
         ok: false,
         ignored: true,
         reason: "ai_silenced_post_handoff",
-        branch: sede.nombre,
         latencyMs: Date.now() - t0,
       };
     }
@@ -838,7 +836,6 @@ export async function processIncomingMessage(
         .updateContactCustomFields({
           contactId: payload.contact.id,
           fields: {
-            branch: sede.nombre,
             sede: sede.nombre,
             programa: input.programa,
             start_date: input.start_date,
@@ -939,7 +936,6 @@ export async function processIncomingMessage(
       .updateContactCustomFields({
         contactId: payload.contact.id,
         fields: {
-          branch: sede.nombre,
           sede: sede.nombre,
           programa: input.programa,
           turno: computeTurno(required) ?? "",
@@ -1058,7 +1054,6 @@ export async function processIncomingMessage(
       .updateContactCustomFields({
         contactId: payload.contact.id,
         fields: {
-          branch: sede.nombre,
           sede: sede.nombre,
           monto: montoTotal, // Sheet Logger sees the total the customer paid
           moneda: currency,
@@ -1263,17 +1258,20 @@ export async function processIncomingMessage(
   // and nobody is paged. Best-effort: failures here must not block the
   // user reply we are about to send.
   if (claudeResult.escalationReason) {
-    // Push Branch + motivo_escalation FIRST, then tag. The AI Escalation
-    // workflow may also filter on Branch (per-sede routing) — same pattern
-    // as the Onboarding Piloto workflow. We can't `await` here without
-    // delaying the user-facing send, but we sequence them so the tag write
-    // queues after the customFields write resolves.
+    // Push only motivo_escalation. We deliberately do NOT write `branch`
+    // or `sede` here — those are OPERATOR-CONTROLLED fields. Earlier
+    // this block also set branch=sede.nombre + sede=sede.nombre to keep
+    // the AI Escalation workflow's Branch filter populated, but that
+    // created a sneaky feedback loop (2026-05-15): if the contact's
+    // Branch had been changed to "Gili Air" but a v2 webhook payload
+    // was stale + the message routed to GT, this push would OVERWRITE
+    // Branch back to "Gili Trawangan" — locking the contact into John
+    // forever even after operator intervention. The Branch routing
+    // works without us writing it; we only sync motivo_escalation.
     void respondIoClient
       .updateContactCustomFields({
         contactId: payload.contact.id,
         fields: {
-          branch: sede.nombre,
-          sede: sede.nombre,
           motivo_escalation: claudeResult.escalationReason,
         },
       })
