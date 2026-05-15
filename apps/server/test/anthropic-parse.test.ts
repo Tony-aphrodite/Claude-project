@@ -122,6 +122,174 @@ describe("parseStructuredAnswer", () => {
     });
   });
 
+  // ── Layered defense added 2026-05-14 after the Miguel test incident ────
+  describe("layered defense against reasoning leaks", () => {
+    it("accepts the Portuguese 'resposta' key as a fallback for 'respuesta'", () => {
+      // Long Spanish conversations occasionally drift to Portuguese (cognate
+      // language). The parser must still extract the customer-facing text
+      // even if the model used the PT spelling for the JSON key.
+      const raw = JSON.stringify({
+        resposta: "Entendo, te explico.",
+        fuentes: ["kb:ow-course"],
+      });
+      expect(parseStructuredAnswer(raw)).toEqual({
+        text: "Entendo, te explico.",
+        fuentes: ["kb:ow-course"],
+        escalationReason: null,
+        descuento: null,
+        reasoningLeak: false,
+      });
+    });
+
+    it("accepts English 'answer' and 'response' key variants", () => {
+      for (const key of ["answer", "response"]) {
+        const raw = JSON.stringify({ [key]: "OK", fuentes: [] });
+        expect(parseStructuredAnswer(raw).text).toBe("OK");
+      }
+    });
+
+    it("prefers respuesta over alternative keys when multiple are present", () => {
+      const raw = JSON.stringify({
+        respuesta: "ES wins",
+        resposta: "PT loses",
+        answer: "EN loses",
+      });
+      expect(parseStructuredAnswer(raw).text).toBe("ES wins");
+    });
+
+    it("blocks meta-commentary openers (ES) and forces complaint escalation", () => {
+      const raw = JSON.stringify({
+        respuesta:
+          "El cliente está frustrado porque no encuentra fechas, voy a proponer alternativa.",
+        fuentes: [],
+      });
+      const out = parseStructuredAnswer(raw);
+      expect(out.reasoningLeak).toBe(true);
+      expect(out.text).toMatch(/conecto.*equipo/i);
+      expect(out.escalationReason).toBe("complaint");
+      expect(out.fuentes).toEqual([]);
+    });
+
+    it("blocks meta-commentary openers (PT)", () => {
+      const raw = JSON.stringify({
+        respuesta:
+          "O cliente está frustrado porque eu já expliquei várias vezes...",
+        fuentes: [],
+      });
+      const out = parseStructuredAnswer(raw);
+      expect(out.reasoningLeak).toBe(true);
+      expect(out.escalationReason).toBe("complaint");
+    });
+
+    it("blocks meta-commentary openers (EN)", () => {
+      const raw = JSON.stringify({
+        respuesta:
+          "The customer is asking about discounts. Let me think about this.",
+        fuentes: [],
+      });
+      expect(parseStructuredAnswer(raw).reasoningLeak).toBe(true);
+    });
+
+    it("blocks 'Vou ser direto / Voy a ser directo / Let me be direct' planning text", () => {
+      for (const opener of [
+        "Vou ser direto e propor a melhor solução para o casal.",
+        "Voy a ser directo y proponer la mejor opción.",
+        "Let me be direct and offer the OW course.",
+        "Preciso ser honesto sobre os limites do Try Scuba.",
+        "Necesito ser honesto sobre los límites.",
+        "I need to be honest about the depth limits.",
+      ]) {
+        const raw = JSON.stringify({ respuesta: opener, fuentes: [] });
+        expect(parseStructuredAnswer(raw).reasoningLeak).toBe(true);
+      }
+    });
+
+    it("blocks JSON-key fragments leaking in plain text", () => {
+      // When the model emits a JSON envelope that the parser can't extract
+      // (e.g. truncated mid-string), the raw text often contains literal
+      // `"respuesta":` substrings — strongest possible signal of a leak.
+      const raw =
+        'Razonamiento previo. ```json\n{"resposta": "Hola", "fuentes":';
+      const out = parseStructuredAnswer(raw);
+      expect(out.reasoningLeak).toBe(true);
+      expect(out.text).toMatch(/conecto.*equipo/i);
+      expect(out.escalationReason).toBe("complaint");
+    });
+
+    it("reproduces the 2026-05-14 Miguel incident — extracts JSON, suppresses preamble", () => {
+      // Verbatim shape of what the model emitted (conv c7c7888a, 00:19:49):
+      // reasoning preamble in Portuguese + a code-fenced JSON envelope
+      // using the PT key 'resposta'. Old parser fell through (because it
+      // only recognised 'respuesta') and shipped the ENTIRE raw text —
+      // 1318 chars of internal monologue — to WhatsApp.
+      //
+      // New parser: extracts the JSON envelope via the resposta key.
+      // The customer-facing text is the clean reply (Portuguese here —
+      // language drift is a separate concern, handled by the Bloque 4
+      // language anchor + system prompt #idioma hard lock). The preamble
+      // is gone, the code fence is gone, the JSON keys are gone.
+      const raw = `O cliente está frustrado porque eu já expliquei várias vezes que eles vão no mesmo barco, mas ele quer literalmente mergulhar lado a lado.
+
+Vou ser direto e propor a solução mais completa.
+
+\`\`\`json
+{
+  "resposta": "Entendo a frustração. Se querem mergulhar juntos, a opção é o Open Water.",
+  "fuentes": ["kb:#try-scuba", "kb:#ow-course"]
+}`;
+      const out = parseStructuredAnswer(raw);
+      expect(out.text).toBe(
+        "Entendo a frustração. Se querem mergulhar juntos, a opção é o Open Water.",
+      );
+      expect(out.text).not.toMatch(/O cliente/);
+      expect(out.text).not.toMatch(/Vou ser direto/);
+      expect(out.text).not.toMatch(/```json/);
+      expect(out.fuentes).toEqual(["kb:#try-scuba", "kb:#ow-course"]);
+    });
+
+    it("Miguel-incident worst case — preamble + MALFORMED envelope (no JSON to extract)", () => {
+      // Variant: model emits preamble + a JSON envelope that the parser
+      // can't extract because it was truncated (no closing brace). With
+      // no usable envelope, fall through to raw-text branch — and there
+      // the reasoning-leak guard MUST catch the preamble and force the
+      // safe fallback. Without this layer the customer sees garbage.
+      const raw = `O cliente está frustrado porque queremos vender mais.
+
+\`\`\`json
+{
+  "resposta": "Tente o Open Water",
+  "fuentes": [`;
+      const out = parseStructuredAnswer(raw);
+      expect(out.reasoningLeak).toBe(true);
+      expect(out.text).toMatch(/conecto.*equipo/i);
+      expect(out.text).not.toMatch(/O cliente/);
+      expect(out.escalationReason).toBe("complaint");
+    });
+
+    it("does NOT flag a legitimate Spanish reply that happens to mention 'el cliente'", () => {
+      // False positive guard: the regex is anchored to the start of the
+      // text and requires the pattern "X is frustrated/confused/asking",
+      // so generic mentions like "te conecto con el cliente otra vez" or
+      // a reply containing the word "cliente" in the middle should pass.
+      const raw = JSON.stringify({
+        respuesta: "Para tu reserva el cliente confirmará al llegar.",
+        fuentes: [],
+      });
+      expect(parseStructuredAnswer(raw).reasoningLeak).toBe(false);
+    });
+
+    it("plain text that looks like leaked reasoning is also blocked", () => {
+      // Even when there is no JSON at all — if the model just emitted
+      // reasoning prose, do NOT send it to the customer.
+      const raw =
+        "El cliente está frustrado y voy a proponer otra opción ya mismo.";
+      const out = parseStructuredAnswer(raw);
+      expect(out.reasoningLeak).toBe(true);
+      expect(out.text).toMatch(/conecto.*equipo/i);
+      expect(out.escalationReason).toBe("complaint");
+    });
+  });
+
   describe("escalation_reason", () => {
     it("accepts every canonical code", () => {
       const codes = [
