@@ -128,14 +128,46 @@ export async function processIncomingMessage(
 
   const incomingText = (payload.message.text ?? "").trim();
 
-  // Step 2: Pilot gate. The Branch contact field decides whether this
-  // message belongs to our system. Anything other than "Gili Trawangan"
-  // (including empty) is the human team's responsibility — return 200 so
-  // Respond.io does not retry. V2 webhook payloads (2026-05-10+) omit the
-  // customFields, so we also accept channel-id-based identification when
-  // Branch is missing.
+  // Step 2: Pilot gate. The Branch contact field decides which sede this
+  // message belongs to. Two AI-enabled sedes are accepted: Gili Trawangan
+  // (John) and Gili Air (Colomba). Other sedes / empty go back to the
+  // human flow — return 200 so Respond.io does not retry.
+  //
+  // V2 webhook payloads (2026-05-10+) frequently OMIT customFields from
+  // the contact body, so reading Branch off payload.contact alone would
+  // miss it and fall through to the channel-id default (GT) every time.
+  // To avoid silently misrouting GA contacts, when the payload's
+  // customFields are missing we eagerly fetch the contact from Respond.io
+  // and overlay the real custom_fields into the contact body before
+  // resolution. Cheap: getContact is a single GET we'd do later anyway
+  // for the test-tag gate; doing it here too just hits the same cached
+  // path.
+  let contactForResolution = payload.contact;
+  const hasCustomFields =
+    !!payload.contact.customFields ||
+    !!payload.contact.custom_fields ||
+    !!payload.contact.fields;
+  if (!hasCustomFields) {
+    const fetched = await respondIoClient
+      .getContact(payload.contact.id)
+      .catch((err) => {
+        log.warn(
+          { err: (err as Error).message, contactId: payload.contact.id },
+          "respond_io get_contact failed before sede resolution — falling back to payload-only",
+        );
+        return null;
+      });
+    if (fetched?.customFields) {
+      contactForResolution = {
+        ...payload.contact,
+        customFields: fetched.customFields,
+        tags: fetched.tags ?? payload.contact.tags,
+      };
+    }
+  }
+
   const resolution = await sedeService.resolveForPilot(
-    payload.contact,
+    contactForResolution,
     payload.channelId,
   );
   if (!resolution.ok) {
