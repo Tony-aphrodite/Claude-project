@@ -48,7 +48,26 @@ export class ConversationService {
       .from(conversaciones)
       .where(eq(conversaciones.respondIoConversationId, meta.respondIoConversationId))
       .limit(1);
-    if (existing) return existing;
+    if (existing) {
+      // Sede drift handling: if the contact's Branch field flipped (e.g.
+      // operator switched a contact from Gili Trawangan → Gili Air for
+      // Colomba migration), refresh the conversation's sede_id so the
+      // next AI call uses the new prompt + KB + tool surface. Otherwise
+      // the conversation is locked into whichever sede was active at
+      // creation, even though the contact now belongs to a different
+      // one. Tony retest 2026-05-15 surfaced this: Branch change in
+      // Respond.io had no effect because the conversation row kept the
+      // old sede_id from the initial GT inquiry.
+      if (existing.sedeId !== meta.sedeId) {
+        const [updated] = await db
+          .update(conversaciones)
+          .set({ sedeId: meta.sedeId, updatedAt: new Date() })
+          .where(eq(conversaciones.id, existing.id))
+          .returning();
+        return updated ?? existing;
+      }
+      return existing;
+    }
 
     const [row] = await db
       .insert(conversaciones)
