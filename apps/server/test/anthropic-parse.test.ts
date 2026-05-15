@@ -521,5 +521,23 @@ Vou ser direto e propor a solução mais completa.
       const raw = "Te conecto con el equipo, ya te escriben.";
       expect(parseStructuredAnswer(raw).escalationReason).toBe("complaint");
     });
+
+    it("auto-injects on graceful-goodbye exit-intent phrasing (§sentimiento-negativo despedida cordial)", () => {
+      // Verbatim shape from Tony's 2026-05-15 scenario-B test: AI
+      // emitted the prompt's despedida-cordial template after a
+      // sarcastic "vamos con otra escuela" goodbye, but the model
+      // forgot escalation_reason. Without this catch the lead is
+      // lost — no human gets the chance to recover.
+      for (const text of [
+        "Te entiendo, ojalá les vaya genial 🙏 Si en algún momento cambian de idea, acá estamos.",
+        "Ojalá te vaya bien. Aquí estamos si necesitan algo.",
+        "Si cambian de idea, acá estamos para lo que necesiten.",
+      ]) {
+        const out = parseStructuredAnswer(
+          JSON.stringify({ respuesta: text, fuentes: [] }),
+        );
+        expect(out.escalationReason).toBe("complaint");
+      }
+    });
   });
 });

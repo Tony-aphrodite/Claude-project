@@ -449,6 +449,7 @@ function looksLikePortuguese(text: string): boolean {
 // subsection demanding it. LLM judgment on structured metadata is
 // unreliable; the server-side fallback is deterministic.
 const ESCALATION_PHRASE_PATTERNS: RegExp[] = [
+  // Direct handoff phrasing — "I'm connecting you to the team".
   /\bte\s+conecto\b/i,
   /\bvoy\s+a\s+conectarte\b/i,
   /\bconectarte\s+con\s+el\s+equipo\b/i,
@@ -460,6 +461,18 @@ const ESCALATION_PHRASE_PATTERNS: RegExp[] = [
   /\bI'?ll\s+connect\s+you\b/i,
   /\blet\s+me\s+connect\s+you\b/i,
   /\bI'?ll\s+transfer\s+you\b/i,
+  // Graceful-goodbye phrasing — §sentimiento-negativo's "despedida
+  // cordial" pattern. The AI says farewell without an explicit
+  // handoff verb but the customer is leaving and a human should
+  // still get the chance to recover the lead. Added 2026-05-15 after
+  // Tony's scenario B test: AI emitted "Te entiendo, ojalá les vaya
+  // genial 🙏 Si en algún momento cambian de idea, acá estamos."
+  // perfectly matching the prompt template, but omitted
+  // escalation_reason and the ai_escalation tag never fired.
+  /\bojal[áa]\s+(?:te|le|les)\s+vaya\b/i,
+  /\bsi\s+(?:en\s+alg[úu]n\s+momento\s+)?cambi(?:as|an)\s+de\s+idea\b/i,
+  /\bac[áa]\s+estamos\b/i,
+  /\baqu[íi]\s+estamos\s+si\b/i,
 ];
 
 function mentionsHandoff(text: string): boolean {
