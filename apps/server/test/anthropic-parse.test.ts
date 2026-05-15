@@ -396,8 +396,10 @@ Vou ser direto e propor a solução mais completa.
     });
 
     it("rejects unknown codes — collapses to null", () => {
+      // Use a benign respuesta (no handoff phrasing) so the L10 auto-detect
+      // doesn't interfere — we're verifying only the unknown-code coercion.
       const raw = JSON.stringify({
-        respuesta: "te conecto",
+        respuesta: "ok",
         fuentes: [],
         escalation_reason: "made_up_category",
       });
@@ -460,6 +462,64 @@ Vou ser direto e propor a solução mais completa.
         descuento: "15%",
       });
       expect(parseStructuredAnswer(raw).descuento).toBeNull();
+    });
+  });
+
+  // ── L10: auto-inject escalation_reason when reply text announces handoff
+  describe("L10 escalation auto-detect from reply phrasing", () => {
+    it("auto-injects 'complaint' when model says 'voy a conectarte' but omits the field", () => {
+      // Verbatim from Tony's 2026-05-15 test #3 (v2.4 prompt) — model
+      // ignored the AUTO-CHECK section + STOP-table template and shipped
+      // the handoff text without the field. Server-side safety net now
+      // detects the phrase and injects complaint so the ai_escalation tag
+      // + motivo_escalation custom field still fire on Respond.io.
+      const raw = JSON.stringify({
+        respuesta:
+          "Te entiendo perfectamente 🙏 Voy a conectarte con el equipo para que vean cómo armarles algo que funcione para los dos.",
+        fuentes: [],
+      });
+      expect(parseStructuredAnswer(raw).escalationReason).toBe("complaint");
+    });
+
+    it("auto-injects on every supported phrase variant (ES + EN)", () => {
+      const variants = [
+        "Te conecto con el equipo para que te ayuden.",
+        "Voy a conectarte con el equipo de Gili T.",
+        "Te paso al equipo, ya te escriben.",
+        "Te dejo con el equipo.",
+        "Te derivo con el equipo de la sede.",
+        "I'll connect you with the team right away.",
+        "Let me connect you with the team.",
+      ];
+      for (const text of variants) {
+        const out = parseStructuredAnswer(
+          JSON.stringify({ respuesta: text, fuentes: [] }),
+        );
+        expect(out.escalationReason).toBe("complaint");
+      }
+    });
+
+    it("does NOT override an explicit non-null escalation_reason", () => {
+      const raw = JSON.stringify({
+        respuesta: "Te conecto con el equipo médico.",
+        fuentes: [],
+        escalation_reason: "medical",
+      });
+      // The model's explicit choice wins — auto-detect only fills nulls.
+      expect(parseStructuredAnswer(raw).escalationReason).toBe("medical");
+    });
+
+    it("does NOT inject when the reply has no handoff phrasing", () => {
+      const raw = JSON.stringify({
+        respuesta: "¡Perfecto! El precio del OW es 6.400.000 IDR.",
+        fuentes: ["kb:ow-precio"],
+      });
+      expect(parseStructuredAnswer(raw).escalationReason).toBeNull();
+    });
+
+    it("also applies in the plain-text (no JSON) fallback branch", () => {
+      const raw = "Te conecto con el equipo, ya te escriben.";
+      expect(parseStructuredAnswer(raw).escalationReason).toBe("complaint");
     });
   });
 });

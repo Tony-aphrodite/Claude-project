@@ -437,6 +437,35 @@ function looksLikePortuguese(text: string): boolean {
   return PT_ONLY_PATTERNS.some((p) => p.test(text));
 }
 
+// Phrases that mean "I'm handing off to a human". When any of these appears
+// in the AI's reply but escalation_reason came back null, the server-side
+// handoff path (apply ai_escalation tag + set motivo_escalation custom
+// field) silently doesn't fire — customer reads "I'll connect you" then
+// nobody contacts them. Parser auto-injects "complaint" as a safety net.
+//
+// 2026-05-15 (Tony retest #3, v2.4 prompt): the model emitted the escalation
+// text exactly as instructed by §repeat-objection STOP-table — but
+// repeatedly omitted the escalation_reason field despite an AUTO-CHECK
+// subsection demanding it. LLM judgment on structured metadata is
+// unreliable; the server-side fallback is deterministic.
+const ESCALATION_PHRASE_PATTERNS: RegExp[] = [
+  /\bte\s+conecto\b/i,
+  /\bvoy\s+a\s+conectarte\b/i,
+  /\bconectarte\s+con\s+el\s+equipo\b/i,
+  /\bte\s+paso\s+a\b/i,
+  /\bte\s+paso\s+al\s+equipo\b/i,
+  /\bte\s+dejo\s+con\b/i,
+  /\bte\s+derivo\b/i,
+  /\bderivar\s+al\s+equipo\b/i,
+  /\bI'?ll\s+connect\s+you\b/i,
+  /\blet\s+me\s+connect\s+you\b/i,
+  /\bI'?ll\s+transfer\s+you\b/i,
+];
+
+function mentionsHandoff(text: string): boolean {
+  return ESCALATION_PHRASE_PATTERNS.some((p) => p.test(text));
+}
+
 /**
  * Extract the customer-facing `respuesta` string from a model output that may
  * have used any of several keys. Long Spanish-dominated conversations can
@@ -539,10 +568,19 @@ export function parseStructuredAnswer(
         const fuentes = Array.isArray(j.fuentes)
           ? j.fuentes.filter((x): x is string => typeof x === "string")
           : [];
+        let escalationReason = coerceEscalationReason(j.escalation_reason);
+        // L10 safety net: if the reply text announces a handoff but the
+        // model forgot to set escalation_reason (observed repeatedly in
+        // production even with explicit prompt instructions), force the
+        // field to "complaint" so the server-side tag + custom field
+        // path still fires and a human actually gets routed.
+        if (escalationReason === null && mentionsHandoff(respuesta)) {
+          escalationReason = "complaint";
+        }
         return {
           text: respuesta,
           fuentes,
-          escalationReason: coerceEscalationReason(j.escalation_reason),
+          escalationReason,
           descuento: coerceDescuento(j.descuento),
           reasoningLeak: false,
         };
@@ -569,10 +607,13 @@ export function parseStructuredAnswer(
       reasoningLeak: true,
     };
   }
+  // L10 same safety net for the no-JSON branch — plain-text replies
+  // that announce a handoff also get the auto-injected complaint reason.
+  const escalationReason = mentionsHandoff(stripped) ? "complaint" : null;
   return {
     text: stripped,
     fuentes: [],
-    escalationReason: null,
+    escalationReason,
     descuento: null,
     reasoningLeak: false,
   };
