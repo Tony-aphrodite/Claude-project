@@ -37,6 +37,20 @@ import {
 import { LEAD_STAGES, type LeadStage } from "@dpm/shared";
 
 import { loadEnv } from "../env.js";
+import {
+  getReplayRun,
+  listReplayRunsForConversation,
+  startReplay,
+} from "../handlers/replay.js";
+import {
+  createSimulatorSession,
+  deleteSimulatorSession,
+  listSimulatorPromptVersions,
+  listSimulatorSessions,
+  loadSimulatorHistory,
+  runSimulatorMessage,
+  saveSimulatorSession,
+} from "../handlers/simulator.js";
 import { leadStageService } from "../services/lead-stage.js";
 import { respondIoClient } from "../services/respond-io.js";
 
@@ -592,5 +606,257 @@ export async function adminRoutes(app: FastifyInstance) {
       },
       body,
     });
+  });
+
+  // ── /admin/simulator/* ──────────────────────────────────────────────────
+  //
+  // Phase 1 of Miguel's Simulator + Replay spec (2026-05-12 / 2026-05-14):
+  // Miguel chats with John from the panel as a fake client without using
+  // a real WhatsApp number and without contaminating dashboard metrics
+  // or Respond.io workflows. Tools are stubbed in handlers/simulator.ts
+  // so the surface mirrors production without side effects. All routes
+  // share the same ADMIN_RESET_TOKEN bearer used by force-transition /
+  // apply-tag / send-daily-summary.
+
+  // Pre-auth helper to deduplicate the same check in 4 handlers.
+  const requireAdminAuth = (headers: {
+    authorization?: string | undefined;
+  }): "ok" | "no_token" | "bad_auth" => {
+    const expected = env.ADMIN_RESET_TOKEN;
+    if (!expected) return "no_token";
+    if (headers.authorization !== `Bearer ${expected}`) return "bad_auth";
+    return "ok";
+  };
+
+  // GET /admin/simulator/prompts — list versions for the dropdown.
+  app.get("/admin/simulator/prompts", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") {
+      return reply.status(503).send({
+        error: { code: "admin_disabled" },
+      });
+    }
+    if (auth === "bad_auth") {
+      return reply.status(401).send({ error: { code: "unauthorized" } });
+    }
+    const versions = await listSimulatorPromptVersions();
+    return reply.send({ ok: true, versions });
+  });
+
+  // POST /admin/simulator/session — create a new simulator conversation.
+  //   body: { sedeId?: string }   (defaults to Gili Trawangan)
+  //   returns: { conversacionId, sedeId }
+  app.post("/admin/simulator/session", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const body = (req.body ?? {}) as { sedeId?: string };
+    try {
+      const res = await createSimulatorSession({ sedeId: body.sedeId });
+      req.log.info(res, "simulator session created");
+      return reply.send({ ok: true, ...res });
+    } catch (err) {
+      req.log.warn({ err: (err as Error).message }, "simulator session failed");
+      return reply.status(500).send({
+        error: { code: "create_failed", message: (err as Error).message },
+      });
+    }
+  });
+
+  // POST /admin/simulator/message — one turn of the simulator chat.
+  //   body: { conversacionId: string; text: string; promptVersionId?: string }
+  //   returns: { aiText, sources, toolCalls, costUsd, latencyMs, model,
+  //              promptVersionId, escalationReason }
+  app.post("/admin/simulator/message", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const body = (req.body ?? {}) as {
+      conversacionId?: string;
+      text?: string;
+      promptVersionId?: string;
+    };
+    if (!body.conversacionId || !body.text) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "Provide conversacionId and text in the JSON body.",
+        },
+      });
+    }
+    try {
+      const res = await runSimulatorMessage({
+        conversacionId: body.conversacionId,
+        text: body.text,
+        promptVersionId: body.promptVersionId,
+      });
+      return reply.send({ ok: true, ...res });
+    } catch (err) {
+      req.log.warn(
+        { err: (err as Error).message, conversacionId: body.conversacionId },
+        "simulator message failed",
+      );
+      return reply.status(500).send({
+        error: { code: "inference_failed", message: (err as Error).message },
+      });
+    }
+  });
+
+  // GET /admin/simulator/history?conversacionId=... — full message list.
+  app.get("/admin/simulator/history", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const q = (req.query ?? {}) as { conversacionId?: string };
+    if (!q.conversacionId) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "Provide conversacionId query param." },
+      });
+    }
+    try {
+      const messages = await loadSimulatorHistory(q.conversacionId);
+      return reply.send({ ok: true, messages });
+    } catch (err) {
+      return reply.status(500).send({
+        error: { code: "history_failed", message: (err as Error).message },
+      });
+    }
+  });
+
+  // ── Phase 1.5: saved sessions ─────────────────────────────────────────
+
+  // GET /admin/simulator/sessions — list saved sessions for the dropdown.
+  app.get("/admin/simulator/sessions", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const sessions = await listSimulatorSessions();
+    return reply.send({ ok: true, sessions });
+  });
+
+  // POST /admin/simulator/sessions — save the current conversation as a
+  // named session. body: { name, conversacionId, promptVersionId?, notes? }
+  app.post("/admin/simulator/sessions", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const body = (req.body ?? {}) as {
+      name?: string;
+      conversacionId?: string;
+      promptVersionId?: string | null;
+      createdBy?: string | null;
+      notes?: string | null;
+    };
+    if (!body.name || !body.conversacionId) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "Provide name and conversacionId in the JSON body.",
+        },
+      });
+    }
+    try {
+      const res = await saveSimulatorSession({
+        name: body.name,
+        conversacionId: body.conversacionId,
+        promptVersionId: body.promptVersionId ?? null,
+        createdBy: body.createdBy ?? null,
+        notes: body.notes ?? null,
+      });
+      return reply.send({ ok: true, ...res });
+    } catch (err) {
+      return reply.status(400).send({
+        error: { code: "save_failed", message: (err as Error).message },
+      });
+    }
+  });
+
+  // DELETE /admin/simulator/sessions/:id — remove a saved session.
+  app.delete("/admin/simulator/sessions/:id", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const { id } = (req.params ?? {}) as { id?: string };
+    if (!id) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "Provide id in the path." },
+      });
+    }
+    await deleteSimulatorSession(id);
+    return reply.send({ ok: true });
+  });
+
+  // ── /admin/replay/* ─────────────────────────────────────────────────────
+  //
+  // Phase 2 of Miguel's spec: take a real customer conversation and
+  // re-run the client messages through a different prompt version,
+  // recording what John v_new would have said. Side-by-side comparison
+  // lives in the panel; the worker + storage live here. See
+  // handlers/replay.ts for the worker semantics.
+
+  // POST /admin/replay/start  body: { sourceConversacionId, promptVersionId }
+  //   returns: { id }
+  app.post("/admin/replay/start", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const body = (req.body ?? {}) as {
+      sourceConversacionId?: string;
+      promptVersionId?: string;
+      createdBy?: string;
+    };
+    if (!body.sourceConversacionId || !body.promptVersionId) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "Provide sourceConversacionId and promptVersionId.",
+        },
+      });
+    }
+    try {
+      const { id } = await startReplay({
+        sourceConversacionId: body.sourceConversacionId,
+        promptVersionId: body.promptVersionId,
+        createdBy: body.createdBy ?? null,
+      });
+      return reply.send({ ok: true, id });
+    } catch (err) {
+      return reply.status(400).send({
+        error: { code: "start_failed", message: (err as Error).message },
+      });
+    }
+  });
+
+  // GET /admin/replay/:id — fetch run status + messages for the
+  // side-by-side view. The panel polls this until status='done'.
+  app.get("/admin/replay/:id", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const { id } = (req.params ?? {}) as { id?: string };
+    if (!id) {
+      return reply.status(400).send({ error: { code: "bad_request" } });
+    }
+    const res = await getReplayRun(id);
+    if (!res) {
+      return reply.status(404).send({ error: { code: "not_found" } });
+    }
+    return reply.send({ ok: true, ...res });
+  });
+
+  // GET /admin/replay?conversacionId=... — past runs for a given source
+  // conversation (so the panel can show a history dropdown).
+  app.get("/admin/replay", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const q = (req.query ?? {}) as { conversacionId?: string };
+    if (!q.conversacionId) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "Provide conversacionId query param." },
+      });
+    }
+    const runs = await listReplayRunsForConversation(q.conversacionId);
+    return reply.send({ ok: true, runs });
   });
 }
