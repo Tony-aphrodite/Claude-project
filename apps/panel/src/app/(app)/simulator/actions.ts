@@ -77,6 +77,21 @@ export async function fetchSimulatorPrompts(): Promise<SimulatorPromptVersion[]>
   return data.versions ?? [];
 }
 
+export type SimulatorSede = {
+  id: string;
+  nombre: string;
+  pais: string;
+  currencyCode: string;
+};
+
+export async function fetchSimulatorSedes(): Promise<SimulatorSede[]> {
+  const data = await adminFetch<{ ok: boolean; sedes: SimulatorSede[] }>(
+    "/admin/simulator/sedes",
+    { method: "GET" },
+  );
+  return data.sedes ?? [];
+}
+
 export async function resetSimulatorSession(
   opts: { sedeId?: string } = {},
 ): Promise<{ conversacionId: string; sedeId: string }> {

@@ -7,12 +7,14 @@ import {
   fetchSimulatorHistory,
   fetchSimulatorPrompts,
   fetchSimulatorSavedSessions,
+  fetchSimulatorSedes,
   resetSimulatorSession,
   saveSimulatorSession,
   sendSimulatorMessage,
   type SimulatorMessage,
   type SimulatorPromptVersion,
   type SimulatorSavedSession,
+  type SimulatorSede,
 } from "./actions";
 
 type Status = "idle" | "loading-prompts" | "creating-session" | "sending" | "error";
@@ -65,6 +67,8 @@ export function SimulatorClient() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<SimulatorPromptVersion[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>("");
+  const [sedeList, setSedeList] = useState<SimulatorSede[]>([]);
+  const [selectedSedeId, setSelectedSedeId] = useState<string>("");
   const [conversacionId, setConversacionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<SimulatorMessage[]>([]);
   const [input, setInput] = useState("");
@@ -87,14 +91,20 @@ export function SimulatorClient() {
     (async () => {
       try {
         setStatus("loading-prompts");
-        const versions = await fetchSimulatorPrompts();
+        const [versions, sedes] = await Promise.all([
+          fetchSimulatorPrompts(),
+          fetchSimulatorSedes(),
+        ]);
         setPrompts(versions);
+        setSedeList(sedes);
         const active = versions.find((v) => v.active);
         if (active) setSelectedPromptId(active.id);
 
         setStatus("creating-session");
-        const { conversacionId: id } = await resetSimulatorSession();
+        const { conversacionId: id, sedeId: createdSedeId } =
+          await resetSimulatorSession();
         setConversacionId(id);
+        setSelectedSedeId(createdSedeId);
         setMessages([]);
         setStatus("idle");
         void refreshSavedSessions();
@@ -109,19 +119,35 @@ export function SimulatorClient() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const handleReset = useCallback(async () => {
-    try {
-      setStatus("creating-session");
-      setErrorMsg(null);
-      const { conversacionId: id } = await resetSimulatorSession();
-      setConversacionId(id);
-      setMessages([]);
-      setStatus("idle");
-    } catch (err) {
-      setStatus("error");
-      setErrorMsg((err as Error).message);
-    }
-  }, []);
+  const handleReset = useCallback(
+    async (overrideSedeId?: string) => {
+      try {
+        setStatus("creating-session");
+        setErrorMsg(null);
+        const sedeId = overrideSedeId ?? selectedSedeId;
+        const { conversacionId: id, sedeId: createdSedeId } =
+          await resetSimulatorSession({ sedeId: sedeId || undefined });
+        setConversacionId(id);
+        setSelectedSedeId(createdSedeId);
+        setMessages([]);
+        setStatus("idle");
+      } catch (err) {
+        setStatus("error");
+        setErrorMsg((err as Error).message);
+      }
+    },
+    [selectedSedeId],
+  );
+
+  // Switching sede creates a fresh session for that sede (different
+  // prompts/KB/tools, so reusing the old conversacion would be invalid).
+  const handleSedeChange = useCallback(
+    (sedeId: string) => {
+      setSelectedSedeId(sedeId);
+      void handleReset(sedeId);
+    },
+    [handleReset],
+  );
 
   const handleSend = useCallback(
     async (overrideText?: string) => {
@@ -246,6 +272,23 @@ export function SimulatorClient() {
       {/* ── Control bar ─────────────────────────────────────────────── */}
       <section className="card flex flex-wrap items-center gap-3 !py-3">
         <label className="flex items-center gap-2 text-sm">
+          <span className="metric-label">Sede</span>
+          <select
+            value={selectedSedeId}
+            onChange={(e) => handleSedeChange(e.target.value)}
+            className="select min-w-[170px]"
+            disabled={isBusy}
+            title="Cambiar de sede inicia una conversación nueva con el prompt + KB + tools de esa sede"
+          >
+            {sedeList.length === 0 && <option value="">—</option>}
+            {sedeList.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.nombre}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
           <span className="metric-label">Prompt</span>
           <select
             value={selectedPromptId}
@@ -254,13 +297,22 @@ export function SimulatorClient() {
             disabled={isBusy}
           >
             {prompts.length === 0 && <option value="">— sin prompts —</option>}
-            {prompts.map((p) => (
-              <option key={p.id} value={p.id}>
-                v{p.versionNumber}
-                {p.active ? " · activo" : ""} ·{" "}
-                {p.sedeId ? "sede" : "global"} · {relativeTime(p.createdAt)}
-              </option>
-            ))}
+            {prompts
+              // Show only prompts that apply to the selected sede (sede-
+              // specific OR global). Empty selectedSedeId = show all.
+              .filter(
+                (p) =>
+                  !selectedSedeId ||
+                  p.sedeId === null ||
+                  p.sedeId === selectedSedeId,
+              )
+              .map((p) => (
+                <option key={p.id} value={p.id}>
+                  v{p.versionNumber}
+                  {p.active ? " · activo" : ""} ·{" "}
+                  {p.sedeId ? "sede" : "global"} · {relativeTime(p.createdAt)}
+                </option>
+              ))}
           </select>
         </label>
         {selectedPrompt && (
@@ -304,7 +356,7 @@ export function SimulatorClient() {
           </button>
           <button
             type="button"
-            onClick={handleReset}
+            onClick={() => void handleReset()}
             className="btn-ghost"
             disabled={isBusy}
             title="Limpia el contexto y arranca una conversación nueva"
