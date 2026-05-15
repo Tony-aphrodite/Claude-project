@@ -11,6 +11,8 @@ import { StageChip, STAGE_META } from "~/app/_components/stage";
 import { overrideLeadStage } from "~/app/actions/leads";
 import { getConversation } from "~/lib/db-queries";
 
+import { ReplaySection } from "./replay-section";
+
 export const dynamic = "force-dynamic";
 
 export default async function ConversationDetail({
@@ -220,6 +222,16 @@ export default async function ConversationDetail({
           )}
         </div>
       </section>
+
+      <ReplaySection
+        conversacionId={conv.conv.id}
+        originalMessages={conv.messages.map((m) => ({
+          id: m.id,
+          sender: m.sender,
+          content: m.content,
+          createdAt: m.createdAt.toISOString(),
+        }))}
+      />
     </>
   );
 }
