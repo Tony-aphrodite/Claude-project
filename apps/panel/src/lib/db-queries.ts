@@ -47,19 +47,36 @@ export async function getDashboardSnapshot(rangeHours = 24) {
   const db = getDb();
   const since = new Date(Date.now() - rangeHours * 60 * 60 * 1000);
 
+  // Filter out simulator + replay traffic so the production metrics
+  // dashboard isn't polluted by Miguel's panel testing or replay batch
+  // runs (origin column added 2026-05-14, Phase 1 of Simulator/Replay
+  // feature). The `llamadasApi` join uses conversacionId — rows
+  // without a conversacionId (background jobs) keep counting as
+  // production.
   const [latencyAgg] = await db
     .select({
       total: sql<number>`COUNT(*)::int`,
-      p50: sql<number>`COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms), 0)::int`,
-      p95: sql<number>`COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_ms), 0)::int`,
-      p99: sql<number>`COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY latency_ms), 0)::int`,
-      cacheHit: sql<number>`COALESCE(AVG(CASE WHEN cache_read_tokens > 0 THEN 1.0 ELSE 0 END), 0)::float`,
-      totalCost: sql<number>`COALESCE(SUM(total_cost_usd), 0)::float`,
-      successes: sql<number>`COUNT(*) FILTER (WHERE status = 'success')::int`,
-      errorsCount: sql<number>`COUNT(*) FILTER (WHERE status != 'success')::int`,
+      p50: sql<number>`COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY ${llamadasApi.latencyMs}), 0)::int`,
+      p95: sql<number>`COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY ${llamadasApi.latencyMs}), 0)::int`,
+      p99: sql<number>`COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY ${llamadasApi.latencyMs}), 0)::int`,
+      cacheHit: sql<number>`COALESCE(AVG(CASE WHEN ${llamadasApi.cacheReadTokens} > 0 THEN 1.0 ELSE 0 END), 0)::float`,
+      totalCost: sql<number>`COALESCE(SUM(${llamadasApi.totalCostUsd}), 0)::float`,
+      successes: sql<number>`COUNT(*) FILTER (WHERE ${llamadasApi.status} = 'success')::int`,
+      errorsCount: sql<number>`COUNT(*) FILTER (WHERE ${llamadasApi.status} != 'success')::int`,
     })
     .from(llamadasApi)
-    .where(gte(llamadasApi.createdAt, since));
+    .leftJoin(
+      conversaciones,
+      eq(conversaciones.id, llamadasApi.conversacionId),
+    )
+    .where(
+      and(
+        gte(llamadasApi.createdAt, since),
+        // Keep rows where origin='production' OR conversacionId is null
+        // (background / non-conversation calls).
+        sql`(${conversaciones.origin} IS NULL OR ${conversaciones.origin} = 'production')`,
+      ),
+    );
 
   const errorList = await db
     .select()
@@ -73,7 +90,8 @@ export async function getDashboardSnapshot(rangeHours = 24) {
       total: sql<number>`COUNT(*)::int`,
       activeNow: sql<number>`COUNT(*) FILTER (WHERE status = 'active')::int`,
     })
-    .from(conversaciones);
+    .from(conversaciones)
+    .where(eq(conversaciones.origin, "production"));
 
   return {
     range: { since, untilNow: new Date() },

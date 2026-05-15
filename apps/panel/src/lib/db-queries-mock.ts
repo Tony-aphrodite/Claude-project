@@ -63,6 +63,7 @@ const MOCK_CONVERSATIONS: ConversationRow[] = [
       sedeId: "seed-gili-trawangan",
       status: "active",
       leadStage: "deposit_pending",
+      origin: "production",
       leadStageChangedAt: m(8),
       leadMetadata: {
         ref_code: "DPM-A7B3K2",
@@ -105,6 +106,7 @@ const MOCK_CONVERSATIONS: ConversationRow[] = [
       sedeId: "seed-koh-tao",
       status: "active",
       leadStage: "proposed",
+      origin: "production",
       leadStageChangedAt: m(2),
       leadMetadata: {
         history: [
@@ -136,6 +138,7 @@ const MOCK_CONVERSATIONS: ConversationRow[] = [
       sedeId: "seed-gili-trawangan",
       status: "active",
       leadStage: "handed_off",
+      origin: "production",
       leadStageChangedAt: m(1),
       leadMetadata: {
         ref_code: "DPM-X2K9PQ",
@@ -170,6 +173,7 @@ const MOCK_CONVERSATIONS: ConversationRow[] = [
       sedeId: "seed-nusa-penida",
       status: "active",
       leadStage: "new",
+      origin: "production",
       leadStageChangedAt: m(0.3),
       leadMetadata: { history: [] } satisfies LeadMetadata,
       assignedAgent: null,
@@ -196,6 +200,7 @@ const MOCK_CONVERSATIONS: ConversationRow[] = [
       sedeId: "seed-gili-air",
       status: "follow_up_disabled",
       leadStage: "lost",
+      origin: "production",
       leadStageChangedAt: m(72),
       leadMetadata: {
         history: [
@@ -242,6 +247,7 @@ export function mockGetConversation(id: string) {
             content: "Hola, quería info para hacer Open Water en mayo",
             fuentes: null,
             metadata: null,
+            origin: "production",
             createdAt: m(20),
           },
           {
@@ -253,6 +259,7 @@ export function mockGetConversation(id: string) {
               "¡Hola Ana! Genial, en mayo tenemos cupos para OW de 4 días. ¿En qué fechas exactas viajás?",
             fuentes: ["kb:ow-course", "kb:may-availability"],
             metadata: { model: "claude-sonnet-4-6" },
+            origin: "production",
             createdAt: m(19.95),
           },
           {
@@ -263,6 +270,7 @@ export function mockGetConversation(id: string) {
             content: "Llego el 10 y me quedo 6 días",
             fuentes: null,
             metadata: null,
+            origin: "production",
             createdAt: m(15.5),
           },
           {
@@ -274,6 +282,7 @@ export function mockGetConversation(id: string) {
               "Perfecto. Te propongo OW del 11 al 14 (4 días, post 24h descanso de vuelo). Hay 2 plazas en la franja AM. ¿Te lo reservo?",
             fuentes: ["tool:consultar_disponibilidad", "kb:ow-course", "kb:padi-flight-rule"],
             metadata: { model: "claude-sonnet-4-6" },
+            origin: "production",
             createdAt: m(15.4),
           },
           {
@@ -284,6 +293,7 @@ export function mockGetConversation(id: string) {
             content: "Sí dale, lo reservo",
             fuentes: null,
             metadata: null,
+            origin: "production",
             createdAt: m(8.1),
           },
           {
@@ -295,6 +305,7 @@ export function mockGetConversation(id: string) {
               "Para confirmar tu reserva, envía el depósito de 40 EUR (no reembolsable, se descuenta del total) usando una de estas opciones:\n• Wise / Revolut / banco indonesio\nIMPORTANTE: incluí el código DPM-A7B3K2 en el concepto de la transferencia.",
             fuentes: ["tool:solicitar_deposito", "kb:deposit-policy"],
             metadata: { model: "claude-sonnet-4-6" },
+            origin: "production",
             createdAt: m(8),
           },
         ]
