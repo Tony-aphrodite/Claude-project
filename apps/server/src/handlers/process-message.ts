@@ -142,28 +142,34 @@ export async function processIncomingMessage(
   // resolution. Cheap: getContact is a single GET we'd do later anyway
   // for the test-tag gate; doing it here too just hits the same cached
   // path.
+  // Always read Branch from a FRESH GET to Respond.io rather than trusting
+  // the webhook payload. Two failure modes the payload-trust path hits:
+  //   1. v2 webhooks frequently OMIT customFields entirely → readBranchField
+  //      returns null → channel-id fallback → GT default. Misroutes GA.
+  //   2. The payload arrives with a STALE Branch value: when an operator
+  //      changes Branch in Respond.io and the customer's next message
+  //      fires the webhook within a few seconds, Respond.io occasionally
+  //      ships the pre-change snapshot. The race is small but real and
+  //      it locks the conversation to the wrong sede.
+  // Cost: one extra GET per inbound. We're already doing this GET for
+  // the test-tag gate a few lines below so it's effectively free —
+  // moving it up just reuses the same call.
   let contactForResolution = payload.contact;
-  const hasCustomFields =
-    !!payload.contact.customFields ||
-    !!payload.contact.custom_fields ||
-    !!payload.contact.fields;
-  if (!hasCustomFields) {
-    const fetched = await respondIoClient
-      .getContact(payload.contact.id)
-      .catch((err) => {
-        log.warn(
-          { err: (err as Error).message, contactId: payload.contact.id },
-          "respond_io get_contact failed before sede resolution — falling back to payload-only",
-        );
-        return null;
-      });
-    if (fetched?.customFields) {
-      contactForResolution = {
-        ...payload.contact,
-        customFields: fetched.customFields,
-        tags: fetched.tags ?? payload.contact.tags,
-      };
-    }
+  const fetchedFresh = await respondIoClient
+    .getContact(payload.contact.id)
+    .catch((err) => {
+      log.warn(
+        { err: (err as Error).message, contactId: payload.contact.id },
+        "respond_io get_contact failed before sede resolution — falling back to payload",
+      );
+      return null;
+    });
+  if (fetchedFresh?.customFields) {
+    contactForResolution = {
+      ...payload.contact,
+      customFields: fetchedFresh.customFields,
+      tags: fetchedFresh.tags ?? payload.contact.tags,
+    };
   }
 
   const resolution = await sedeService.resolveForPilot(
@@ -201,8 +207,13 @@ export async function processIncomingMessage(
   // Respond.io REST API to make a confident decision.
   const requiredTag = loadEnv().PILOT_REQUIRE_TAG;
   if (requiredTag) {
-    let tags: string[] = payload.contact.tags ?? [];
-    if (tags.length === 0) {
+    // Reuse tags from the pre-resolution fetch when possible. fetchedFresh
+    // was populated a few lines above (used for sede Branch lookup); it
+    // also carries the canonical tag list. Falling back to payload.contact
+    // or a fresh GET only when the prior fetch failed.
+    let tags: string[] =
+      fetchedFresh?.tags ?? payload.contact.tags ?? [];
+    if (tags.length === 0 && !fetchedFresh) {
       const fetched = await respondIoClient
         .getContact(payload.contact.id)
         .catch((err) => {
