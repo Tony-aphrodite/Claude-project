@@ -71,6 +71,14 @@ export type CallClaudeInput = {
   conversacionId: string;
   sedeId: string;
   promptVersionId?: string | undefined;
+  /**
+   * Detected conversation language (label from services/language.ts —
+   * "español" / "english" / "português" or undefined when unknown).
+   * Forwarded to parseStructuredAnswer so the parser can flag PT drift
+   * on Spanish conversations and replace the reply with the safe
+   * fallback. Undefined disables the check.
+   */
+  expectedLanguage?: string | undefined;
 };
 
 // Canonical escalation_reason codes the AI may emit. Keep in sync with
@@ -177,7 +185,9 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         .join("\n")
         .trim();
       const { text, fuentes, escalationReason, descuento, reasoningLeak } =
-        parseStructuredAnswer(rawText);
+        parseStructuredAnswer(rawText, {
+          expectedLanguage: input.expectedLanguage,
+        });
 
       // Append tool_use to fuentes if Claude actually invoked any. The panel
       // surfaces these so a human can audit which tool the AI relied on.
@@ -397,6 +407,36 @@ function looksLikeLeakedReasoning(text: string): boolean {
   return REASONING_LEAK_PATTERNS.some((p) => p.test(text));
 }
 
+// Portuguese-only orthography + function-word patterns. These rarely appear
+// in Spanish prose, so when the conversation is detected as Spanish but the
+// AI reply hits one of these, it's drift — block + escalate.
+//
+// 2026-05-15 (Tony retest of Miguel scenario A): on turn 11 the model
+// emitted a clean JSON envelope whose `respuesta` value started "Entendo
+// perfeitamente 😊 Fazendo o Open Water, vocês vão mergulhar..." — pure
+// Portuguese. The reasoning-leak guard didn't catch it (the text isn't
+// internal monologue, it's a customer reply) and the prompt-level
+// language anchor in Bloque 4 had been bypassed under frustration.
+// This is the last line of defence for that failure mode.
+const PT_ONLY_PATTERNS: RegExp[] = [
+  /\bmergulh/i, // mergulhar / mergulho (ES: bucear / buceo)
+  /\bentendo\b/i, // PT 1st-person; ES is "entiendo" with an i
+  /\bfazendo\b/i, // PT; ES is "haciendo"
+  /\binstrutor\b/i, // PT spelling; ES is "instructor"
+  /\bobrigad[ao]\b/i, // PT thanks; ES is "gracias"
+  /ç[ãa]o\b/i, // PT "-ção" ending (atenção, opção); ES uses "-ción"
+  // Catch-all on PT-only graphemes. JS regex `\b` doesn't treat
+  // diacritic chars as word boundaries (ASCII-only), which made the
+  // word-boundary version of vocês / você miss in tests. The bare
+  // grapheme set is the most robust check — these letters don't appear
+  // in any Spanish word.
+  /[ãõê]/,
+];
+
+function looksLikePortuguese(text: string): boolean {
+  return PT_ONLY_PATTERNS.some((p) => p.test(text));
+}
+
 /**
  * Extract the customer-facing `respuesta` string from a model output that may
  * have used any of several keys. Long Spanish-dominated conversations can
@@ -437,13 +477,22 @@ function extractRespuesta(j: Record<string, unknown>): string | null {
  * sets (ESCALATION_REASONS, DESCUENTO_VALUES). Anything else collapses to
  * null so we never write junk to Respond.io custom fields.
  */
-export function parseStructuredAnswer(raw: string): {
+export function parseStructuredAnswer(
+  raw: string,
+  opts?: { expectedLanguage?: string },
+): {
   text: string;
   fuentes: string[];
   escalationReason: EscalationReason | null;
   descuento: DescuentoValue | null;
   reasoningLeak: boolean;
 } {
+  // Conversation-language drift check (only fires when the caller passed
+  // an expectedLanguage). Spanish is the only mismatch we currently flag
+  // because that's the failure mode observed in prod.
+  const flagDriftToPortuguese =
+    opts?.expectedLanguage === "español" || opts?.expectedLanguage === "es";
+
   if (!raw)
     return {
       text: "",
@@ -475,7 +524,10 @@ export function parseStructuredAnswer(raw: string): {
       const j = JSON.parse(blob) as Record<string, unknown>;
       const respuesta = extractRespuesta(j);
       if (respuesta !== null) {
-        if (looksLikeLeakedReasoning(respuesta)) {
+        if (
+          looksLikeLeakedReasoning(respuesta) ||
+          (flagDriftToPortuguese && looksLikePortuguese(respuesta))
+        ) {
           return {
             text: SAFE_FALLBACK_TEXT,
             fuentes: [],
@@ -505,7 +557,10 @@ export function parseStructuredAnswer(raw: string): {
   // prompts — and (b) the model emitted reasoning preamble that the parser
   // couldn't extract — block with the safe fallback so the customer never
   // sees internal monologue.
-  if (looksLikeLeakedReasoning(stripped)) {
+  if (
+    looksLikeLeakedReasoning(stripped) ||
+    (flagDriftToPortuguese && looksLikePortuguese(stripped))
+  ) {
     return {
       text: SAFE_FALLBACK_TEXT,
       fuentes: [],

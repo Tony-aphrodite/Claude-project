@@ -290,6 +290,80 @@ Vou ser direto e propor a solução mais completa.
     });
   });
 
+  // ── L7: Portuguese language drift on a Spanish conversation ───────────
+  describe("PT drift detection when expectedLanguage is Spanish", () => {
+    it("blocks a clean PT reply (vocês / mergulhar / Dia / vão / ção)", () => {
+      // Verbatim text from Tony's 2026-05-15 retest, turn 11 — a clean
+      // JSON envelope with valid `respuesta` key but the value is full
+      // Portuguese after 9 successful Spanish turns. The reasoning-leak
+      // guard doesn't catch it (no monologue patterns); the new PT
+      // detector does.
+      const raw = JSON.stringify({
+        respuesta:
+          "Entendo perfeitamente 😊 Fazendo o Open Water, vocês vão mergulhar juntos de verdade — mesmo barco, mesmo local, lado a lado até 18m. O Dia 1 é só teoria e piscina para você.",
+        fuentes: ["kb:#ow-course"],
+      });
+      const out = parseStructuredAnswer(raw, { expectedLanguage: "español" });
+      expect(out.reasoningLeak).toBe(true);
+      expect(out.text).toMatch(/conecto.*equipo/i);
+      expect(out.escalationReason).toBe("complaint");
+    });
+
+    it("accepts ISO-2 'es' as the language code variant", () => {
+      const raw = JSON.stringify({ respuesta: "Vamos com você", fuentes: [] });
+      expect(parseStructuredAnswer(raw, { expectedLanguage: "es" }).reasoningLeak).toBe(true);
+    });
+
+    it("does NOT flag a clean Spanish reply", () => {
+      const raw = JSON.stringify({
+        respuesta:
+          "¡Perfecto! El Open Water son 3 días, te certificás hasta 18m. ¿Para qué fecha en julio?",
+        fuentes: ["kb:#ow-course"],
+      });
+      expect(
+        parseStructuredAnswer(raw, { expectedLanguage: "español" }).reasoningLeak,
+      ).toBe(false);
+    });
+
+    it("does NOT flag PT when expectedLanguage is also PT (legit PT customer)", () => {
+      const raw = JSON.stringify({
+        respuesta: "Vamos mergulhar juntos com você no barco da tarde.",
+        fuentes: [],
+      });
+      expect(
+        parseStructuredAnswer(raw, { expectedLanguage: "português" }).reasoningLeak,
+      ).toBe(false);
+    });
+
+    it("does NOT flag PT when expectedLanguage is omitted (backwards compat)", () => {
+      const raw = JSON.stringify({
+        respuesta: "Vamos mergulhar juntos com você",
+        fuentes: [],
+      });
+      expect(parseStructuredAnswer(raw).reasoningLeak).toBe(false);
+    });
+
+    it("catches PT in the plain-text fallback branch too", () => {
+      const raw = "Entendo, vamos mergulhar juntos";
+      const out = parseStructuredAnswer(raw, { expectedLanguage: "español" });
+      expect(out.reasoningLeak).toBe(true);
+      expect(out.text).toMatch(/conecto.*equipo/i);
+    });
+
+    it("false-positive guard: Spanish words sharing letters with PT pass through", () => {
+      // 'instructor' (ES) shouldn't trip the 'instrutor' (PT) regex.
+      // Word boundaries matter.
+      const raw = JSON.stringify({
+        respuesta:
+          "El instructor te guía durante todo el buceo. Ustedes están en el mismo barco.",
+        fuentes: [],
+      });
+      expect(
+        parseStructuredAnswer(raw, { expectedLanguage: "español" }).reasoningLeak,
+      ).toBe(false);
+    });
+  });
+
   describe("escalation_reason", () => {
     it("accepts every canonical code", () => {
       const codes = [

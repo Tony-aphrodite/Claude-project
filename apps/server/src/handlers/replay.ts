@@ -267,6 +267,7 @@ async function executeReplay(runId: string): Promise<void> {
         sedeId: sede.id,
         promptVersionId: pv.id,
         toolHandlers: tools,
+        expectedLanguage: "español",
       });
 
       costTotal += turn.cost.totalUsd;
