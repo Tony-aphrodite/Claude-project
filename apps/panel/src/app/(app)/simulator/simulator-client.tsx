@@ -17,6 +17,49 @@ import {
 
 type Status = "idle" | "loading-prompts" | "creating-session" | "sending" | "error";
 
+// Pre-canned test scenarios surfaced as one-click "starter" cards in the
+// empty state. Each card seeds the composer with the FIRST customer turn
+// for the scenario; the operator can keep typing follow-ups manually.
+const STARTER_SCENARIOS: Array<{
+  emoji: string;
+  title: string;
+  hint: string;
+  text: string;
+}> = [
+  {
+    emoji: "🤿",
+    title: "Pareja quiere bucear juntos",
+    hint: "Tests #limitaciones-fisicas + #repeat-objection",
+    text: "Somos pareja queremos bucear juntos en julio",
+  },
+  {
+    emoji: "🚪",
+    title: "Sarcasmo / intención de irse",
+    hint: "Tests #sentimiento-negativo + L11 exit-intent",
+    text: "Gracias vamos con otra secuela que nos permite bucear juntos",
+  },
+  {
+    emoji: "✅",
+    title: "Happy path — Try Scuba mañana",
+    hint: "Tests booking + solicitar_deposito + ref code",
+    text: "Quiero Try Scuba mañana para una persona, primera vez",
+  },
+  {
+    emoji: "🩺",
+    title: "Condición médica",
+    hint: "Tests escalation_reason: medical",
+    text: "Tengo asma controlada, ¿puedo bucear?",
+  },
+];
+
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60_000) return "hace segundos";
+  if (diff < 3_600_000) return `hace ${Math.round(diff / 60_000)} min`;
+  if (diff < 86_400_000) return `hace ${Math.round(diff / 3_600_000)} h`;
+  return `hace ${Math.round(diff / 86_400_000)} días`;
+}
+
 export function SimulatorClient() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -29,6 +72,7 @@ export function SimulatorClient() {
     [],
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
 
   const refreshSavedSessions = useCallback(async () => {
     try {
@@ -39,14 +83,12 @@ export function SimulatorClient() {
     }
   }, []);
 
-  // On mount: load prompt versions + create a fresh session.
   useEffect(() => {
     (async () => {
       try {
         setStatus("loading-prompts");
         const versions = await fetchSimulatorPrompts();
         setPrompts(versions);
-        // default selection = the active one
         const active = versions.find((v) => v.active);
         if (active) setSelectedPromptId(active.id);
 
@@ -55,7 +97,6 @@ export function SimulatorClient() {
         setConversacionId(id);
         setMessages([]);
         setStatus("idle");
-        // Pull saved sessions list in parallel (best-effort).
         void refreshSavedSessions();
       } catch (err) {
         setStatus("error");
@@ -64,7 +105,6 @@ export function SimulatorClient() {
     })();
   }, [refreshSavedSessions]);
 
-  // Auto-scroll to bottom on new message.
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -83,42 +123,41 @@ export function SimulatorClient() {
     }
   }, []);
 
-  const handleSend = useCallback(async () => {
-    if (!conversacionId || !input.trim() || status === "sending") return;
-    const text = input.trim();
-    setInput("");
-    setStatus("sending");
-    setErrorMsg(null);
-    // Optimistic client message
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `temp-${Date.now()}`,
-        sender: "cliente",
-        content: text,
-        fuentes: null,
-        metadata: null,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
-    try {
-      const res = await sendSimulatorMessage({
-        conversacionId,
-        text,
-        promptVersionId: selectedPromptId || undefined,
-      });
-      // Refresh history from server so we get the authoritative IDs +
-      // John's reply with metadata.
-      const fresh = await fetchSimulatorHistory(conversacionId);
-      setMessages(fresh);
-      setStatus("idle");
-      // For dev: log the surface payload so we can compare to production.
-      console.debug("simulator turn", res);
-    } catch (err) {
-      setStatus("error");
-      setErrorMsg((err as Error).message);
-    }
-  }, [conversacionId, input, selectedPromptId, status]);
+  const handleSend = useCallback(
+    async (overrideText?: string) => {
+      const text = (overrideText ?? input).trim();
+      if (!conversacionId || !text || status === "sending") return;
+      setInput("");
+      setStatus("sending");
+      setErrorMsg(null);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `temp-${Date.now()}`,
+          sender: "cliente",
+          content: text,
+          fuentes: null,
+          metadata: null,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      try {
+        const res = await sendSimulatorMessage({
+          conversacionId,
+          text,
+          promptVersionId: selectedPromptId || undefined,
+        });
+        const fresh = await fetchSimulatorHistory(conversacionId);
+        setMessages(fresh);
+        setStatus("idle");
+        console.debug("simulator turn", res);
+      } catch (err) {
+        setStatus("error");
+        setErrorMsg((err as Error).message);
+      }
+    },
+    [conversacionId, input, selectedPromptId, status],
+  );
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -126,6 +165,17 @@ export function SimulatorClient() {
       void handleSend();
     }
   };
+
+  const handleStarter = useCallback(
+    (text: string) => {
+      // Single click drops the starter text into the composer + focuses it,
+      // so the operator can edit before sending. Double-click sends straight
+      // away. Keeps test-driving fast without losing manual control.
+      setInput(text);
+      composerRef.current?.focus();
+    },
+    [],
+  );
 
   const selectedPrompt = prompts.find((p) => p.id === selectedPromptId);
 
@@ -180,35 +230,54 @@ export function SimulatorClient() {
     [refreshSavedSessions],
   );
 
+  // Aggregate totals for the small footer chip.
+  const turnCount = messages.filter((m) => m.sender === "cliente").length;
+  const totalCost = messages.reduce((acc, m) => {
+    if (m.sender !== "ai" || !m.metadata || typeof m.metadata !== "object")
+      return acc;
+    const c = (m.metadata as { costUsd?: number }).costUsd;
+    return acc + (typeof c === "number" ? c : 0);
+  }, 0);
+
+  const isBusy = status === "sending" || status === "creating-session";
+
   return (
     <>
-      {/* Controls bar */}
+      {/* ── Control bar ─────────────────────────────────────────────── */}
       <section className="card flex flex-wrap items-center gap-3 !py-3">
         <label className="flex items-center gap-2 text-sm">
-          <span className="text-ink-600">Prompt</span>
+          <span className="metric-label">Prompt</span>
           <select
             value={selectedPromptId}
             onChange={(e) => setSelectedPromptId(e.target.value)}
-            className="rounded-md border border-ink-200 bg-white px-2 py-1 text-sm"
+            className="select min-w-[200px]"
+            disabled={isBusy}
           >
             {prompts.length === 0 && <option value="">— sin prompts —</option>}
             {prompts.map((p) => (
               <option key={p.id} value={p.id}>
                 v{p.versionNumber}
-                {p.active ? " (activo)" : ""}
-                {p.sedeId ? " · sede" : " · global"}
+                {p.active ? " · activo" : ""} ·{" "}
+                {p.sedeId ? "sede" : "global"} · {relativeTime(p.createdAt)}
               </option>
             ))}
           </select>
         </label>
         {selectedPrompt && (
-          <span className="text-xs text-ink-400 font-mono">
-            id: {selectedPrompt.id.slice(0, 8)}…
+          <span
+            className="hidden md:inline text-[10px] text-ink-400 font-mono"
+            title={`Prompt version id: ${selectedPrompt.id}`}
+          >
+            #{selectedPrompt.id.slice(0, 6)}
           </span>
         )}
-        <span className="ml-auto flex items-center gap-3">
+
+        <span className="ml-auto flex items-center gap-2">
           {status === "sending" && (
-            <span className="text-xs text-ink-500">John está pensando…</span>
+            <span className="inline-flex items-center gap-1.5 text-xs text-ink-500">
+              <span className="h-1.5 w-1.5 rounded-full bg-brand-400 animate-pulse" />
+              John está pensando…
+            </span>
           )}
           {status === "creating-session" && (
             <span className="text-xs text-ink-500">creando sesión…</span>
@@ -216,117 +285,193 @@ export function SimulatorClient() {
           {status === "loading-prompts" && (
             <span className="text-xs text-ink-500">cargando prompts…</span>
           )}
+          {turnCount > 0 && (
+            <span
+              className="text-[10px] text-ink-500 font-mono"
+              title="Turnos del cliente · costo total acumulado"
+            >
+              {turnCount} turnos · ${totalCost.toFixed(4)}
+            </span>
+          )}
           <button
             type="button"
             onClick={handleSaveSession}
             className="btn-ghost"
-            disabled={
-              status === "sending" ||
-              status === "creating-session" ||
-              !conversacionId ||
-              messages.length === 0
-            }
-            title="Guardá esta sesión con un nombre para volver a usarla"
+            disabled={isBusy || !conversacionId || messages.length === 0}
+            title="Guardá esta sesión con un nombre para volver a ella"
           >
-            Guardar
+            💾 Guardar
           </button>
           <button
             type="button"
             onClick={handleReset}
             className="btn-ghost"
-            disabled={status === "sending" || status === "creating-session"}
+            disabled={isBusy}
             title="Limpia el contexto y arranca una conversación nueva"
           >
-            Reset
+            ↻ Reset
           </button>
         </span>
       </section>
 
-      {/* Saved sessions */}
+      {/* ── Saved sessions row ─────────────────────────────────────── */}
       {savedSessions.length > 0 && (
         <section className="card !py-3">
-          <div className="text-xs text-ink-500 mb-2">Sesiones guardadas</div>
+          <div className="metric-label mb-2">Sesiones guardadas</div>
           <div className="flex flex-wrap gap-2">
-            {savedSessions.map((s) => (
-              <span
-                key={s.id}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ring-1 ring-inset ${
-                  conversacionId === s.conversacionId
-                    ? "bg-brand-500/10 text-brand-700 ring-brand-500/30"
-                    : "bg-ink-50 text-ink-700 ring-ink-200"
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => void handleLoadSession(s)}
-                  className="hover:underline"
-                  title={`${s.name} · ${new Date(s.createdAt).toLocaleString()}`}
+            {savedSessions.map((s) => {
+              const active = conversacionId === s.conversacionId;
+              return (
+                <span
+                  key={s.id}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ring-1 ring-inset transition-colors ${
+                    active
+                      ? "bg-brand-500/10 text-brand-700 ring-brand-500/30"
+                      : "bg-ink-50 text-ink-700 ring-ink-200 hover:bg-ink-100"
+                  }`}
                 >
-                  {s.name}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleDeleteSession(s.id)}
-                  className="text-ink-400 hover:text-bad-600"
-                  title="Eliminar sesión guardada"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
+                  <button
+                    type="button"
+                    onClick={() => void handleLoadSession(s)}
+                    title={`${s.name} · ${new Date(s.createdAt).toLocaleString()}`}
+                    className="font-medium"
+                  >
+                    {s.name}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteSession(s.id)}
+                    className="text-ink-400 hover:text-bad-600"
+                    title="Eliminar sesión guardada"
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
           </div>
         </section>
       )}
 
-      {/* Error banner */}
+      {/* ── Error banner ──────────────────────────────────────────── */}
       {errorMsg && (
         <div className="card border border-bad-500/30 bg-bad-50 text-bad-700 text-sm !py-3">
           <strong>Error:</strong> {errorMsg}
         </div>
       )}
 
-      {/* Chat surface */}
+      {/* ── Chat surface ──────────────────────────────────────────── */}
       <section className="card !p-0 overflow-hidden">
-        <div className="flex h-[60vh] flex-col">
-          <div className="flex-1 overflow-y-auto p-5 space-y-3">
-            {messages.length === 0 && (
-              <div className="text-center text-sm text-ink-400 py-12">
-                Mandá un mensaje como si fueras un cliente. John va a
-                responder con el prompt seleccionado.
-              </div>
+        <div className="flex h-[65vh] flex-col">
+          <div className="flex-1 overflow-y-auto p-5 space-y-3 scrollbar-thin">
+            {messages.length === 0 ? (
+              <EmptyState
+                onPick={handleStarter}
+                disabled={isBusy || !conversacionId}
+              />
+            ) : (
+              messages.map((m) => <SimulatorBubble key={m.id} msg={m} />)
             )}
-            {messages.map((m) => (
-              <SimulatorBubble key={m.id} msg={m} />
-            ))}
             <div ref={messagesEndRef} />
           </div>
+
           {/* Composer */}
           <div className="border-t border-ink-100 bg-white p-3">
             <div className="flex items-end gap-2">
               <textarea
+                ref={composerRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}
-                placeholder='Escribí como cliente… (Enter = enviar, Shift+Enter = nueva línea)'
+                placeholder="Escribí como cliente…"
                 rows={2}
                 className="flex-1 resize-none rounded-md border border-ink-200 px-3 py-2 text-sm font-sans focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-                disabled={status === "sending" || !conversacionId}
+                disabled={isBusy || !conversacionId}
               />
               <button
                 type="button"
-                onClick={handleSend}
-                disabled={
-                  status === "sending" || !conversacionId || !input.trim()
-                }
-                className="btn-primary"
+                onClick={() => void handleSend()}
+                disabled={isBusy || !conversacionId || !input.trim()}
+                className="btn-primary self-stretch px-5"
               >
                 Enviar
               </button>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between text-[10px] text-ink-400">
+              <span>
+                <kbd className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[10px]">
+                  Enter
+                </kbd>{" "}
+                enviar ·{" "}
+                <kbd className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[10px]">
+                  Shift+Enter
+                </kbd>{" "}
+                nueva línea
+              </span>
+              {selectedPrompt && (
+                <span className="font-mono">
+                  prompt v{selectedPrompt.versionNumber}
+                </span>
+              )}
             </div>
           </div>
         </div>
       </section>
     </>
+  );
+}
+
+/**
+ * Empty-state hero with one-click starter scenarios. Each card seeds the
+ * composer with the first cliente turn for a known test path (couple
+ * scenario, sarcasm exit, happy path, medical) so an operator without
+ * Spanish fluency can still test the AI's behaviour reliably.
+ */
+function EmptyState({
+  onPick,
+  disabled,
+}: {
+  onPick: (text: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-5 py-6">
+      <div className="text-center">
+        <div className="text-3xl mb-2">🤿</div>
+        <div className="text-sm font-semibold text-ink-700">
+          Empezá una conversación
+        </div>
+        <div className="text-xs text-ink-500 mt-0.5">
+          Cliqueá un escenario o escribí tu propio mensaje abajo
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 w-full max-w-2xl">
+        {STARTER_SCENARIOS.map((s) => (
+          <button
+            key={s.title}
+            type="button"
+            onClick={() => onPick(s.text)}
+            disabled={disabled}
+            className="card-hover text-left !p-3 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <div className="flex items-start gap-2">
+              <span className="text-lg leading-none">{s.emoji}</span>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold text-ink-800">
+                  {s.title}
+                </div>
+                <div className="text-[11px] text-ink-500 mt-0.5">
+                  {s.hint}
+                </div>
+                <div className="text-xs text-ink-700 mt-1.5 italic truncate">
+                  &ldquo;{s.text}&rdquo;
+                </div>
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -384,7 +529,10 @@ function SimulatorBubble({ msg }: { msg: SimulatorMessage }) {
               <span>{(meta.latencyMs / 1000).toFixed(1)}s</span>
             )}
             {meta.escalationReason && (
-              <span className="text-warn-700" title="AI marcó escalation_reason">
+              <span
+                className="text-warn-700 font-semibold"
+                title="AI marcó escalation_reason — handoff a humano"
+              >
                 ⚠ {meta.escalationReason}
               </span>
             )}
