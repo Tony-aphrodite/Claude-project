@@ -1118,6 +1118,7 @@ export async function processIncomingMessage(
     sedeId: sede.id,
     promptVersionId: promptVersion?.id,
     expectedLanguage: detectedLanguage,
+    incomingMessage: incomingText,
   });
 
   // Step 9: persist AI message with citations

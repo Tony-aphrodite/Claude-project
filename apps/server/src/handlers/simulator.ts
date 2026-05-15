@@ -309,6 +309,7 @@ export async function runSimulatorMessage(input: {
     promptVersionId: prompt.versionId ?? undefined,
     toolHandlers,
     expectedLanguage: "español",
+    incomingMessage: input.text,
   });
 
   // 6. Persist John's reply (origin='simulator').

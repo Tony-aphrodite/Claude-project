@@ -79,6 +79,17 @@ export type CallClaudeInput = {
    * fallback. Undefined disables the check.
    */
   expectedLanguage?: string | undefined;
+  /**
+   * Raw text of the most recent cliente message. Used by the parser's
+   * exit-intent detector — if the customer wrote "vamos con otra
+   * escuela", "me voy", "qué ruda tu respuesta" etc., force
+   * escalation_reason=complaint regardless of how the AI replied.
+   * Detecting on the input side is more reliable than detecting on
+   * the AI output because the model sometimes misses the exit cue
+   * and pivots to a sales reply instead of acknowledging the
+   * goodbye.
+   */
+  incomingMessage?: string | undefined;
 };
 
 // Canonical escalation_reason codes the AI may emit. Keep in sync with
@@ -187,6 +198,7 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
       const { text, fuentes, escalationReason, descuento, reasoningLeak } =
         parseStructuredAnswer(rawText, {
           expectedLanguage: input.expectedLanguage,
+          incomingMessage: input.incomingMessage,
         });
 
       // Append tool_use to fuentes if Claude actually invoked any. The panel
@@ -479,6 +491,40 @@ function mentionsHandoff(text: string): boolean {
   return ESCALATION_PHRASE_PATTERNS.some((p) => p.test(text));
 }
 
+// Client-message exit-intent patterns. When the cliente's incoming text
+// matches any of these, the contact is signalling they want to leave for
+// a competitor / are unhappy / are sarcastically saying goodbye —
+// §sentimiento-negativo demands escalation_reason=complaint in that case
+// REGARDLESS of how the AI replies. Detecting on the input side is more
+// reliable than detecting on the AI output, because the model sometimes
+// misses the exit cue and pivots to a sales pitch (see 2026-05-15
+// scenario-B retest: AI offered Open Water upsell after "vamos con
+// otra secuela" instead of acknowledging the goodbye).
+const CLIENT_EXIT_INTENT_PATTERNS: RegExp[] = [
+  // "Otra escuela / otra secuela (typo) / otro centro / otra empresa /
+  // otro lugar / otro dive shop" — competitor switch.
+  /\botra\s+(?:escuela|secuela|empresa|opci[óo]n)\b/i,
+  /\botro\s+(?:centro|lugar|dive\s*shop|sitio|operador)\b/i,
+  // "Me voy / nos vamos / lo dejamos / no vamos a reservar"
+  /\b(?:me|nos)\s+vamos\b/i,
+  /\blo\s+dejamos\b/i,
+  /\bno\s+vamos\s+a\s+reservar\b/i,
+  // Sarcastic / dissatisfied complaints
+  /\bgracias\s+por\s+nada\b/i,
+  /\bqu[ée]\s+pena\b/i,
+  /\bqu[ée]\s+l[áa]stima\b/i,
+  /\bqu[ée]\s+ruda?\s+(?:tu|esa)\s+respuesta\b/i,
+  /\bqu[ée]\s+grosero\b/i,
+  /\bno\s+me\s+ayudaste\b/i,
+  // "Prefiero ir a X" / "voy a mirar otras opciones"
+  /\bprefiero\s+ir\s+a\b/i,
+  /\bmirar\s+otras\s+opciones\b/i,
+];
+
+function clientShowsExitIntent(text: string): boolean {
+  return CLIENT_EXIT_INTENT_PATTERNS.some((p) => p.test(text));
+}
+
 /**
  * Extract the customer-facing `respuesta` string from a model output that may
  * have used any of several keys. Long Spanish-dominated conversations can
@@ -521,7 +567,7 @@ function extractRespuesta(j: Record<string, unknown>): string | null {
  */
 export function parseStructuredAnswer(
   raw: string,
-  opts?: { expectedLanguage?: string },
+  opts?: { expectedLanguage?: string; incomingMessage?: string },
 ): {
   text: string;
   fuentes: string[];
@@ -534,6 +580,15 @@ export function parseStructuredAnswer(
   // because that's the failure mode observed in prod.
   const flagDriftToPortuguese =
     opts?.expectedLanguage === "español" || opts?.expectedLanguage === "es";
+
+  // L11 — exit-intent override. If the client's incoming message matches
+  // any exit pattern (going to a competitor / sarcastic goodbye /
+  // dissatisfaction), force escalation_reason=complaint no matter what
+  // the AI replied. This is the deterministic safety net for the case
+  // where the model misses the exit cue at the prompt level.
+  const forceComplaintFromInput =
+    opts?.incomingMessage !== undefined &&
+    clientShowsExitIntent(opts.incomingMessage);
 
   if (!raw)
     return {
@@ -590,6 +645,14 @@ export function parseStructuredAnswer(
         if (escalationReason === null && mentionsHandoff(respuesta)) {
           escalationReason = "complaint";
         }
+        // L11 safety net: the client's incoming message signalled exit
+        // intent ("vamos con otra escuela", "me voy", "qué ruda", etc.).
+        // Force complaint even if the AI's reply doesn't mention any
+        // handoff verb — the model sometimes misses the exit cue and
+        // pivots to a sales pitch.
+        if (escalationReason === null && forceComplaintFromInput) {
+          escalationReason = "complaint";
+        }
         return {
           text: respuesta,
           fuentes,
@@ -620,9 +683,11 @@ export function parseStructuredAnswer(
       reasoningLeak: true,
     };
   }
-  // L10 same safety net for the no-JSON branch — plain-text replies
-  // that announce a handoff also get the auto-injected complaint reason.
-  const escalationReason = mentionsHandoff(stripped) ? "complaint" : null;
+  // L10 + L11 same safety nets for the no-JSON branch — plain-text
+  // replies that announce a handoff OR client exit-intent also get the
+  // auto-injected complaint reason.
+  const escalationReason =
+    mentionsHandoff(stripped) || forceComplaintFromInput ? "complaint" : null;
   return {
     text: stripped,
     fuentes: [],

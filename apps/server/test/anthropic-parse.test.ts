@@ -540,4 +540,81 @@ Vou ser direto e propor a solução mais completa.
       }
     });
   });
+
+  // ── L11: client-message exit-intent overrides AI's miss ───────────────
+  describe("L11 exit-intent from cliente input forces complaint", () => {
+    it("forces complaint when cliente said 'vamos con otra secuela' even if AI replied with a sales pitch", () => {
+      // Tony scenario-B retest 2026-05-15: cliente wrote a clear exit
+      // signal ("Gracias vamos con otra secuela que nos permite bucear
+      // juntos") and the AI MISSED it — pivoted to an OW upsell. L10
+      // doesn't trigger because AI text has no handoff phrase. L11
+      // catches it from the input side.
+      const aiReply =
+        "Te entiendo, pero siendo honesto — en el Try Scuba el buceo es a 12m máximo. Si quieren bucear juntos de verdad, la opción real es Open Water. ¿Te cuento más?";
+      const out = parseStructuredAnswer(
+        JSON.stringify({ respuesta: aiReply, fuentes: ["kb:ow"] }),
+        {
+          incomingMessage:
+            "Gracias vamos con otra secuela que nos permite bucear juntos",
+        },
+      );
+      expect(out.escalationReason).toBe("complaint");
+      expect(out.text).toBe(aiReply); // AI text is preserved (not replaced)
+    });
+
+    it("catches every exit-intent variant", () => {
+      const aiReply = "Una respuesta cualquiera, ¿confirmamos?";
+      const exitInputs = [
+        "Vamos con otra escuela",
+        "Voy a probar con otro centro",
+        "Lo dejamos por hoy",
+        "Me voy con otra empresa",
+        "Nos vamos, gracias",
+        "Gracias por nada",
+        "Qué pena, esperaba más",
+        "Qué lástima, no era lo que buscaba",
+        "Qué ruda tu respuesta",
+        "No me ayudaste",
+        "Prefiero ir a otro dive shop",
+        "Voy a mirar otras opciones",
+      ];
+      for (const incoming of exitInputs) {
+        const out = parseStructuredAnswer(
+          JSON.stringify({ respuesta: aiReply, fuentes: [] }),
+          { incomingMessage: incoming },
+        );
+        expect(out.escalationReason).toBe("complaint");
+      }
+    });
+
+    it("does NOT override an explicit non-null escalation_reason", () => {
+      const out = parseStructuredAnswer(
+        JSON.stringify({
+          respuesta: "Te conecto con el equipo médico",
+          fuentes: [],
+          escalation_reason: "medical",
+        }),
+        { incomingMessage: "vamos a otra escuela" }, // would normally inject complaint
+      );
+      expect(out.escalationReason).toBe("medical");
+    });
+
+    it("does NOT fire on benign cliente messages", () => {
+      const out = parseStructuredAnswer(
+        JSON.stringify({
+          respuesta: "Perfecto, ¿para qué fecha?",
+          fuentes: [],
+        }),
+        { incomingMessage: "Quiero el Open Water para julio" },
+      );
+      expect(out.escalationReason).toBeNull();
+    });
+
+    it("is a no-op when incomingMessage is omitted (backwards compat)", () => {
+      const out = parseStructuredAnswer(
+        JSON.stringify({ respuesta: "ok", fuentes: [] }),
+      );
+      expect(out.escalationReason).toBeNull();
+    });
+  });
 });
