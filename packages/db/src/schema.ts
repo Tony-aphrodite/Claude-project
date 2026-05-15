@@ -183,6 +183,21 @@ export const conversaciones = pgTable(
     assignedAgent: text("assigned_agent"),
     followUpState: jsonb("follow_up_state"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
+    /**
+     * Marks the conversation's source — keeps Miguel's simulator + replay
+     * traffic isolated from real-customer conversations on the dashboard
+     * + metrics + lifecycle webhooks.
+     *
+     *   "production"  — real customer chat (default; the only value
+     *                   present in rows created before 2026-05-14).
+     *   "simulator"   — Miguel chatting with John as a fake client from
+     *                   the panel /simulator page. No outbound calls to
+     *                   Respond.io, no metric contribution.
+     *   "replay"      — an automated re-run of a real conversation against
+     *                   a different prompt version. Stored alongside the
+     *                   original for side-by-side comparison.
+     */
+    origin: text("origin").notNull().default("production"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -194,6 +209,7 @@ export const conversaciones = pgTable(
     statusIdx: index("conversaciones_status_idx").on(t.status),
     contactIdx: index("conversaciones_contact_idx").on(t.respondIoContactId),
     leadStageIdx: index("conversaciones_lead_stage_idx").on(t.leadStage, t.leadStageChangedAt),
+    originIdx: index("conversaciones_origin_idx").on(t.origin),
   }),
 );
 
@@ -214,6 +230,12 @@ export const mensajes = pgTable(
     content: text("content").notNull(),
     fuentes: jsonb("fuentes"), // string[] — null for non-AI messages
     metadata: jsonb("metadata"),
+    /**
+     * Mirrored from `conversaciones.origin` so the cost/latency
+     * dashboard can filter at the message level without a join. Default
+     * is "production" for backfill compatibility.
+     */
+    origin: text("origin").notNull().default("production"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
@@ -221,6 +243,100 @@ export const mensajes = pgTable(
       t.conversacionId,
       t.createdAt,
     ),
+    originIdx: index("mensajes_origin_idx").on(t.origin),
+  }),
+);
+
+// ── simulator_sessions ─────────────────────────────────────────────────────
+// Named snapshots of a simulator conversation Miguel wants to replay later.
+// Phase 1.5 of the Simulator feature: when operator clicks "Save session"
+// in /simulator, we capture the current conversacion_id (which already
+// has origin='simulator'), the prompt version that was active, and a
+// user-supplied label. Loading a session re-points the panel page to that
+// conversation row.
+//
+// We don't COPY the messages — they live on the original conversaciones/
+// mensajes rows with origin='simulator'. The session row is just a
+// labelled bookmark + the prompt version pin for reproducibility.
+export const simulatorSessions = pgTable(
+  "simulator_sessions",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    name: text("name").notNull(),
+    conversacionId: uuid("conversacion_id")
+      .notNull()
+      .references(() => conversaciones.id, { onDelete: "cascade" }),
+    promptVersionId: uuid("prompt_version_id"),
+    createdBy: text("created_by"), // operator email from Supabase auth
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    nameIdx: index("simulator_sessions_name_idx").on(t.name),
+    createdAtIdx: index("simulator_sessions_created_at_idx").on(t.createdAt),
+  }),
+);
+
+// ── replay_runs + replay_messages ──────────────────────────────────────────
+// Phase 2: take a real customer conversation and replay the client-side
+// messages against a different prompt version, recording what the new
+// version of John would have replied. Stored separately from `mensajes`
+// so a replay never pollutes the original audit trail (`mensajes.origin`
+// stays "production" for the real conversation).
+//
+// Lifecycle of a run:
+//   1. POST /admin/replay/start  -> inserts replay_runs row with
+//      status='pending'
+//   2. Worker iterates client messages from the source conversation in
+//      order. For each, it calls inference against the NEW prompt with
+//      the NEW assistant history (NOT the original v_orig assistant
+//      messages — otherwise we'd measure "how does new prompt react to
+//      old context", which is not what we want).
+//   3. Each generated assistant reply lands as a replay_messages row.
+//      Original client messages are also copied so the side-by-side UI
+//      can render without re-querying mensajes.
+//   4. status -> 'done' (or 'failed' on error, with errorMessage).
+export const replayRuns = pgTable(
+  "replay_runs",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    sourceConversacionId: uuid("source_conversacion_id")
+      .notNull()
+      .references(() => conversaciones.id, { onDelete: "cascade" }),
+    promptVersionId: uuid("prompt_version_id").notNull(),
+    promptVersionLabel: text("prompt_version_label"),
+    createdBy: text("created_by"), // operator email
+    status: text("status").notNull().default("pending"), // pending | running | done | failed
+    costUsdTotal: text("cost_usd_total"), // numeric stored as text to avoid float drift
+    messageCount: text("message_count"),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    sourceIdx: index("replay_runs_source_idx").on(t.sourceConversacionId),
+    statusIdx: index("replay_runs_status_idx").on(t.status),
+  }),
+);
+
+export const replayMessages = pgTable(
+  "replay_messages",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    replayRunId: uuid("replay_run_id")
+      .notNull()
+      .references(() => replayRuns.id, { onDelete: "cascade" }),
+    idx: text("idx").notNull(), // ordering within the run (00001, 00002, ...)
+    role: text("role").notNull(), // "cliente" | "ai"
+    content: text("content").notNull(),
+    fuentes: jsonb("fuentes"), // string[] for AI rows
+    toolCalls: jsonb("tool_calls"), // array of {name, input, output?} for AI rows
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    runIdxIdx: index("replay_messages_run_idx").on(t.replayRunId, t.idx),
   }),
 );
 
@@ -355,3 +471,9 @@ export type Error_ = typeof errores.$inferSelect;
 export type FollowUp = typeof followUps.$inferSelect;
 export type NewFollowUp = typeof followUps.$inferInsert;
 export type RosterCacheRow = typeof rosterCache.$inferSelect;
+export type SimulatorSession = typeof simulatorSessions.$inferSelect;
+export type NewSimulatorSession = typeof simulatorSessions.$inferInsert;
+export type ReplayRun = typeof replayRuns.$inferSelect;
+export type NewReplayRun = typeof replayRuns.$inferInsert;
+export type ReplayMessage = typeof replayMessages.$inferSelect;
+export type NewReplayMessage = typeof replayMessages.$inferInsert;
