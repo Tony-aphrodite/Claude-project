@@ -326,8 +326,8 @@ export function SimulatorClient() {
                   key={s.id}
                   className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs ring-1 ring-inset transition-colors ${
                     active
-                      ? "bg-brand-500/10 text-brand-700 ring-brand-500/30"
-                      : "bg-ink-50 text-ink-700 ring-ink-200 hover:bg-ink-100"
+                      ? "bg-brand-500/15 text-brand-300 ring-brand-400/40"
+                      : "bg-ink-200/40 text-ink-700 ring-ink-300/50 hover:bg-ink-200/70"
                   }`}
                 >
                   <button
@@ -375,8 +375,8 @@ export function SimulatorClient() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Composer */}
-          <div className="border-t border-ink-100 bg-white p-3">
+          {/* Composer — dark glass surface matching the rest of the panel */}
+          <div className="border-t border-ink-300/40 bg-ink-100/40 p-3 backdrop-blur-sm">
             <div className="flex items-end gap-2">
               <textarea
                 ref={composerRef}
@@ -385,7 +385,7 @@ export function SimulatorClient() {
                 onKeyDown={onKeyDown}
                 placeholder="Escribí como cliente…"
                 rows={2}
-                className="flex-1 resize-none rounded-md border border-ink-200 px-3 py-2 text-sm font-sans focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                className="input flex-1 resize-none font-sans"
                 disabled={isBusy || !conversacionId}
               />
               <button
@@ -495,10 +495,10 @@ function SimulatorBubble({ msg }: { msg: SimulatorMessage }) {
   return (
     <div className={`flex ${isClient ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[78%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
+        className={`max-w-[78%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap shadow-card ${
           isClient
-            ? "bg-brand-500 text-white"
-            : "bg-ink-50 text-ink-900 ring-1 ring-inset ring-ink-100"
+            ? "bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-glow-soft"
+            : "bg-ink-200/70 text-ink-900 ring-1 ring-inset ring-ink-300/60 backdrop-blur-sm"
         }`}
       >
         <div>{msg.content}</div>
@@ -507,7 +507,11 @@ function SimulatorBubble({ msg }: { msg: SimulatorMessage }) {
             {fuentes.map((f) => (
               <span
                 key={f}
-                className="rounded bg-ink-900/[0.05] px-1.5 py-0.5 font-mono text-[10px] text-ink-700 ring-1 ring-inset ring-ink-200"
+                className={`rounded px-1.5 py-0.5 font-mono text-[10px] ring-1 ring-inset ${
+                  isClient
+                    ? "bg-ink-900/15 text-ink-900/95 ring-ink-900/25"
+                    : "bg-ink-100/60 text-ink-700 ring-ink-300/50"
+                }`}
                 title="Fuente declarada por la AI (Bloque 2 KB / historial)"
               >
                 {f}

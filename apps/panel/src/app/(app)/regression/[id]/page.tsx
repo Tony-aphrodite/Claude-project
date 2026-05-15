@@ -50,7 +50,7 @@ export default async function RegressionRunDetail({
           const detPassed = cc.deterministic_passed === true;
           const judge = cc.judge_scores as Record<string, number> | null;
           return (
-            <details key={String(cc.id)} className="card open:bg-ink-50">
+            <details key={String(cc.id)} className="card open:bg-ink-200/40">
               <summary className="cursor-pointer flex items-center justify-between text-sm">
                 <span className="font-mono">{String(cc.case_id)}</span>
                 <span className="flex gap-2">

@@ -60,7 +60,7 @@ export default async function DepositosAutoPage({
             className={`rounded-md px-3 py-1.5 ring-1 ring-inset transition-colors ${
               s === scope
                 ? "bg-brand-500/10 text-brand-700 ring-brand-500/30"
-                : "text-ink-600 ring-ink-200 hover:bg-ink-50"
+                : "text-ink-600 ring-ink-200 hover:bg-ink-200/40"
             }`}
           >
             {SCOPE_LABELS[s]}
@@ -72,7 +72,7 @@ export default async function DepositosAutoPage({
           className={`rounded-md px-3 py-1.5 ring-1 ring-inset transition-colors ${
             showResolved
               ? "bg-warn-50 text-warn-700 ring-warn-500/30"
-              : "text-ink-600 ring-ink-200 hover:bg-ink-50"
+              : "text-ink-600 ring-ink-200 hover:bg-ink-200/40"
           }`}
           title="Incluye filas marcadas como 'Resuelto' para auditoría"
         >
@@ -146,7 +146,7 @@ export default async function DepositosAutoPage({
                     ? "bg-ok-50 text-ok-700 ring-ok-500/20"
                     : ageH < 24
                       ? "bg-warn-50 text-warn-700 ring-warn-500/30"
-                      : "bg-ink-50 text-ink-600 ring-ink-200";
+                      : "bg-ink-200/40 text-ink-600 ring-ink-300/40";
                 const mismatchPills = (ocr?.mismatches ?? []).filter(
                   (m) => m === "ref_code_missing" || m === "ref_code_mismatch",
                 );
@@ -157,7 +157,7 @@ export default async function DepositosAutoPage({
                       isFlagged
                         ? "bg-warn-50/30"
                         : isResolved
-                          ? "bg-ink-50/40 text-ink-500"
+                          ? "bg-ink-200/30 text-ink-500"
                           : ""
                     }
                   >

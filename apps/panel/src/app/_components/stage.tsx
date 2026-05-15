@@ -24,7 +24,7 @@ export const STAGE_META: Record<
     label: "Nuevo",
     description: "Conversación recién abierta",
     fg: "#cbd5e1",
-    chip: "bg-slate-400/10 text-slate-300 ring-slate-400/30",
+    chip: "bg-ink-500/15 text-ink-700 ring-ink-500/30",
     columnBg: "bg-stage-new",
     warnHours: 1,
     badHours: 6,

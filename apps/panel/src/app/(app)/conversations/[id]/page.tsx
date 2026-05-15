@@ -168,7 +168,7 @@ export default async function ConversationDetail({
       )}
 
       <section className="card !p-0 overflow-hidden">
-        <div className="px-5 py-3 border-b border-ink-200/60 bg-ink-50/40">
+        <div className="px-5 py-3 border-b border-ink-300/40 bg-ink-200/40">
           <h2 className="h-section">Mensajes ({conv.messages.length})</h2>
         </div>
         <div className="space-y-4 max-h-[60vh] overflow-y-auto p-5 scrollbar-thin">
@@ -198,7 +198,7 @@ export default async function ConversationDetail({
                       {fuentes.map((f) => (
                         <span
                           key={f}
-                          className="rounded bg-white/15 px-1.5 py-0.5 font-mono text-[10px] text-white/90 ring-1 ring-inset ring-white/20"
+                          className="rounded bg-ink-900/15 px-1.5 py-0.5 font-mono text-[10px] text-ink-900/95 ring-1 ring-inset ring-ink-900/20"
                           title="Fuente declarada por la AI"
                         >
                           {f}

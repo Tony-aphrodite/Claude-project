@@ -155,7 +155,7 @@ export default async function KbDetailPage({
               <Link
                 href={`/kb/${v.id}`}
                 className={`flex items-center justify-between rounded-md px-2 py-1 hover:bg-ink-200/50 ${
-                  v.id === row.id ? "bg-brand-50" : ""
+                  v.id === row.id ? "bg-brand-500/10 ring-1 ring-inset ring-brand-400/30 text-brand-300" : ""
                 }`}
               >
                 <span className="font-mono tabular-nums">v{v.version}</span>

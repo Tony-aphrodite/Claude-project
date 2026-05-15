@@ -117,7 +117,7 @@ export function ReplaySection({ conversacionId, originalMessages }: Props) {
           <select
             value={selectedPromptId}
             onChange={(e) => setSelectedPromptId(e.target.value)}
-            className="rounded-md border border-ink-200 bg-white px-2 py-1 text-sm"
+            className="select min-w-[180px]"
           >
             <option value="">— elegí versión —</option>
             {prompts.map((p) => (
@@ -155,10 +155,10 @@ export function ReplaySection({ conversacionId, originalMessages }: Props) {
                 setActiveRunId(r.id);
                 setActiveRun(null);
               }}
-              className={`rounded-full px-2 py-0.5 ring-1 ring-inset ${
+              className={`rounded-full px-2 py-0.5 ring-1 ring-inset transition-colors ${
                 activeRunId === r.id
-                  ? "bg-brand-500/10 text-brand-700 ring-brand-500/30"
-                  : "bg-ink-50 text-ink-700 ring-ink-200"
+                  ? "bg-brand-500/15 text-brand-300 ring-brand-400/40"
+                  : "bg-ink-200/40 text-ink-700 ring-ink-300/50 hover:bg-ink-200/70"
               }`}
               title={`${r.promptVersionLabel ?? r.promptVersionId} · ${new Date(r.createdAt).toLocaleString()}`}
             >
@@ -274,7 +274,7 @@ function SideBySide({
             </div>
           )}
           {row.cliente && (
-            <div className="rounded-md bg-ink-50 px-3 py-2 text-sm">
+            <div className="rounded-md bg-ink-200/50 ring-1 ring-inset ring-ink-300/40 px-3 py-2 text-sm text-ink-900">
               {row.cliente}
             </div>
           )}
@@ -332,28 +332,28 @@ function ReplayBubble({
       : null;
   return (
     <div
-      className={`rounded-md p-3 text-sm ${
+      className={`rounded-md p-3 text-sm ring-1 ring-inset backdrop-blur-sm ${
         accent
-          ? "border border-brand-200 bg-brand-50/30"
-          : "border border-ink-200 bg-white"
+          ? "bg-brand-500/10 ring-brand-400/30 text-ink-900"
+          : "bg-ink-100/60 ring-ink-300/50 text-ink-800"
       }`}
     >
       <div
-        className={`text-[10px] uppercase mb-1 ${
-          accent ? "text-brand-700" : "text-ink-500"
+        className={`text-[10px] uppercase mb-1 font-semibold tracking-wide ${
+          accent ? "text-brand-300" : "text-ink-500"
         }`}
       >
         {label}
       </div>
       <div className="whitespace-pre-wrap">
-        {content ?? <span className="text-ink-400">—</span>}
+        {content ?? <span className="text-ink-500">—</span>}
       </div>
       {fuentes.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
           {fuentes.map((f) => (
             <span
               key={f}
-              className="rounded bg-white px-1.5 py-0.5 font-mono text-[10px] text-ink-700 ring-1 ring-inset ring-ink-200"
+              className="rounded bg-ink-200/60 px-1.5 py-0.5 font-mono text-[10px] text-ink-700 ring-1 ring-inset ring-ink-300/50"
               title="Fuente declarada por la AI"
             >
               {f}
