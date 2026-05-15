@@ -529,6 +529,42 @@ export type EnviarCatalogoResult =
       programa?: CatalogProgram;
     };
 
+// ─── send_product_card (Colomba / Gili Air) ──────────────────────────────
+//
+// Distinct from enviar_catalogo (John/GT): Colomba addresses Meta WhatsApp
+// Business catalog products by their RAW product retailer id (e.g.
+// "eb8phdq04n") and may send up to TWO cards in a single turn for
+// side-by-side comparisons. Spec: 15-information/SPEC_send_product_card.md
+// v1.1. The server enforces an allowlist (ALLOWED_PRODUCT_IDS_GA) so a
+// hallucinated id never reaches Meta.
+export const sendProductCardInputSchema = z.object({
+  sede_id: z.string().uuid(),
+  // Accept either a single string or a 1-2 element array. The server
+  // normalises to an array internally before allowlist + per-id validation.
+  card_id: z.union([
+    z.string().min(1),
+    z.array(z.string().min(1)).min(1).max(2),
+  ]),
+});
+export type SendProductCardInput = z.infer<typeof sendProductCardInputSchema>;
+
+export type SendProductCardResult =
+  | {
+      ok: true;
+      sent: string[]; // ids actually delivered (in order)
+    }
+  | {
+      ok: false;
+      reason:
+        | "not_in_allowlist"
+        | "too_many_cards"
+        | "send_failed"
+        | "sede_unknown"
+        | "channel_not_supported";
+      message: string;
+      rejected?: string[]; // ids that failed validation, when applicable
+    };
+
 // solicitar_deposito — invoked when the AI detects clear booking intent. The
 // server generates a unique reference code (or reuses the conversation's
 // existing one), marks the conversation as deposit_pending, and returns
