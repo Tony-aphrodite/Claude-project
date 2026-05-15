@@ -61,6 +61,16 @@ const envSchema = z.object({
     }),
   RESPOND_IO_API_KEY: z.string().min(8),
   RESPOND_IO_API_BASE_URL: z.string().url().default("https://api.respond.io/v2"),
+  // Meta WhatsApp Business catalog id for Colomba's send_product_card tool.
+  // Required to send interactive product cards (Respond.io v2 spec rejects
+  // the call with 400 if catalogId is missing from the message body). Same
+  // catalog is shared across DPM sedes — the per-sede surface is the
+  // product_retailer_id allowlist, not the catalog itself.
+  META_CATALOG_ID: z.string().optional().or(z.literal("")),
+  // WhatsApp Business channel id in Respond.io. v2 product-card sends
+  // require this in the body so Respond.io knows which connected number
+  // to use as origin. Defaults to 274637 (WAP EN main, workspace 216239).
+  RESPOND_IO_CHANNEL_ID: z.string().default("274637"),
   // Alternative shared-secret auth for webhook callers that cannot compute
   // an HMAC of the body (e.g. Respond.io's "Petición HTTP" workflow step,
   // which sends static headers only). When set and matched, the route
