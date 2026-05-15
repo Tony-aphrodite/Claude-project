@@ -69,6 +69,22 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/simulator",
+    label: "Simulador",
+    group: "live",
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+        <path
+          d="M3 5.5h14v8a2 2 0 01-2 2H8.5L5 18.5V15.5H5a2 2 0 01-2-2v-8z"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinejoin="round"
+        />
+        <path d="M7 9h6M7 12h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     href: "/conversations",
     label: "Conversaciones",
     group: "live",
