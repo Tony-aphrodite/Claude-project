@@ -33,6 +33,10 @@ const INFO_DIR = path.resolve(REPO_ROOT, "information");
 // contained drop in 15-information/. Kept as-is rather than merged into
 // information/ so the original Miguel hand-off remains traceable.
 const GA_INFO_DIR = path.resolve(REPO_ROOT, "15-information");
+// Emma (Koh Tao) package — delivered by Miguel 2026-05-16 as v1.0. Same
+// drop-and-trace pattern as GA: keep the original Miguel hand-off in its
+// own numbered dir so we can audit which delivery shipped to prod when.
+const KT_INFO_DIR = path.resolve(REPO_ROOT, "16-information-koh-tao");
 
 const SYSTEM_PROMPT_FILE = "00_SYSTEM_PROMPT.md";
 const FEW_SHOTS_FILE = "FEW_SHOTS_GiliTrawangan.md";
@@ -56,6 +60,12 @@ const KB_FILES = [
 // curated subset we use for John.
 const GA_SYSTEM_PROMPT_FILE = "COLOMBA_SYSTEM_PROMPT.md";
 const GA_FEW_SHOTS_FILE = "FEW_SHOTS_50_conversations.md";
+// Miguel's v2.0 delivery format (2026-05-16): the 8 KBs come pre-
+// concatenated as a single file, mirroring how the bundle ends up in
+// storage anyway. Preferred path is to read this single file directly;
+// the individual KB files below are kept as fallback in case future
+// deliveries revert to the multi-file shape.
+const GA_KB_BUNDLE_FILE = "COLOMBA_KB_BUNDLE.md";
 const GA_KB_FILES = [
   "KB01_programas_precios.md",
   "KB02_pagos_cuentas.md",
@@ -67,9 +77,31 @@ const GA_KB_FILES = [
   "KB08_casos_especiales.md",
 ] as const;
 
+// Emma bundle for Koh Tao (Miguel 2026-05-16 delivery, v1.0). Same shape
+// as GA's v1.x multi-file layout — 12 KB files in numbered order, system
+// prompt as a separate file. KB-11 (PATRONES_VENTAS_REALES) carries the
+// 12 closed-conversation patterns Miguel mined from the Koh Tao corpus;
+// no separate few-shots file like GA's 50-conv bundle.
+const KT_SYSTEM_PROMPT_FILE = "EMMA_PROMPT_NEW.txt";
+const KT_KB_FILES = [
+  "KB01_PROGRAMS_AND_PRICES.txt",
+  "KB02_SCHEDULES_AND_LOGISTICS.txt",
+  "KB03_ACCOMMODATION.txt",
+  "KB04_DIVE_SITES.txt",
+  "KB05_SALES_AND_CUSTOMER_SERVICE.txt",
+  "KB06_PAYMENTS_AND_DEPOSITS.txt",
+  "KB07_FAQS_AND_SPECIAL_CASES.txt",
+  "KB08_QUICK_REPLIES.txt",
+  "KB09_PROGRAM_DESCRIPTIONS.txt",
+  "KB10_INTELLIGENT_SALES_MANUAL.txt",
+  "KB11_PATRONES_VENTAS_REALES.md",
+  "KB12_OFERTAS_ESTACIONALES.md",
+] as const;
+
 const STORAGE_BUCKET = "kb";
 const KB_STORAGE_PATH = "gili-trawangan/v1/kb-bundle.md";
 const GA_KB_STORAGE_PATH = "gili-air/v1/kb-bundle.md";
+const KT_KB_STORAGE_PATH = "koh-tao/v1/kb-bundle.md";
 
 function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex").slice(0, 12);
@@ -81,6 +113,10 @@ async function readInfo(file: string): Promise<string> {
 
 async function readGaInfo(file: string): Promise<string> {
   return readFile(path.join(GA_INFO_DIR, file), "utf-8");
+}
+
+async function readKtInfo(file: string): Promise<string> {
+  return readFile(path.join(KT_INFO_DIR, file), "utf-8");
 }
 
 /** Concatenate John v1.1 + 8 few-shots with a clear delimiter. */
@@ -331,15 +367,27 @@ async function buildGaSystemPromptContent(): Promise<string> {
 }
 
 async function buildGaKbBundle(): Promise<string> {
-  const parts: string[] = [];
-  for (const file of GA_KB_FILES) {
-    const content = (await readGaInfo(file)).trim();
-    parts.push(content);
-    parts.push("");
-    parts.push("---");
-    parts.push("");
+  // v2.0+ delivery path: Miguel sends a single pre-concatenated bundle.
+  // Prefer it when present; the shape Miguel delivers is identical to
+  // what the old multi-file loop produced (KB-01 .. KB-08 in order with
+  // hairline dividers), so the SHA-based version bump in seedGaKbBundle
+  // still picks up genuine content changes correctly.
+  try {
+    const bundle = await readGaInfo(GA_KB_BUNDLE_FILE);
+    return bundle.trim();
+  } catch {
+    // Fallback to the v1.x multi-file shape if the bundle isn't present
+    // (older corpora or test fixtures).
+    const parts: string[] = [];
+    for (const file of GA_KB_FILES) {
+      const content = (await readGaInfo(file)).trim();
+      parts.push(content);
+      parts.push("");
+      parts.push("---");
+      parts.push("");
+    }
+    return parts.join("\n");
   }
-  return parts.join("\n");
 }
 
 // Apps Script roster endpoint for Gili Air, per Miguel's
@@ -565,10 +613,219 @@ export async function seedGaKbBundle(): Promise<{
   };
 }
 
+// ─── Emma / Koh Tao ─────────────────────────────────────────────────────────
+//
+// Miguel v1.0 delivery (2026-05-16). Unlike GA, no separate few-shots
+// bundle — the closed-conversation patterns live inside KB-11
+// (PATRONES_VENTAS_REALES.md, ~12k tokens with 12 analyzed conversations).
+// Same multi-file shape as GA's v1.x delivery: 12 KB files concatenated
+// into the cached KB block, prompt as its own block.
+async function buildKtSystemPromptContent(): Promise<string> {
+  const sysPrompt = (await readKtInfo(KT_SYSTEM_PROMPT_FILE)).trim();
+  return sysPrompt;
+}
+
+async function buildKtKbBundle(): Promise<string> {
+  const parts: string[] = [];
+  for (const file of KT_KB_FILES) {
+    const content = (await readKtInfo(file)).trim();
+    parts.push(content);
+    parts.push("");
+    parts.push("---");
+    parts.push("");
+  }
+  return parts.join("\n");
+}
+
+export async function seedKtSystemPrompt(): Promise<{
+  versionId: string;
+  versionNumber: number;
+  contentHash: string;
+  unchanged: boolean;
+} | null> {
+  const db = getDb();
+  const [ktSede] = await db
+    .select()
+    .from(sedes)
+    .where(eq(sedes.nombre, "Koh Tao"))
+    .limit(1);
+  if (!ktSede) {
+    console.warn(
+      "[seed-content] Koh Tao sede missing — skipping Emma prompt seed",
+    );
+    return null;
+  }
+
+  const content = await buildKtSystemPromptContent();
+  const contentHash = sha256(content);
+
+  const [existing] = await db
+    .select()
+    .from(promptsVersiones)
+    .where(
+      sql`${promptsVersiones.type} = 'system' AND ${promptsVersiones.sedeId} = ${ktSede.id} AND ${promptsVersiones.active} = true`,
+    )
+    .limit(1);
+
+  if (existing && existing.createdBy === `seed:${contentHash}`) {
+    console.log(
+      `[seed-content] Emma prompt v${existing.versionNumber} already up to date (hash=${contentHash})`,
+    );
+    return {
+      versionId: existing.id,
+      versionNumber: existing.versionNumber,
+      contentHash,
+      unchanged: true,
+    };
+  }
+
+  const [{ nextVer }] = (await db.execute<{ nextVer: number }>(sql`
+    SELECT COALESCE(MAX(version_number), 0) + 1 AS "nextVer"
+      FROM prompts_versiones
+     WHERE type = 'system' AND sede_id = ${ktSede.id}
+  `)) as unknown as [{ nextVer: number }];
+
+  const [created] = await db.transaction(async (tx) => {
+    await tx
+      .update(promptsVersiones)
+      .set({ active: false })
+      .where(
+        sql`${promptsVersiones.type} = 'system' AND ${promptsVersiones.sedeId} = ${ktSede.id}`,
+      );
+    return tx
+      .insert(promptsVersiones)
+      .values({
+        versionNumber: nextVer,
+        type: "system",
+        sedeId: ktSede.id,
+        content,
+        active: true,
+        createdBy: `seed:${contentHash}`,
+        regressionSuitePassed: false,
+      })
+      .returning();
+  });
+
+  if (!created) throw new Error("failed to insert Emma system prompt");
+  console.log(
+    `[seed-content] Emma prompt seeded as v${created.versionNumber} (hash=${contentHash}, ${content.length} chars / ~${Math.round(content.length / 4)} tokens)`,
+  );
+  return {
+    versionId: created.id,
+    versionNumber: created.versionNumber,
+    contentHash,
+    unchanged: false,
+  };
+}
+
+export async function seedKtKbBundle(): Promise<{
+  storagePath: string;
+  contentHash: string;
+  documentId: string;
+  unchanged: boolean;
+} | null> {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error(
+      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required to seed KT KB bundle",
+    );
+  }
+
+  const db = getDb();
+  const content = await buildKtKbBundle();
+  const contentHash = sha256(content);
+
+  const [sede] = await db
+    .select()
+    .from(sedes)
+    .where(eq(sedes.nombre, "Koh Tao"))
+    .limit(1);
+  if (!sede) {
+    console.warn("[seed-content] Koh Tao sede missing — skipping KB seed");
+    return null;
+  }
+
+  const [activeDoc] = await db
+    .select()
+    .from(kbDocuments)
+    .where(
+      sql`${kbDocuments.sedeId} = ${sede.id} AND ${kbDocuments.active} = true`,
+    )
+    .limit(1);
+  if (activeDoc && activeDoc.uploadedBy === `seed:${contentHash}`) {
+    console.log(
+      `[seed-content] KB bundle for Koh Tao already up to date (hash=${contentHash})`,
+    );
+    return {
+      storagePath: activeDoc.storagePath,
+      contentHash,
+      documentId: activeDoc.id,
+      unchanged: true,
+    };
+  }
+
+  const uploadUrl = `${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${KT_KB_STORAGE_PATH}`;
+  const upload = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${serviceKey}`,
+      apikey: serviceKey,
+      "content-type": "text/markdown",
+      "x-upsert": "true",
+    },
+    body: content,
+  });
+  if (!upload.ok) {
+    const body = await upload.text().catch(() => "");
+    throw new Error(`KT KB upload failed: ${upload.status} ${body.slice(0, 200)}`);
+  }
+
+  const [{ nextVer }] = (await db.execute<{ nextVer: number }>(sql`
+    SELECT COALESCE(MAX(version), 0) + 1 AS "nextVer"
+      FROM kb_documents
+     WHERE sede_id = ${sede.id}
+  `)) as unknown as [{ nextVer: number }];
+
+  const [created] = await db.transaction(async (tx) => {
+    await tx
+      .update(kbDocuments)
+      .set({ active: false })
+      .where(eq(kbDocuments.sedeId, sede.id));
+    return tx
+      .insert(kbDocuments)
+      .values({
+        sedeId: sede.id,
+        storagePath: `${STORAGE_BUCKET}/${KT_KB_STORAGE_PATH}`,
+        version: nextVer,
+        active: true,
+        uploadedBy: `seed:${contentHash}`,
+      })
+      .returning();
+  });
+
+  if (!created) throw new Error("failed to insert KT kb_documents row");
+  await db
+    .update(sedes)
+    .set({ kbDocumentId: created.id })
+    .where(eq(sedes.id, sede.id));
+
+  console.log(
+    `[seed-content] KT KB bundle uploaded as v${created.version} (hash=${contentHash}, ${content.length} chars / ~${Math.round(content.length / 4)} tokens)`,
+  );
+  return {
+    storagePath: created.storagePath,
+    contentHash,
+    documentId: created.id,
+    unchanged: false,
+  };
+}
+
 export async function seedAll(): Promise<void> {
   await seedSystemPrompt();
   await seedGaSedeConfig();
   await seedGaSystemPrompt();
+  await seedKtSystemPrompt();
   // KB bundle requires Supabase Storage credentials; skip silently when they
   // are missing so local dev / CI without Supabase can still run the
   // migration step.
@@ -582,6 +839,11 @@ export async function seedAll(): Promise<void> {
       await seedGaKbBundle();
     } catch (err) {
       console.warn(`[seed-content] GA KB bundle skip: ${(err as Error).message}`);
+    }
+    try {
+      await seedKtKbBundle();
+    } catch (err) {
+      console.warn(`[seed-content] KT KB bundle skip: ${(err as Error).message}`);
     }
   } else {
     console.log(
