@@ -340,6 +340,12 @@ export function mockGetDashboardSnapshot() {
       },
     ],
     conversations: { total: 5, activeNow: 4 },
+    // Mock hourly buckets for the Hero sparkline (24 hours, gentle upward).
+    volumeBuckets: Array.from({ length: 24 }, (_, i) => ({
+      bucket: new Date(Date.now() - (23 - i) * 60 * 60 * 1000),
+      okCount: Math.round(1 + i * 0.4 + Math.sin(i / 3) * 2),
+      errCount: i === 17 ? 1 : 0,
+    })),
   };
 }
 

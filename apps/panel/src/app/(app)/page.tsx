@@ -124,12 +124,71 @@ function KpiCard({
 }
 
 /* Decorative miniature chart drawn on the hero — just SVG, no recharts. */
-function HeroChart() {
+// Tiny sparkline of hourly request volume for the last 24h. Renders the
+// production-traffic-only buckets returned by getDashboardSnapshot so the
+// chart matches the KPI cards beside it. Falls back to a flat baseline +
+// dimmed message when traffic is genuinely zero so we don't draw a fake
+// upward trend that contradicts a "0 requests" caption.
+function HeroChart({
+  buckets,
+}: {
+  buckets: ReadonlyArray<{ okCount: number; errCount: number }>;
+}) {
+  const W = 200;
+  const H = 100;
+  const n = buckets.length;
+  const totals = buckets.map((b) => b.okCount + b.errCount);
+  const max = Math.max(1, ...totals);
+  const hasData = totals.some((t) => t > 0);
+
+  if (!hasData) {
+    return (
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="h-24 w-44 text-ink-500/40"
+        aria-label="Sin tráfico en las últimas 24 horas"
+      >
+        <line
+          x1="0"
+          y1={H - 12}
+          x2={W}
+          y2={H - 12}
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeDasharray="3 4"
+        />
+        <text
+          x={W / 2}
+          y={H / 2}
+          textAnchor="middle"
+          className="text-[10px]"
+          fill="currentColor"
+        >
+          sin tráfico 24 h
+        </text>
+      </svg>
+    );
+  }
+
+  const padX = 4;
+  const padTop = 10;
+  const padBottom = 8;
+  const step = n > 1 ? (W - padX * 2) / (n - 1) : 0;
+  const points = totals.map((t, i) => {
+    const x = padX + i * step;
+    const y = padTop + (1 - t / max) * (H - padTop - padBottom);
+    return [x, y] as const;
+  });
+  const linePath = points
+    .map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`)
+    .join(" ");
+  const areaPath = `${linePath} L${points[points.length - 1]![0].toFixed(1)},${H} L${points[0]![0].toFixed(1)},${H} Z`;
+
   return (
     <svg
-      viewBox="0 0 200 100"
+      viewBox={`0 0 ${W} ${H}`}
       className="h-24 w-44 text-brand-400/80"
-      aria-hidden
+      aria-label="Volumen por hora — últimas 24 horas"
     >
       <defs>
         <linearGradient id="hg" x1="0" x2="0" y1="0" y2="1">
@@ -137,25 +196,18 @@ function HeroChart() {
           <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
         </linearGradient>
       </defs>
+      <path d={areaPath} fill="url(#hg)" />
       <path
-        d="M0,80 L20,72 L40,76 L60,55 L80,60 L100,40 L120,48 L140,28 L160,34 L180,18 L200,22 L200,100 L0,100 Z"
-        fill="url(#hg)"
-      />
-      <path
-        d="M0,80 L20,72 L40,76 L60,55 L80,60 L100,40 L120,48 L140,28 L160,34 L180,18 L200,22"
+        d={linePath}
         stroke="currentColor"
         strokeWidth="1.8"
         fill="none"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-      {[
-        [60, 55],
-        [100, 40],
-        [140, 28],
-        [180, 18],
-      ].map(([x, y]) => (
-        <circle key={`${x}-${y}`} cx={x} cy={y} r="2" fill="currentColor" />
+      {/* Highlight the latest 4 hours so the eye lands on recent activity. */}
+      {points.slice(-4).map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r="2" fill="currentColor" />
       ))}
     </svg>
   );
@@ -214,7 +266,7 @@ export default async function Dashboard() {
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-500">
               Tendencia de volumen
             </div>
-            <HeroChart />
+            <HeroChart buckets={snap.volumeBuckets ?? []} />
             <div className="text-[11px] text-ink-600">
               {lat?.total ?? 0} requests · {errorRate.toFixed(1)}% err
             </div>

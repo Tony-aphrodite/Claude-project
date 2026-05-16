@@ -93,11 +93,49 @@ export async function getDashboardSnapshot(rangeHours = 24) {
     .from(conversaciones)
     .where(eq(conversaciones.origin, "production"));
 
+  // Hourly volume buckets for the Hero sparkline. One bucket per hour
+  // across the rangeHours window, production-only (same filter as the
+  // aggregate so the chart matches what the KPI cards report). The
+  // generate_series fills in zero-volume hours so the SVG has a stable
+  // x-axis even when traffic is sparse.
+  const hourlyBuckets = (await db.execute(sql`
+    WITH hours AS (
+      SELECT generate_series(
+        date_trunc('hour', NOW()) - (${rangeHours - 1}::int * INTERVAL '1 hour'),
+        date_trunc('hour', NOW()),
+        INTERVAL '1 hour'
+      ) AS bucket_start
+    )
+    SELECT
+      h.bucket_start AS bucket,
+      COALESCE(COUNT(l.id) FILTER (WHERE l.status = 'success'), 0)::int AS ok_count,
+      COALESCE(COUNT(l.id) FILTER (WHERE l.status != 'success'), 0)::int AS err_count
+    FROM hours h
+    LEFT JOIN llamadas_api l
+      ON date_trunc('hour', l.created_at) = h.bucket_start
+    LEFT JOIN conversaciones c
+      ON c.id = l.conversacion_id
+    WHERE l.id IS NULL OR (c.origin IS NULL OR c.origin = 'production')
+    GROUP BY h.bucket_start
+    ORDER BY h.bucket_start ASC
+  `)) as unknown as Array<{
+    bucket: string | Date;
+    ok_count: number;
+    err_count: number;
+  }>;
+
+  const volumeBuckets = hourlyBuckets.map((b) => ({
+    bucket: typeof b.bucket === "string" ? new Date(b.bucket) : b.bucket,
+    okCount: b.ok_count,
+    errCount: b.err_count,
+  }));
+
   return {
     range: { since, untilNow: new Date() },
     latency: latencyAgg ?? null,
     errors: errorList,
     conversations: activeConv ?? null,
+    volumeBuckets,
   };
 }
 
