@@ -87,6 +87,21 @@ export function SimulatorClient() {
     }
   }, []);
 
+  // Pick the prompt that's active for a given sede. Prefers a sede-specific
+  // active row (e.g. Colomba's v1 for Gili Air); falls back to the global
+  // active row (John's v11) when the sede has no dedicated prompt yet. This
+  // mirrors what production resolution does in prompts.ts: order by
+  // sede_id desc so non-null sede rows win, then by version_number.
+  const pickPromptForSede = useCallback(
+    (sedeId: string, list: SimulatorPromptVersion[]): string | "" => {
+      const sedeSpecific = list.find((p) => p.active && p.sedeId === sedeId);
+      if (sedeSpecific) return sedeSpecific.id;
+      const globalActive = list.find((p) => p.active && p.sedeId === null);
+      return globalActive?.id ?? "";
+    },
+    [],
+  );
+
   useEffect(() => {
     (async () => {
       try {
@@ -97,14 +112,17 @@ export function SimulatorClient() {
         ]);
         setPrompts(versions);
         setSedeList(sedes);
-        const active = versions.find((v) => v.active);
-        if (active) setSelectedPromptId(active.id);
 
         setStatus("creating-session");
         const { conversacionId: id, sedeId: createdSedeId } =
           await resetSimulatorSession();
         setConversacionId(id);
         setSelectedSedeId(createdSedeId);
+        // Auto-select the active prompt for whichever sede the session
+        // landed on. Without this we'd always pick the first global
+        // active row, which silently tests John's prompt against a
+        // Gili Air session — the bug Miguel reported 2026-05-16.
+        setSelectedPromptId(pickPromptForSede(createdSedeId, versions));
         setMessages([]);
         setStatus("idle");
         void refreshSavedSessions();
@@ -113,7 +131,7 @@ export function SimulatorClient() {
         setErrorMsg((err as Error).message);
       }
     })();
-  }, [refreshSavedSessions]);
+  }, [pickPromptForSede, refreshSavedSessions]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -129,6 +147,11 @@ export function SimulatorClient() {
           await resetSimulatorSession({ sedeId: sedeId || undefined });
         setConversacionId(id);
         setSelectedSedeId(createdSedeId);
+        // Re-pick the active prompt for the resolved sede. Same reason
+        // as on initial load — without this, after a sede swap the
+        // prompt stays whatever was selected before (likely the wrong
+        // persona).
+        setSelectedPromptId(pickPromptForSede(createdSedeId, prompts));
         setMessages([]);
         setStatus("idle");
       } catch (err) {
@@ -136,7 +159,7 @@ export function SimulatorClient() {
         setErrorMsg((err as Error).message);
       }
     },
-    [selectedSedeId],
+    [selectedSedeId, prompts, pickPromptForSede],
   );
 
   // Switching sede creates a fresh session for that sede (different
