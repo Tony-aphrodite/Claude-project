@@ -25,6 +25,7 @@ type Status = "idle" | "loading-prompts" | "creating-session" | "sending" | "err
 const PERSONA_BY_SEDE: Record<string, string> = {
   "Gili Trawangan": "John",
   "Gili Air": "Colomba",
+  "Koh Tao": "Emma",
 };
 
 // Pre-canned test scenarios surfaced as one-click "starter" cards in the

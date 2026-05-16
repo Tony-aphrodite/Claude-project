@@ -1212,21 +1212,29 @@ export async function processIncomingMessage(
     return { ok: true, sent };
   };
 
-  // Build the tool surface per sede. Colomba (Gili Air) gets
-  // consultar_disponibilidad + send_product_card (no solicitar_deposito —
-  // GA emits bank info as text from KB-02 per Miguel's "opción B"
-  // decision). Every other sede keeps the John (GT) surface.
+  // Build the tool surface per sede.
+  //   • Colomba (Gili Air) — consultar + send_product_card. Bank block
+  //     comes from KB-02 as text per Miguel's "opción B" decision.
+  //   • Emma (Koh Tao) — consultar only. Emma also writes bank info
+  //     from KB-06 as text (40€ or 1000 THB Stripe per her prompt) and
+  //     there's no Meta catalog setup yet for KT, so no card tool.
+  //   • Everyone else (John for GT) — keeps the original triad:
+  //     consultar + solicitar_deposito + enviar_catalogo.
   const toolHandlers: Parameters<typeof callClaude>[0]["toolHandlers"] =
     sede.nombre === "Gili Air"
       ? {
           consultar_disponibilidad: consultarDisponibilidadHandler,
           send_product_card: sendProductCardHandler,
         }
-      : {
-          consultar_disponibilidad: consultarDisponibilidadHandler,
-          solicitar_deposito: solicitarDepositoHandler,
-          enviar_catalogo: enviarCatalogoHandler,
-        };
+      : sede.nombre === "Koh Tao"
+        ? {
+            consultar_disponibilidad: consultarDisponibilidadHandler,
+          }
+        : {
+            consultar_disponibilidad: consultarDisponibilidadHandler,
+            solicitar_deposito: solicitarDepositoHandler,
+            enviar_catalogo: enviarCatalogoHandler,
+          };
 
   const claudeResult = await callClaude({
     system,

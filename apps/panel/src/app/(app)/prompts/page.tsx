@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 const PERSONA_BY_SEDE: Record<string, string> = {
   "Gili Trawangan": "John",
   "Gili Air": "Colomba",
+  "Koh Tao": "Emma",
 };
 
 export default async function PromptsPage() {

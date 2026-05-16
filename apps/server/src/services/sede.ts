@@ -28,7 +28,11 @@ const SEDE_TAG_PREFIX = "sede:";
 // Phi Phi) add it here AND seed the corresponding prompts_versiones +
 // kb_documents rows for it. Branch values come from Respond.io verbatim
 // — keep them in sync with what Miguel's workflow writes to the field.
-const AI_ENABLED_SEDE_NAMES = ["Gili Trawangan", "Gili Air"] as const;
+const AI_ENABLED_SEDE_NAMES = [
+  "Gili Trawangan",
+  "Gili Air",
+  "Koh Tao",
+] as const;
 type AiEnabledSedeName = (typeof AI_ENABLED_SEDE_NAMES)[number];
 
 function isAiEnabled(branch: string): branch is AiEnabledSedeName {

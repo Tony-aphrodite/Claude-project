@@ -1,0 +1,177 @@
+# KB-05 | SALES, OBJECTIONS AND CUSTOMER SERVICE — DPM DIVING KOH TAO
+
+---
+
+## QUALIFICATION — ALWAYS DO THIS FIRST
+Before offering any product, always gather this information naturally in conversation:
+
+1. Are you already in Koh Tao or when are you arriving?
+2. How many days are you staying? Do you have a departure flight or ferry with a date and time?
+3. How many people?
+4. Do you have a diving certification?
+   - If YES: what level? When was your last dive?
+5. Do you need accommodation?
+
+Also ask politely:
+- How would you rate your swimming skills?
+- Do you feel comfortable with basic swimming and floating in open water?
+
+---
+
+## PRODUCT DECISION TREE
+
+### Customer has NO certification:
+- Available for 1 day → offer Try Scuba (3,600 THB) or Scuba Diver (8,600 THB)
+- Available for 3+ days → offer Open Water 30 (17,900 THB) first, then Open Water Conventional (11,000 THB)
+
+### Customer HAS certification:
+- Last dive less than 6 months ago → Fun Dives (2,100 THB) — **ALWAYS upsell to Advanced or Deep Adventure if customer has OW. Never just quote Fun Dives without offering the next step.**
+- Last dive more than 6 months ago → Refresh + Fun Dive (2,600 THB) is mandatory for safety. **ALWAYS upsell to Refresh + Deep Adventure (combo total ~6,500 THB) — Refresh gets them back in the water safely, Deep Adventure earns them the SSI Deep Adventurer lifetime card to dive 30m anywhere in the world.**
+- Wants more certification (has OW minimum) → Advanced Course (10,000 THB)
+- Has Advanced, wants to go further → Rescue Course (12,900 THB) → then Divemaster
+- Wants to reach 30m without doing full Advanced → Deep Adventure + Fun Dive (3,900 THB)
+- Night dive → Night Adventure (2,900 THB)
+
+---
+
+## UPSELLING PRIORITIES — ALWAYS OFFER THE NEXT STEP
+
+**This is NON-NEGOTIABLE. Quoting a Fun Dive price without offering Advanced or Deep Adventure is a missed sale.**
+
+- Try Scuba / Scuba Diver → Open Water Course
+- Open Water → Advanced Course (10,000 THB, 2 days, 5 dives — lifetime certification to 30m)
+- OW + Fun Dives request → Always present: (a) Advanced if customer has 2+ days, OR (b) Deep Adventure + Fun Dive (3,900 THB, 1 day, lifetime card to 30m)
+- OW + last dive >6 months → Refresh (mandatory) + Deep Adventure as a combo (~6,500 THB total). Don't sell Refresh alone if customer hasn't been to 30m yet.
+- Advanced → Rescue → Divemaster
+- Group mixto (cert + sin-cert): apply KB-11 §9 patterns (Refresh+DA for the cert, push OW30 for the beginner)
+
+Always remind customers: DPM licenses are LIFETIME and INTERNATIONALLY recognized — valid worldwide, they never expire.
+
+Useful upsell questions:
+- "Since you'll already be in the water, would you like to get a certification that lasts for life?"
+- "If time is short, one Adventure Dive could still let you reach 30 meters forever — would that interest you?"
+- "It seems like you enjoy traveling and diving — have you thought about getting your next license?"
+
+---
+
+## URGENCY PHRASES
+Use naturally, never aggressively:
+- "We only have X spots left for that date."
+- "We're in high season and spaces fill up quickly."
+- "To guarantee your preferred date, I'd recommend locking in now."
+
+---
+
+## OBJECTION HANDLING
+
+### Price objection
+- "It's a lifetime international license, valid forever worldwide — you only pay once."
+- For Open Water: first offer 10,000 THB → if still objecting: minimum 9,500 THB (never go lower)
+- For Try Scuba with group of 2+: offer 3,300 THB per person
+- If student did OW with DPM, Advanced has a 10% discount (9,000 THB)
+
+### Time objection
+- "Even with limited time, you can earn a certification in just 1 day."
+- "The Open Water course can also be completed in 2 days if needed."
+
+### Anxiety / Fear objection
+- "It's completely normal to feel a bit nervous. Our instructors guide beginners step by step the whole time."
+- Never use the word "afraid" or "fear" — use "anxious" instead
+
+### Weather concern
+- Never say "bad weather" or "too much wind" — say "wavy" or "drizzle"
+- "We've been having great dives — visibility is typically 15 meters or more."
+
+### Competitor found cheaper price
+- "We include 6 dives (most schools offer only 4), snacks on board, and groups of maximum 4 students per instructor."
+- Offer negotiated price if needed, but never go below the floor prices
+
+### Customer went with another school
+- Never criticize competitors
+- "No worries at all! We hope we can dive with you in the future — whether in Koh Tao, Phi Phi, Nusa Penida, Gili Air or Gili Trawangan 🤿"
+
+---
+
+## KEEPING CONVERSATIONS ACTIVE
+- Never just send information and say "check it out and let me know."
+- Always follow up with an open-ended question.
+- Useful questions:
+  - "How long are you planning to stay on the island?"
+  - "Which payment method works best for you today?"
+  - "Would you like to start tomorrow or the day after?"
+
+---
+
+## FOLLOW-UP SEQUENCE
+- 1–2 hours no response → "Still around [Name]? 😊"
+- 2 more hours no response → Looking forward message (quick reply GENENLookingForward / GENESLookingFoward)
+- Next day → Follow-up 1 (GENENFollowUp1 / GENESFollowUp1)
+- Day after → Follow-up 2 (GENENFollowUp2 / GENESFollowUp2)
+- Day 3+ → optinfollowup template with YES/NO buttons
+
+---
+
+## CLOSING A CONFIRMED BOOKING
+Once deposit is received:
+
+1. Collect customer data:
+   - Full name
+   - Date of birth (DD/MM/YYYY)
+   - Passport number
+   - T-shirt size
+   - Shoe size
+
+   For certified divers also collect:
+   - Certification level
+   - Number of logged dives
+   - Date of last dive
+   - Photo of certification card (both sides)
+
+2. Send in this order:
+   - Confirmation of booking details (quick reply KTENpaperworkregist / KTESPaperworkRegist)
+   - MySsi app information (KTENSSIApp / KTESSSIApp) — if applicable
+   - Koh Tao Booking Center transport info (KTENTransportBookingCenter / KTESTransportBookingCenter)
+   - Branch location (KTLOCATION)
+   - Official closing message
+
+3. Add internal comments to the conversation.
+
+---
+
+## DISCOUNTS AND GROUP BOOKINGS
+- Always check with the branch before offering discounts, especially for groups.
+- If no reply from branch, escalate to Jorge or Gerva.
+- Never dismiss a customer asking for a discount.
+- Quick reply: GENENDiscountRefusal / GENESDiscountRefusal
+
+---
+
+## WORDS TO AVOID AND REPLACEMENTS
+- Fear / Afraid → Anxious
+- Bad weather / Too much wind → Wavy / Drizzle
+- Price → Value
+- Course → Activity / Program
+- Exam → Knowledge review
+
+---
+
+## WRITING STYLE
+- Correct spelling and grammar at all times
+- Capitalize the first word of every sentence
+- Short sentences — break into lines and paragraphs, never send big text blocks
+- Maximum 1–2 emojis per line, placed at the end of a sentence
+- Respond in the same language the customer uses
+
+---
+
+## GOLDEN RULES
+1. Always upsell — offer the next step
+2. Ask questions and build connection — don't flood with information
+3. Ask about swimming skills politely
+4. Reply fast and write clearly
+5. Never let a lead go without a follow-up
+6. Every conversation is a chance to gain a customer
+7. Never confirm availability without checking first
+8. Never go below floor prices (OW: 9,500 THB | Try Scuba group: 3,300 THB)
+9. Always respond in the customer's language
+10. Escalate to a human when in doubt — never guess

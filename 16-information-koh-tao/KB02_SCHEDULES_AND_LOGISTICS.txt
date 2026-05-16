@@ -1,0 +1,149 @@
+# KB-02 | SCHEDULES AND LOGISTICS — DPM DIVING KOH TAO
+
+---
+
+## CRITICAL: ALL PROGRAMS USE BOAT SPACE
+
+**There is NO pool at DPM Koh Tao.** All confined water sessions (theory + skills practice) are done in a shallow bay reached by boat. This means:
+- Every program requires boat space — always check roster availability
+- NEVER say "pool session" or "piscina"
+- ALWAYS say "shallow water session in the bay" / "sesión en aguas poco profundas en la bahía"
+- Spanish-speaking clients start 1 hour later: 9:30am instead of 8:30am
+
+---
+
+## SCHEDULE BY PROGRAM
+
+### Try Scuba / Bautizo de Buceo
+- Meet at DPM: 11:15am (PM boat)
+- Return: ~16:45pm
+- Structure: theory class → boat to shallow bay → 2 dives (max 12m)
+- Full day program
+
+### Scuba Diver
+- Meet at DPM: 11:15am (PM boat)
+- Return: ~16:45pm
+- Structure: theory → skills in shallow bay → 2 boat dives
+
+### Open Water Course (3 days) — STANDARD SCHEDULE
+**Day 1:**
+- Meet at DPM: 11:15am (PM boat)
+- Theory session + confined water skills in shallow bay
+- Return: ~16:45pm
+
+**Day 2:**
+- Meet at DPM: 5:45am (AM boat) or 11:15am (PM boat) — depends on roster
+- 2 open water dives
+- Return: ~10am or ~16:45pm
+
+**Day 3:**
+- Schedule decided during Day 2 based on group progress
+- Option A: AM boat — meet 5:45am, return ~10am
+- Option B: PM boat — meet 11:15am, return ~16:45pm
+- Includes knowledge review and final dives
+
+*Spanish-speaking clients: typically start Day 1 at PM boat (11:15am)*
+
+**2-Day option (same price, 4 dives instead of 6):**
+Available on request. Same boat times apply.
+
+### Open Water 30 (3 days)
+Same schedule as Open Water Course above.
+Max depth: 30 meters (vs 18m for conventional OW)
+
+### Advanced Course (2 days)
+**Day 1:** 
+- Check roster for AM or PM slot
+- 2 dives: Deep Dive + Navigation (or other specialties)
+
+**Day 2:**
+- 2-3 dives including Night Dive (typically evening/night)
+- 1 dive: Wreck Dive
+
+*Duration: 2 consecutive days — check availability for BOTH days before confirming*
+
+### Fun Dives
+- **AM boat:** meet DPM 5:45am, return ~10:00am (2 dives)
+- **PM boat:** meet DPM 11:15am, return ~16:45pm (2 dives)
+- **Night dive:** meet DPM 17:45pm, return ~19:45pm (1 dive — OW cert minimum)
+- Both AM and PM trips visit 2 different dive sites
+
+### Refresh + Fun Dive
+- Same schedule as Fun Dives
+- Includes skills review in shallow bay before open water dive
+
+### Night Adventure Dive
+- Meet at DPM: 17:45pm
+- Return: ~19:45pm
+- Duration: approximately 2 hours
+- Requirement: Open Water certification minimum
+
+### Deep Adventure + Fun Dive
+- Same boat as Fun Dives
+- Morning or afternoon option
+- 2 dives: 1 deep dive (30m) + 1 fun dive
+
+### Rescue Course (3 days)
+- Consult roster for availability
+- Mixes skills practice in shallow bay + open water rescue scenarios
+- Requires Advanced certification
+
+---
+
+## LOGISTICS
+
+### Pre-course (day before starting):
+- Client must visit DPM shop the day before to register and verify gear sizes
+- Office hours: 8:00am – 20:00pm (8pm)
+- Location: see KTLOCATION snippet
+
+### On arrival day:
+- Registration + gear fitting
+- Team will introduce themselves and explain next day's schedule
+
+### What to bring:
+- Swimwear
+- Sunscreen (reef-safe preferred)
+- Towel
+- Any medication if needed
+- Passport or ID (for certification)
+
+### What's included in all programs:
+- Full dive gear (wetsuit, BCD, regulator, tank, fins, mask)
+- Professional instructor or dive guide
+- SSI dive insurance
+- Snacks on board
+- Boat transfers to all dive sites
+
+---
+
+## BOOKING AND ARRIVAL TIMING
+
+## BOAT TIMES — KOH TAO (ALL PROGRAMS)
+
+| Boat | Meet at DPM | Return |
+|---|---|---|
+| **AM boat** | 5:45am | ~10:00am |
+| **PM boat** | 11:15am | ~16:45pm |
+| **Night boat** | 17:45pm | ~19:45pm |
+
+**Office hours: 8:00am – 20:00pm (8pm)**
+
+### Today availability logic (Koh Tao = GMT+7):
+- Client arriving before 10am → PM boat still possible (check roster)
+- Client arriving after 11am → recommend tomorrow AM boat
+- Client arriving after 4pm → only night boat possible (cert OW+ required), otherwise tomorrow
+
+NEVER confirm a slot without checking the roster first.
+
+### Client asking about "today availability":
+→ Always verify roster before confirming. Never say "yes we have space" without checking.
+→ If PM still open: "We do have afternoon availability today — want me to lock that in? 🤿"
+→ If full: "Today is fully booked but we have space tomorrow morning — shall I hold that for you? 🤿"
+
+---
+
+## SSI APP — REQUIRED FOR ALL CERTIFICATIONS
+All students must download the MySsi app and create an account before arriving.
+Training center number: 766502 / DPM Diving
+Use snippet KTENSSIApp / KTESSSIApp after deposit confirmed.
