@@ -133,6 +133,27 @@ select {
   .select {
     @apply input pr-8;
   }
+  /*
+   * Native <select> dropdown options. Chromium-family browsers (and most
+   * non-macOS platforms) render the open popup with OS-default light gray
+   * regardless of `color-scheme: dark` on the parent. Styling option /
+   * optgroup directly is the only cross-browser way to keep the abyss
+   * palette inside the popup. Applied globally so any plain <select> in
+   * the panel inherits it, not just .select-classed ones.
+   */
+  select option,
+  select optgroup {
+    background-color: #0a1626; /* ink-100 — surface 1 (cards on canvas) */
+    color: #d6e3f1;            /* ink-800 — bright body */
+  }
+  select option:checked,
+  select option:hover {
+    background-color: #13243a; /* ink-200 — surface 2 / borders */
+    color: #f1f7fc;            /* ink-900 — headings */
+  }
+  select option:disabled {
+    color: #5a6f8a;            /* ink-500 — muted */
+  }
 
   /* ---------- tables ---------- */
   .tbl {
