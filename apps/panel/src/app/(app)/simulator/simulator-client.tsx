@@ -19,6 +19,14 @@ import {
 
 type Status = "idle" | "loading-prompts" | "creating-session" | "sending" | "error";
 
+// Display name for the AI persona per sede. Mirrors the same map in
+// /prompts page; keeping it duplicated for now to avoid pulling a shared
+// constants file before we know which other surfaces need it.
+const PERSONA_BY_SEDE: Record<string, string> = {
+  "Gili Trawangan": "John",
+  "Gili Air": "Colomba",
+};
+
 // Pre-canned test scenarios surfaced as one-click "starter" cards in the
 // empty state. Each card seeds the composer with the FIRST customer turn
 // for the scenario; the operator can keep typing follow-ups manually.
@@ -316,26 +324,30 @@ export function SimulatorClient() {
           <select
             value={selectedPromptId}
             onChange={(e) => setSelectedPromptId(e.target.value)}
-            className="select min-w-[200px]"
+            className="select min-w-[260px]"
             disabled={isBusy}
           >
             {prompts.length === 0 && <option value="">— sin prompts —</option>}
-            {prompts
-              // Show only prompts that apply to the selected sede (sede-
-              // specific OR global). Empty selectedSedeId = show all.
-              .filter(
-                (p) =>
-                  !selectedSedeId ||
-                  p.sedeId === null ||
-                  p.sedeId === selectedSedeId,
-              )
-              .map((p) => (
+            {/* Show ALL prompts (no sede filter). Each row makes the persona
+                explicit — Colomba (Gili Air), John (global), etc. — so the
+                operator can pick any prompt+sede combination, even
+                cross-sede for edge-case testing (e.g. "what would Colomba
+                say to a Gili Trawangan customer?"). Without the persona
+                label the dropdown was unreadable per Miguel 2026-05-16. */}
+            {prompts.map((p) => {
+              const sedeName = sedeList.find((s) => s.id === p.sedeId)?.nombre;
+              const persona = sedeName
+                ? PERSONA_BY_SEDE[sedeName] ?? sedeName
+                : "John";
+              const scopeLabel = sedeName ? sedeName : "fallback global";
+              return (
                 <option key={p.id} value={p.id}>
-                  v{p.versionNumber}
-                  {p.active ? " · activo" : ""} ·{" "}
-                  {p.sedeId ? "sede" : "global"} · {relativeTime(p.createdAt)}
+                  {persona} · v{p.versionNumber}
+                  {p.active ? " · activo" : ""} · {scopeLabel} ·{" "}
+                  {relativeTime(p.createdAt)}
                 </option>
-              ))}
+              );
+            })}
           </select>
         </label>
         {selectedPrompt && (
