@@ -350,6 +350,7 @@ export function mockListPrompts() {
       versionNumber: 1,
       type: "system",
       sedeId: null,
+      sedeNombre: null,
       content: "(seed v0.1 placeholder — Patrick / Giovanni style)",
       active: true,
       createdBy: "system_seed",

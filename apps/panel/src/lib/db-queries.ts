@@ -163,11 +163,27 @@ export async function getConversation(id: string) {
 export async function listPrompts(type: string) {
   if (isMockMode()) return mockListPrompts().filter((p) => p.type === type);
   const db = getDb();
-  return db
-    .select()
+  const rows = await db
+    .select({
+      id: promptsVersiones.id,
+      versionNumber: promptsVersiones.versionNumber,
+      sedeId: promptsVersiones.sedeId,
+      active: promptsVersiones.active,
+      createdAt: promptsVersiones.createdAt,
+      createdBy: promptsVersiones.createdBy,
+      regressionSuitePassed: promptsVersiones.regressionSuitePassed,
+      type: promptsVersiones.type,
+      content: promptsVersiones.content,
+      sedeNombre: sedes.nombre,
+    })
     .from(promptsVersiones)
+    .leftJoin(sedes, eq(sedes.id, promptsVersiones.sedeId))
     .where(eq(promptsVersiones.type, type))
-    .orderBy(desc(promptsVersiones.versionNumber));
+    .orderBy(
+      desc(promptsVersiones.active),
+      desc(promptsVersiones.versionNumber),
+    );
+  return rows;
 }
 
 export async function getActivePrompt(type: string, sedeId?: string | null) {
