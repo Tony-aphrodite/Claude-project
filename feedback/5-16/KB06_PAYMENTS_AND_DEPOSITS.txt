@@ -1,0 +1,151 @@
+# KB-06 | PAYMENTS AND DEPOSITS — DPM DIVING KOH TAO
+
+---
+
+## DEPOSIT RULES
+
+- Deposit amount: 40 EUR/USD/AUD/GBP per person — OR — 1,000 THB via Stripe
+- Deposits are NON-REFUNDABLE
+- Reservations can be moved to different dates or another DPM location at no extra cost
+- Group of 2+ people: ONE single transfer for the total (e.g. 2 people = 80 EUR)
+- PDF receipt is PREFERRED (downloaded from payment app)
+- Screenshot is ACCEPTABLE as fallback if the customer cannot send PDF — but Emma must verify ON SCREEN that the screenshot shows: amount, date, beneficiary name (DPM Diving), and transfer status (completed/successful). The office will double-check on their end.
+- "Preferimos PDF, pero si solo podés mandar foto está bien — verifico los datos y confirmo la reserva. La oficina hace el rechequeo." / "We prefer PDF but a clear screenshot is fine — I'll verify the details and confirm the booking. The office will double-check on their end."
+- If deposit doesn't arrive within 24h, the office contacts the customer directly. Emma confirms the booking provisionally based on the screenshot evidence.
+- Rest of payment: cash or same transfer method at the dive center on arrival
+
+---
+
+## CUSTOMER CANNOT PAY DEPOSIT IN ADVANCE — FALLBACK
+
+If the customer says they cannot pay the deposit before arriving (no card, no bank transfer access, etc.):
+
+- Emma does NOT confirm a boat space
+- Offer this option:
+  "If you can't process the deposit right now, you're welcome to stop by our office when you arrive — but I can't guarantee we'll have space on the boat that day 🙏 The safest is to contact the office directly at +66636575799 to coordinate."
+- Pass office phone +66636575799 to the customer
+- Add internal note: "Cliente no puede pagar depósito — derivado a oficina, sin garantía de espacio"
+- Lifecycle stays at "New Lead" — no Payment + Customer until office confirms
+
+---
+
+## STEP 1 — DETECT CURRENCY BY PHONE PREFIX
+
+| Prefix | Currency |
+|---|---|
+| +34 Spain / +33 France / +49 Germany / +39 Italy / +31 Netherlands / +32 Belgium / +41 Switzerland / +43 Austria / +351 Portugal / +45 Denmark / +46 Sweden / +47 Norway / +358 Finland / +353 Ireland / +30 Greece / +48 Poland / +420 Czech / +36 Hungary / +40 Romania | EUR |
+| +44 UK | GBP |
+| +61 Australia | AUD |
+| +1 USA/Canada / +52 Mexico / +55 Brazil / Philippines / no prefix detected | → Stripe THB link |
+
+When unsure: "What currency would you prefer for the deposit? EUR, GBP, AUD, or card payment? 😊"
+
+---
+
+## STEP 2 — SEND CORRECT PAYMENT BLOCK
+
+### 💳 STRIPE — THB (default for cards / USA / LATAM / Asia)
+"Kindly use the following link to process your card payment. It's 1,000 THB per diver — adjust the quantity accordingly 🙂💳
+
+https://buy.stripe.com/8wMdUJcMCgBZ1K8bIK
+
+Please download the PDF receipt and share it with us once processed 🙏"
+
+*1 person = 1,000 THB | 2 = 2,000 | 3 = 3,000*
+
+---
+
+### 💶 EUR — Wise Brussels
+"Here are the EUR payment details:
+
+Account holder: DPM Diving
+IBAN: BE02 9674 4543 1440
+BIC: TRWIBEB1XXX
+Wise address: Rue du Trône 100, 3rd floor, Brussels 1050, Belgium
+
+Amount: 40 EUR per person
+
+Please download the PDF confirmation and share it with us 🙏"
+
+*1p=40 | 2p=80 | 3p=120 | 4p=160 EUR*
+
+---
+
+### 💷 GBP — Wise London
+"Here are the GBP payment details:
+
+Account holder: DPM Diving
+Sort code: 23-14-70
+Account: 14569568
+IBAN: GB18 TRWI 2314 7014 5695 68
+BIC: TRWIGB2L
+Wise address: London
+
+Amount: 40 GBP per person
+
+Please download the PDF and share it with us 🙏"
+
+---
+
+### 🇦🇺 AUD — Wise Australia
+"Here are the AUD payment details:
+
+Account holder: DPM Diving
+BSB: 774-001
+Account: 209258620
+Wise Australia
+
+Amount: 40 AUD per person
+
+Please download the PDF and share it with us 🙏"
+
+---
+
+### 📱 USD / Other currencies — Revolut or Stripe
+"For USD (or if Wise isn't an option), you can send via:
+
+Revolut: +66636575799 — amount: 40 USD per person
+
+Or use the Stripe card link: https://buy.stripe.com/8wMdUJcMCgBZ1K8bIK (1,000 THB per person)
+
+Please download the PDF receipt and share it with us 🙏"
+
+---
+
+### 🏦 Bangkok Bank — ONLY AS LAST RESORT
+Use only if all other methods fail. Ask office for current Bangkok Bank details before sending.
+NEVER send Bangkok Bank details without confirming with the team first.
+
+---
+
+## STEP 3 — VERIFY PROOF OF PAYMENT (PDF OR SCREENSHOT)
+
+When proof arrives:
+- **PDF preferred** — full details visible, less risk of fraud
+- **Screenshot acceptable** as fallback — but Emma must verify ON SCREEN:
+  - Amount matches (40 × pax, or 1,000 THB × pax for Stripe)
+  - Date is recent (same day or day before)
+  - Beneficiary shows "DPM Diving" or matches the account sent
+  - Transfer status shows "completed" / "successful" / "paid"
+
+If all 4 items are visible → confirm booking, update lifecycle to Payment + Customer. Office will rechequear on their end.
+
+If any item is missing or unclear → "Could you send a clearer image (or the PDF if you have it)? I want to make sure I get all the details right before confirming 🙏"
+
+Incorrect amount → "Received [X]. The deposit for [N] divers is [total] — could you send the remaining [difference]? 🙏"
+
+If deposit doesn't arrive in DPM accounts within 24h after booking confirmed, office contacts the customer directly.
+
+---
+
+## PAYMENT METHODS AT THE DIVE CENTER (on arrival)
+
+Accepted on-site:
+- Cash (THB preferred, major currencies accepted)
+- Bank transfer (same methods as above)
+- Card payment available for an additional 3% fee
+
+NOT accepted on-site:
+- PayPal
+- Western Union
+- Cryptocurrency

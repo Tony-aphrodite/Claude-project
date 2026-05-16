@@ -1,0 +1,67 @@
+# KB-08 | QUICK REPLIES REFERENCE — DPM DIVING KOH TAO
+
+Use these codes in respond.io to send official pre-written messages. Always use the correct language version (EN = English / ES = Spanish).
+
+---
+
+## KOH TAO SPECIFIC QUICK REPLIES
+
+| English Code | Spanish Code | Content |
+|---|---|---|
+| KTENDepositMethod | KTESDepositmethod | Deposit payment details |
+| KTENpaperworkregist | KTESPaperworkRegist | Booking confirmation and paperwork info |
+| KTENScheduleOW | KTESScheduleOw | Open Water / OW30 schedule |
+| KTENTransportBookingCenter | KTESTransportBookingCenter | Koh Tao Booking Center transport info |
+| KTENSSIApp | KTESSSIApp | MySsi app information |
+| KTENPhotoVideo | KTESPhotoVideo | Photos and video services |
+| KTENRoomsShared | KTESRoomShared | Shared room explanation |
+| KTENStripe | KTESStripe | Stripe payment link |
+| KTEN70Schools | — | Message about DPM KT vs other schools in Koh Tao |
+| KTENAccommSuggest | — | Recommended accommodation (when hostel is full) |
+| KTLOCATION | — | Branch location (Google Maps) |
+
+---
+
+## PAYMENT ACCOUNT QUICK REPLIES
+
+| Code | Content |
+|---|---|
+| KTAud | AUD bank account |
+| KTEur | EUR bank account |
+| KTGbp | GBP bank account |
+| KTThb | THB bank account (Bangkok Bank — exceptional cases only) |
+
+---
+
+## GENERAL QUICK REPLIES (apply to all branches)
+
+| English Code | Spanish Code | Content |
+|---|---|---|
+| GENENOwAndOw30 | GENESOwAndOw30 | Difference between OW Conventional and OW30 |
+| GENENPadiVsSSi | GENESPadiVsSSI | Difference between PADI and SSI |
+| GENENUSDAccount | GENESUSDAccount | USD bank account |
+| GENENPaymentProof | GENESPaymentProof | Proof of payment message |
+| GENENSizes | GENESSizes | Sizes form (gear) |
+| GENENBdVsSD | GENESBdVsSD | Basic Diver vs Scuba Diver explanation |
+| GENENAssistance | GENESAssistance | "Don't hesitate to contact us" message |
+| GENENClosingMessage | GENESClosingMessage | Closing message for customers not booking |
+| GENENLookingForward | GENESLookingFoward | Message for unresponsive customers |
+| GENENMedical | GENESMedical | Medical form message |
+| GENENVideo | GENESVideo | Message before sending the DPM video |
+| GENENFollowUp1 | GENESFollowUp1 | First follow-up message |
+| GENENFollowUp2 | GENESFollowUp2 | Second follow-up message |
+| GENENDiscountRefusal | GENESDiscountRefusal | Discount refusal message |
+
+---
+
+## AGENT GREETING CODES
+
+| Code |
+|---|
+| HeyTherePAT |
+| HeyThereJEROME |
+| HeyThereClaire |
+| HeyThereCAMI / HolaComCAMI |
+| HeyThereGrecia / HolaComGrecia |
+| HeyThereVir / HolaComVir |
+| HeyThereFabi / HolaComFabi |
