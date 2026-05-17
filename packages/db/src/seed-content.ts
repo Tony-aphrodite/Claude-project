@@ -37,6 +37,9 @@ const GA_INFO_DIR = path.resolve(REPO_ROOT, "15-information");
 // drop-and-trace pattern as GA: keep the original Miguel hand-off in its
 // own numbered dir so we can audit which delivery shipped to prod when.
 const KT_INFO_DIR = path.resolve(REPO_ROOT, "16-information-koh-tao");
+// Francisco Emilio (Koh Phi Phi) package — Miguel 2026-05-17 v1.3 drop.
+// Same drop-and-trace convention.
+const PP_INFO_DIR = path.resolve(REPO_ROOT, "17-information-phi-phi");
 
 const SYSTEM_PROMPT_FILE = "00_SYSTEM_PROMPT.md";
 const FEW_SHOTS_FILE = "FEW_SHOTS_GiliTrawangan.md";
@@ -98,10 +101,26 @@ const KT_KB_FILES = [
   "KB12_OFERTAS_ESTACIONALES.md",
 ] as const;
 
+// Francisco Emilio bundle for Koh Phi Phi (Miguel 2026-05-17 delivery,
+// v1.3). Multi-file shape with KB-01..KB-07 + a separate compressed
+// system prompt; no separate few-shots — the empirical sales manual
+// (KB-06, 36 KB) carries the closed-conversation patterns inline.
+const PP_SYSTEM_PROMPT_FILE = "system_prompt_phi_phi.md";
+const PP_KB_FILES = [
+  "kb_01_programas_y_precios.md",
+  "kb_02_dive_sites_operativa.md",
+  "kb_03_pagos_y_reservas.md",
+  "kb_04_objeciones_upselling.md",
+  "kb_05_snippets_quick_replies.md",
+  "kb_06_manual_ventas_empirico.md",
+  "kb_07_ofertas_estacionales.md",
+] as const;
+
 const STORAGE_BUCKET = "kb";
 const KB_STORAGE_PATH = "gili-trawangan/v1/kb-bundle.md";
 const GA_KB_STORAGE_PATH = "gili-air/v1/kb-bundle.md";
 const KT_KB_STORAGE_PATH = "koh-tao/v1/kb-bundle.md";
+const PP_KB_STORAGE_PATH = "koh-phi-phi/v1/kb-bundle.md";
 
 function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex").slice(0, 12);
@@ -117,6 +136,10 @@ async function readGaInfo(file: string): Promise<string> {
 
 async function readKtInfo(file: string): Promise<string> {
   return readFile(path.join(KT_INFO_DIR, file), "utf-8");
+}
+
+async function readPpInfo(file: string): Promise<string> {
+  return readFile(path.join(PP_INFO_DIR, file), "utf-8");
 }
 
 /** Concatenate John v1.1 + 8 few-shots with a clear delimiter. */
@@ -821,11 +844,252 @@ export async function seedKtKbBundle(): Promise<{
   };
 }
 
+// ─── Francisco Emilio / Koh Phi Phi ─────────────────────────────────────────
+//
+// Miguel v1.3 delivery (2026-05-17). KB-01..KB-07 concatenated into the
+// cached KB block; system prompt as its own block. KB-06 carries the
+// empirical sales manual (5,772 contacts / 241k messages corpus, 302
+// confirmed closures) so no separate few-shots file is needed.
+//
+// Naming note: the original pilot SQL seed used nombre='Phi Phi' but the
+// Respond.io Branch custom field writes the verbatim string "Koh Phi
+// Phi". The post-migration SQL now renames the row so SedeService can
+// match the Branch value directly. seedPpSedeConfig below also performs
+// the rename idempotently in case it ran before the SQL migration.
+async function buildPpSystemPromptContent(): Promise<string> {
+  const sysPrompt = (await readPpInfo(PP_SYSTEM_PROMPT_FILE)).trim();
+  return sysPrompt;
+}
+
+async function buildPpKbBundle(): Promise<string> {
+  const parts: string[] = [];
+  for (const file of PP_KB_FILES) {
+    const content = (await readPpInfo(file)).trim();
+    parts.push(content);
+    parts.push("");
+    parts.push("---");
+    parts.push("");
+  }
+  return parts.join("\n");
+}
+
+export async function seedPpSedeConfig(): Promise<{ renamed: boolean } | null> {
+  const db = getDb();
+  // Find by respond_io_tag (stable key) since the nombre might still be
+  // the legacy 'Phi Phi' on older DBs.
+  const [ppSede] = await db
+    .select()
+    .from(sedes)
+    .where(eq(sedes.respondIoTag, "sede:phi_phi"))
+    .limit(1);
+  if (!ppSede) {
+    console.warn("[seed-content] Koh Phi Phi sede missing — skipping config");
+    return null;
+  }
+  if (ppSede.nombre === "Koh Phi Phi") {
+    return { renamed: false };
+  }
+  await db
+    .update(sedes)
+    .set({ nombre: "Koh Phi Phi", updatedAt: new Date() })
+    .where(eq(sedes.id, ppSede.id));
+  console.log(
+    `[seed-content] Koh Phi Phi sede renamed '${ppSede.nombre}' → 'Koh Phi Phi'`,
+  );
+  return { renamed: true };
+}
+
+export async function seedPpSystemPrompt(): Promise<{
+  versionId: string;
+  versionNumber: number;
+  contentHash: string;
+  unchanged: boolean;
+} | null> {
+  const db = getDb();
+  const [ppSede] = await db
+    .select()
+    .from(sedes)
+    .where(eq(sedes.nombre, "Koh Phi Phi"))
+    .limit(1);
+  if (!ppSede) {
+    console.warn(
+      "[seed-content] Koh Phi Phi sede missing — skipping Francisco Emilio prompt seed",
+    );
+    return null;
+  }
+
+  const content = await buildPpSystemPromptContent();
+  const contentHash = sha256(content);
+
+  const [existing] = await db
+    .select()
+    .from(promptsVersiones)
+    .where(
+      sql`${promptsVersiones.type} = 'system' AND ${promptsVersiones.sedeId} = ${ppSede.id} AND ${promptsVersiones.active} = true`,
+    )
+    .limit(1);
+
+  if (existing && existing.createdBy === `seed:${contentHash}`) {
+    console.log(
+      `[seed-content] Francisco Emilio prompt v${existing.versionNumber} already up to date (hash=${contentHash})`,
+    );
+    return {
+      versionId: existing.id,
+      versionNumber: existing.versionNumber,
+      contentHash,
+      unchanged: true,
+    };
+  }
+
+  const [{ nextVer }] = (await db.execute<{ nextVer: number }>(sql`
+    SELECT COALESCE(MAX(version_number), 0) + 1 AS "nextVer"
+      FROM prompts_versiones
+     WHERE type = 'system' AND sede_id = ${ppSede.id}
+  `)) as unknown as [{ nextVer: number }];
+
+  const [created] = await db.transaction(async (tx) => {
+    await tx
+      .update(promptsVersiones)
+      .set({ active: false })
+      .where(
+        sql`${promptsVersiones.type} = 'system' AND ${promptsVersiones.sedeId} = ${ppSede.id}`,
+      );
+    return tx
+      .insert(promptsVersiones)
+      .values({
+        versionNumber: nextVer,
+        type: "system",
+        sedeId: ppSede.id,
+        content,
+        active: true,
+        createdBy: `seed:${contentHash}`,
+        regressionSuitePassed: false,
+      })
+      .returning();
+  });
+
+  if (!created) throw new Error("failed to insert Francisco Emilio system prompt");
+  console.log(
+    `[seed-content] Francisco Emilio prompt seeded as v${created.versionNumber} (hash=${contentHash}, ${content.length} chars / ~${Math.round(content.length / 4)} tokens)`,
+  );
+  return {
+    versionId: created.id,
+    versionNumber: created.versionNumber,
+    contentHash,
+    unchanged: false,
+  };
+}
+
+export async function seedPpKbBundle(): Promise<{
+  storagePath: string;
+  contentHash: string;
+  documentId: string;
+  unchanged: boolean;
+} | null> {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error(
+      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required to seed PP KB bundle",
+    );
+  }
+
+  const db = getDb();
+  const content = await buildPpKbBundle();
+  const contentHash = sha256(content);
+
+  const [sede] = await db
+    .select()
+    .from(sedes)
+    .where(eq(sedes.nombre, "Koh Phi Phi"))
+    .limit(1);
+  if (!sede) {
+    console.warn("[seed-content] Koh Phi Phi sede missing — skipping KB seed");
+    return null;
+  }
+
+  const [activeDoc] = await db
+    .select()
+    .from(kbDocuments)
+    .where(
+      sql`${kbDocuments.sedeId} = ${sede.id} AND ${kbDocuments.active} = true`,
+    )
+    .limit(1);
+  if (activeDoc && activeDoc.uploadedBy === `seed:${contentHash}`) {
+    console.log(
+      `[seed-content] KB bundle for Koh Phi Phi already up to date (hash=${contentHash})`,
+    );
+    return {
+      storagePath: activeDoc.storagePath,
+      contentHash,
+      documentId: activeDoc.id,
+      unchanged: true,
+    };
+  }
+
+  const uploadUrl = `${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${PP_KB_STORAGE_PATH}`;
+  const upload = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${serviceKey}`,
+      apikey: serviceKey,
+      "content-type": "text/markdown",
+      "x-upsert": "true",
+    },
+    body: content,
+  });
+  if (!upload.ok) {
+    const body = await upload.text().catch(() => "");
+    throw new Error(`PP KB upload failed: ${upload.status} ${body.slice(0, 200)}`);
+  }
+
+  const [{ nextVer }] = (await db.execute<{ nextVer: number }>(sql`
+    SELECT COALESCE(MAX(version), 0) + 1 AS "nextVer"
+      FROM kb_documents
+     WHERE sede_id = ${sede.id}
+  `)) as unknown as [{ nextVer: number }];
+
+  const [created] = await db.transaction(async (tx) => {
+    await tx
+      .update(kbDocuments)
+      .set({ active: false })
+      .where(eq(kbDocuments.sedeId, sede.id));
+    return tx
+      .insert(kbDocuments)
+      .values({
+        sedeId: sede.id,
+        storagePath: `${STORAGE_BUCKET}/${PP_KB_STORAGE_PATH}`,
+        version: nextVer,
+        active: true,
+        uploadedBy: `seed:${contentHash}`,
+      })
+      .returning();
+  });
+
+  if (!created) throw new Error("failed to insert PP kb_documents row");
+  await db
+    .update(sedes)
+    .set({ kbDocumentId: created.id })
+    .where(eq(sedes.id, sede.id));
+
+  console.log(
+    `[seed-content] PP KB bundle uploaded as v${created.version} (hash=${contentHash}, ${content.length} chars / ~${Math.round(content.length / 4)} tokens)`,
+  );
+  return {
+    storagePath: created.storagePath,
+    contentHash,
+    documentId: created.id,
+    unchanged: false,
+  };
+}
+
 export async function seedAll(): Promise<void> {
   await seedSystemPrompt();
   await seedGaSedeConfig();
   await seedGaSystemPrompt();
   await seedKtSystemPrompt();
+  await seedPpSedeConfig();
+  await seedPpSystemPrompt();
   // KB bundle requires Supabase Storage credentials; skip silently when they
   // are missing so local dev / CI without Supabase can still run the
   // migration step.
@@ -844,6 +1108,11 @@ export async function seedAll(): Promise<void> {
       await seedKtKbBundle();
     } catch (err) {
       console.warn(`[seed-content] KT KB bundle skip: ${(err as Error).message}`);
+    }
+    try {
+      await seedPpKbBundle();
+    } catch (err) {
+      console.warn(`[seed-content] PP KB bundle skip: ${(err as Error).message}`);
     }
   } else {
     console.log(

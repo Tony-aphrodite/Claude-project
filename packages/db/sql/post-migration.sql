@@ -367,8 +367,15 @@ WHERE NOT EXISTS (SELECT 1 FROM brands WHERE id = '00000000-0000-0000-0000-00000
 INSERT INTO sedes (nombre, pais, timezone, currency_code, currency_symbol, languages_supported, roster_source, respond_io_tag, brand_id)
 VALUES
   ('Koh Tao',         'Thailand',  'Asia/Bangkok',   'THB', '฿',  ARRAY['en','es'], 'apps_script_url', 'sede:koh_tao',         '00000000-0000-0000-0000-000000000001'),
-  ('Phi Phi',         'Thailand',  'Asia/Bangkok',   'THB', '฿',  ARRAY['en','es'], 'apps_script_url', 'sede:phi_phi',         '00000000-0000-0000-0000-000000000001'),
+  ('Koh Phi Phi',     'Thailand',  'Asia/Bangkok',   'THB', '฿',  ARRAY['en','es'], 'apps_script_url', 'sede:phi_phi',         '00000000-0000-0000-0000-000000000001'),
   ('Gili Trawangan',  'Indonesia', 'Asia/Makassar',  'IDR', 'Rp', ARRAY['en','es'], 'apps_script_url', 'sede:gili_trawangan',  '00000000-0000-0000-0000-000000000001'),
   ('Gili Air',        'Indonesia', 'Asia/Makassar',  'IDR', 'Rp', ARRAY['en','es'], 'apps_script_url', 'sede:gili_air',        '00000000-0000-0000-0000-000000000001'),
   ('Nusa Penida',     'Indonesia', 'Asia/Makassar',  'IDR', 'Rp', ARRAY['en','es'], 'apps_script_url', 'sede:nusa_penida',     '00000000-0000-0000-0000-000000000001')
 ON CONFLICT (respond_io_tag) DO NOTHING;
+
+-- Backfill: existing pilot DBs were seeded with nombre='Phi Phi' but the
+-- Respond.io Branch custom field uses the verbatim "Koh Phi Phi" string
+-- (Miguel 2026-05-04 owner-confirmed). Align the DB row so SedeService
+-- can match the Branch value directly without a renaming map. Idempotent.
+UPDATE sedes SET nombre = 'Koh Phi Phi'
+ WHERE respond_io_tag = 'sede:phi_phi' AND nombre = 'Phi Phi';

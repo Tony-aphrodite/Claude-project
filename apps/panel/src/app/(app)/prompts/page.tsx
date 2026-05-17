@@ -11,6 +11,7 @@ const PERSONA_BY_SEDE: Record<string, string> = {
   "Gili Trawangan": "John",
   "Gili Air": "Colomba",
   "Koh Tao": "Emma",
+  "Koh Phi Phi": "Francisco Emilio",
 };
 
 export default async function PromptsPage() {

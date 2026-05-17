@@ -26,6 +26,7 @@ const PERSONA_BY_SEDE: Record<string, string> = {
   "Gili Trawangan": "John",
   "Gili Air": "Colomba",
   "Koh Tao": "Emma",
+  "Koh Phi Phi": "Francisco Emilio",
 };
 
 // Pre-canned test scenarios surfaced as one-click "starter" cards in the

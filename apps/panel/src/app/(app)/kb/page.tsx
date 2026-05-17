@@ -72,10 +72,9 @@ export default async function KbListPage({
                     </Link>
                   )}
                 </header>
-                <ul className="space-y-1 text-xs">
+                <ul className="space-y-1 text-xs max-h-[13.5rem] overflow-y-auto scrollbar-thin pr-1">
                   {versions
                     .filter((v) => v.sedeId === s.id)
-                    .slice(0, 6)
                     .map((v) => (
                       <li key={v.id}>
                         <Link
