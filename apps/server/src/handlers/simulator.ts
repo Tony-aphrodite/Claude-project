@@ -55,6 +55,7 @@ import type {
 import { callClaude, type ToolHandlers } from "../services/anthropic.js";
 import { promptsService } from "../services/prompts.js";
 import { buildFourBlockPrompt } from "../services/prompt-builder.js";
+import { detectLanguage } from "../services/language.js";
 import { getLogger } from "../logger.js";
 
 // The synthetic chat_contact every simulator session points at. We use a
@@ -296,6 +297,16 @@ export async function runSimulatorMessage(input: {
   const priorHistory = allHistory.slice(0, -1);
 
   // 4. Build the 4-block prompt.
+  //
+  // 2026-05-17 Miguel feedback (Colomba GA simulator test): customer wrote
+  // in English, Colomba replied in Spanish. Root cause was hardcoded
+  // detectedLanguage="es" / expectedLanguage="español" — Bloque 4 then
+  // injects "IDIOMA OBLIGATORIO DE TU RESPUESTA: es" and the AI obeys.
+  // Mirror production: run detectLanguage() on the incoming text; fall
+  // through to undefined when franc can't classify (short messages) so
+  // the prompt-builder emits the soft "detect from message" fallback
+  // instead of forcing a wrong language.
+  const detectedLanguage = detectLanguage(input.text);
   const built = buildFourBlockPrompt({
     systemPrompt: prompt.text,
     sedeKb: kbText,
@@ -303,7 +314,7 @@ export async function runSimulatorMessage(input: {
     sede,
     roster: null, // simulator: no real availability lookup
     incomingMessage: input.text,
-    detectedLanguage: "es",
+    detectedLanguage,
     suggestedCurrency: "EUR",
   });
 
@@ -316,7 +327,7 @@ export async function runSimulatorMessage(input: {
     sedeId: sede.id,
     promptVersionId: prompt.versionId ?? undefined,
     toolHandlers,
-    expectedLanguage: "español",
+    expectedLanguage: detectedLanguage,
     incomingMessage: input.text,
   });
 

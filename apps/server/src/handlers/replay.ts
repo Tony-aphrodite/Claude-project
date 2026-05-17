@@ -41,6 +41,7 @@ import {
 import { callClaude, type ToolHandlers } from "../services/anthropic.js";
 import { promptsService } from "../services/prompts.js";
 import { buildFourBlockPrompt } from "../services/prompt-builder.js";
+import { detectLanguage } from "../services/language.js";
 import { getLogger } from "../logger.js";
 import { randomUUID } from "node:crypto";
 import type {
@@ -254,6 +255,10 @@ async function executeReplay(runId: string): Promise<void> {
         createdAt: new Date(0),
       })) as unknown as Parameters<typeof buildFourBlockPrompt>[0]["history"];
 
+      // Detect per message (same as production handler) so EN customers
+      // get an EN-anchored prompt instead of a hardcoded Spanish one.
+      // See simulator.ts header for the 2026-05-17 incident.
+      const detectedLanguage = detectLanguage(cm.content);
       const built = buildFourBlockPrompt({
         systemPrompt: pv.content,
         sedeKb: kbText,
@@ -261,7 +266,7 @@ async function executeReplay(runId: string): Promise<void> {
         sede,
         roster: null,
         incomingMessage: cm.content,
-        detectedLanguage: "es",
+        detectedLanguage,
         suggestedCurrency: "EUR",
       });
 
@@ -272,7 +277,7 @@ async function executeReplay(runId: string): Promise<void> {
         sedeId: sede.id,
         promptVersionId: pv.id,
         toolHandlers: tools,
-        expectedLanguage: "español",
+        expectedLanguage: detectedLanguage,
         incomingMessage: cm.content,
       });
 
