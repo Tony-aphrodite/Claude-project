@@ -35,9 +35,11 @@ const INFO_DIR = path.resolve(REPO_ROOT, "information");
 //   • Colomba/Gili Air — 2026-05-15
 //   • Emma/Koh Tao — 2026-05-16
 //   • Francisco Emilio/Koh Phi Phi — 2026-05-17
+//   • David/Nusa Penida — 2026-05-17
 const GA_INFO_DIR = path.resolve(REPO_ROOT, "information/15-information");
 const KT_INFO_DIR = path.resolve(REPO_ROOT, "information/16-information-koh-tao");
 const PP_INFO_DIR = path.resolve(REPO_ROOT, "information/17-information-phi-phi");
+const NP_INFO_DIR = path.resolve(REPO_ROOT, "information/18-information");
 
 const SYSTEM_PROMPT_FILE = "00_SYSTEM_PROMPT.md";
 const FEW_SHOTS_FILE = "FEW_SHOTS_GiliTrawangan.md";
@@ -114,11 +116,32 @@ const PP_KB_FILES = [
   "kb_07_ofertas_estacionales.md",
 ] as const;
 
+// David bundle for Nusa Penida (Miguel 2026-05-17 delivery). 12 KB files
+// (KB01..KB12), compressed system prompt as its own block — same shape
+// as the PP delivery. KB-10 + KB-11 carry the empirical sales manual
+// inline; no separate few-shots file.
+const NP_SYSTEM_PROMPT_FILE = "DAVID_PROMPT.md";
+const NP_KB_FILES = [
+  "KB01_David_NusaPenida.md",
+  "KB02_David_NusaPenida.md",
+  "KB03_David_NusaPenida.md",
+  "KB04_David_NusaPenida.md",
+  "KB05_David_NusaPenida.md",
+  "KB06_David_NusaPenida.md",
+  "KB07_David_NusaPenida.md",
+  "KB08_David_NusaPenida.md",
+  "KB09_David_NusaPenida.md",
+  "KB10_David_NusaPenida.md",
+  "KB11_David_NusaPenida.md",
+  "KB12_David_NusaPenida.md",
+] as const;
+
 const STORAGE_BUCKET = "kb";
 const KB_STORAGE_PATH = "gili-trawangan/v1/kb-bundle.md";
 const GA_KB_STORAGE_PATH = "gili-air/v1/kb-bundle.md";
 const KT_KB_STORAGE_PATH = "koh-tao/v1/kb-bundle.md";
 const PP_KB_STORAGE_PATH = "koh-phi-phi/v1/kb-bundle.md";
+const NP_KB_STORAGE_PATH = "nusa-penida/v1/kb-bundle.md";
 
 function sha256(text: string): string {
   return createHash("sha256").update(text).digest("hex").slice(0, 12);
@@ -138,6 +161,10 @@ async function readKtInfo(file: string): Promise<string> {
 
 async function readPpInfo(file: string): Promise<string> {
   return readFile(path.join(PP_INFO_DIR, file), "utf-8");
+}
+
+async function readNpInfo(file: string): Promise<string> {
+  return readFile(path.join(NP_INFO_DIR, file), "utf-8");
 }
 
 /** Concatenate John v1.1 + 8 few-shots with a clear delimiter. */
@@ -1081,6 +1108,214 @@ export async function seedPpKbBundle(): Promise<{
   };
 }
 
+// ─── David / Nusa Penida ────────────────────────────────────────────────────
+//
+// Miguel 2026-05-17 delivery. The Nusa Penida sede row already exists in
+// the pilot seed under nombre='Nusa Penida' (which matches the Branch
+// custom field verbatim) so no rename step is needed — just prompt + KB
+// bundle, then add 'Nusa Penida' to AI_ENABLED_SEDE_NAMES in
+// services/sede.ts. With David in place, all 5 DPM sedes are AI-enabled.
+async function buildNpSystemPromptContent(): Promise<string> {
+  const sysPrompt = (await readNpInfo(NP_SYSTEM_PROMPT_FILE)).trim();
+  return sysPrompt;
+}
+
+async function buildNpKbBundle(): Promise<string> {
+  const parts: string[] = [];
+  for (const file of NP_KB_FILES) {
+    const content = (await readNpInfo(file)).trim();
+    parts.push(content);
+    parts.push("");
+    parts.push("---");
+    parts.push("");
+  }
+  return parts.join("\n");
+}
+
+export async function seedNpSystemPrompt(): Promise<{
+  versionId: string;
+  versionNumber: number;
+  contentHash: string;
+  unchanged: boolean;
+} | null> {
+  const db = getDb();
+  const [npSede] = await db
+    .select()
+    .from(sedes)
+    .where(eq(sedes.nombre, "Nusa Penida"))
+    .limit(1);
+  if (!npSede) {
+    console.warn(
+      "[seed-content] Nusa Penida sede missing — skipping David prompt seed",
+    );
+    return null;
+  }
+
+  const content = await buildNpSystemPromptContent();
+  const contentHash = sha256(content);
+
+  const [existing] = await db
+    .select()
+    .from(promptsVersiones)
+    .where(
+      sql`${promptsVersiones.type} = 'system' AND ${promptsVersiones.sedeId} = ${npSede.id} AND ${promptsVersiones.active} = true`,
+    )
+    .limit(1);
+
+  if (existing && existing.createdBy === `seed:${contentHash}`) {
+    console.log(
+      `[seed-content] David prompt v${existing.versionNumber} already up to date (hash=${contentHash})`,
+    );
+    return {
+      versionId: existing.id,
+      versionNumber: existing.versionNumber,
+      contentHash,
+      unchanged: true,
+    };
+  }
+
+  const [{ nextVer }] = (await db.execute<{ nextVer: number }>(sql`
+    SELECT COALESCE(MAX(version_number), 0) + 1 AS "nextVer"
+      FROM prompts_versiones
+     WHERE type = 'system' AND sede_id = ${npSede.id}
+  `)) as unknown as [{ nextVer: number }];
+
+  const [created] = await db.transaction(async (tx) => {
+    await tx
+      .update(promptsVersiones)
+      .set({ active: false })
+      .where(
+        sql`${promptsVersiones.type} = 'system' AND ${promptsVersiones.sedeId} = ${npSede.id}`,
+      );
+    return tx
+      .insert(promptsVersiones)
+      .values({
+        versionNumber: nextVer,
+        type: "system",
+        sedeId: npSede.id,
+        content,
+        active: true,
+        createdBy: `seed:${contentHash}`,
+        regressionSuitePassed: false,
+      })
+      .returning();
+  });
+
+  if (!created) throw new Error("failed to insert David system prompt");
+  console.log(
+    `[seed-content] David prompt seeded as v${created.versionNumber} (hash=${contentHash}, ${content.length} chars / ~${Math.round(content.length / 4)} tokens)`,
+  );
+  return {
+    versionId: created.id,
+    versionNumber: created.versionNumber,
+    contentHash,
+    unchanged: false,
+  };
+}
+
+export async function seedNpKbBundle(): Promise<{
+  storagePath: string;
+  contentHash: string;
+  documentId: string;
+  unchanged: boolean;
+} | null> {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error(
+      "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY required to seed NP KB bundle",
+    );
+  }
+
+  const db = getDb();
+  const content = await buildNpKbBundle();
+  const contentHash = sha256(content);
+
+  const [sede] = await db
+    .select()
+    .from(sedes)
+    .where(eq(sedes.nombre, "Nusa Penida"))
+    .limit(1);
+  if (!sede) {
+    console.warn("[seed-content] Nusa Penida sede missing — skipping KB seed");
+    return null;
+  }
+
+  const [activeDoc] = await db
+    .select()
+    .from(kbDocuments)
+    .where(
+      sql`${kbDocuments.sedeId} = ${sede.id} AND ${kbDocuments.active} = true`,
+    )
+    .limit(1);
+  if (activeDoc && activeDoc.uploadedBy === `seed:${contentHash}`) {
+    console.log(
+      `[seed-content] KB bundle for Nusa Penida already up to date (hash=${contentHash})`,
+    );
+    return {
+      storagePath: activeDoc.storagePath,
+      contentHash,
+      documentId: activeDoc.id,
+      unchanged: true,
+    };
+  }
+
+  const uploadUrl = `${supabaseUrl}/storage/v1/object/${STORAGE_BUCKET}/${NP_KB_STORAGE_PATH}`;
+  const upload = await fetch(uploadUrl, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${serviceKey}`,
+      apikey: serviceKey,
+      "content-type": "text/markdown",
+      "x-upsert": "true",
+    },
+    body: content,
+  });
+  if (!upload.ok) {
+    const body = await upload.text().catch(() => "");
+    throw new Error(`NP KB upload failed: ${upload.status} ${body.slice(0, 200)}`);
+  }
+
+  const [{ nextVer }] = (await db.execute<{ nextVer: number }>(sql`
+    SELECT COALESCE(MAX(version), 0) + 1 AS "nextVer"
+      FROM kb_documents
+     WHERE sede_id = ${sede.id}
+  `)) as unknown as [{ nextVer: number }];
+
+  const [created] = await db.transaction(async (tx) => {
+    await tx
+      .update(kbDocuments)
+      .set({ active: false })
+      .where(eq(kbDocuments.sedeId, sede.id));
+    return tx
+      .insert(kbDocuments)
+      .values({
+        sedeId: sede.id,
+        storagePath: `${STORAGE_BUCKET}/${NP_KB_STORAGE_PATH}`,
+        version: nextVer,
+        active: true,
+        uploadedBy: `seed:${contentHash}`,
+      })
+      .returning();
+  });
+
+  if (!created) throw new Error("failed to insert NP kb_documents row");
+  await db
+    .update(sedes)
+    .set({ kbDocumentId: created.id })
+    .where(eq(sedes.id, sede.id));
+
+  console.log(
+    `[seed-content] NP KB bundle uploaded as v${created.version} (hash=${contentHash}, ${content.length} chars / ~${Math.round(content.length / 4)} tokens)`,
+  );
+  return {
+    storagePath: created.storagePath,
+    contentHash,
+    documentId: created.id,
+    unchanged: false,
+  };
+}
+
 export async function seedAll(): Promise<void> {
   await seedSystemPrompt();
   await seedGaSedeConfig();
@@ -1088,6 +1323,7 @@ export async function seedAll(): Promise<void> {
   await seedKtSystemPrompt();
   await seedPpSedeConfig();
   await seedPpSystemPrompt();
+  await seedNpSystemPrompt();
   // KB bundle requires Supabase Storage credentials; skip silently when they
   // are missing so local dev / CI without Supabase can still run the
   // migration step.
@@ -1111,6 +1347,11 @@ export async function seedAll(): Promise<void> {
       await seedPpKbBundle();
     } catch (err) {
       console.warn(`[seed-content] PP KB bundle skip: ${(err as Error).message}`);
+    }
+    try {
+      await seedNpKbBundle();
+    } catch (err) {
+      console.warn(`[seed-content] NP KB bundle skip: ${(err as Error).message}`);
     }
   } else {
     console.log(

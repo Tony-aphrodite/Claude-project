@@ -6,11 +6,12 @@
 // the five sede names verbatim ("Gili Trawangan", "Gili Air", "Nusa Penida",
 // "Koh Tao", "Koh Phi Phi") or empty.
 //
-// As of 2026-05-17 (Francisco Emilio launch), FOUR sedes are accepted
-// for AI processing: "Gili Trawangan" (John), "Gili Air" (Colomba),
-// "Koh Tao" (Emma) and "Koh Phi Phi" (Francisco Emilio). The only
-// remaining human-only sede is Nusa Penida — inbound with that Branch
-// value returns `branch_other_sede` so the human flow handles it.
+// As of 2026-05-17 (David launch), ALL FIVE sedes are AI-enabled:
+// "Gili Trawangan" (John), "Gili Air" (Colomba), "Koh Tao" (Emma),
+// "Koh Phi Phi" (Francisco Emilio), "Nusa Penida" (David). The
+// `branch_other_sede` short-circuit now only fires for branches we
+// don't recognize at all (typo / new sede added in Respond.io before
+// our seeds catch up).
 //
 // Legacy support: if no Branch field is present (older test fixtures, manual
 // curl probes), we still try the original `sede:*` tag scheme. This is opt-in
@@ -24,15 +25,17 @@ import { readBranchField, type RespondIoIncomingMessage } from "@dpm/shared";
 
 const SEDE_TAG_PREFIX = "sede:";
 
-// AI-enabled sedes. To onboard another sede (Nusa Penida) add it here
-// AND seed the corresponding prompts_versiones + kb_documents rows for
-// it. Branch values come from Respond.io verbatim — keep them in sync
-// with what Miguel's workflow writes to the field.
+// AI-enabled sedes. All 5 DPM centers are wired as of 2026-05-17.
+// Branch values come from Respond.io verbatim — keep them in sync with
+// what Miguel's workflow writes to the field. To add a new sede later,
+// add the Branch string here AND seed prompts_versiones +
+// kb_documents rows for it.
 const AI_ENABLED_SEDE_NAMES = [
   "Gili Trawangan",
   "Gili Air",
   "Koh Tao",
   "Koh Phi Phi",
+  "Nusa Penida",
 ] as const;
 type AiEnabledSedeName = (typeof AI_ENABLED_SEDE_NAMES)[number];
 
