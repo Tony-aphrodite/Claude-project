@@ -29,17 +29,15 @@ import { getDb, getRawClient, kbDocuments, promptsVersiones, sedes } from "./ind
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const INFO_DIR = path.resolve(REPO_ROOT, "information");
-// Colomba (Gili Air) package — delivered by Miguel 2026-05-15 as a self-
-// contained drop in 15-information/. Kept as-is rather than merged into
-// information/ so the original Miguel hand-off remains traceable.
-const GA_INFO_DIR = path.resolve(REPO_ROOT, "15-information");
-// Emma (Koh Tao) package — delivered by Miguel 2026-05-16 as v1.0. Same
-// drop-and-trace pattern as GA: keep the original Miguel hand-off in its
-// own numbered dir so we can audit which delivery shipped to prod when.
-const KT_INFO_DIR = path.resolve(REPO_ROOT, "16-information-koh-tao");
-// Francisco Emilio (Koh Phi Phi) package — Miguel 2026-05-17 v1.3 drop.
-// Same drop-and-trace convention.
-const PP_INFO_DIR = path.resolve(REPO_ROOT, "17-information-phi-phi");
+// Per-sede Miguel hand-off drops. Each delivery lives in its own
+// numbered subfolder under information/ so the originals stay traceable
+// (we never edit them in place — new versions go in a new numbered dir).
+//   • Colomba/Gili Air — 2026-05-15
+//   • Emma/Koh Tao — 2026-05-16
+//   • Francisco Emilio/Koh Phi Phi — 2026-05-17
+const GA_INFO_DIR = path.resolve(REPO_ROOT, "information/15-information");
+const KT_INFO_DIR = path.resolve(REPO_ROOT, "information/16-information-koh-tao");
+const PP_INFO_DIR = path.resolve(REPO_ROOT, "information/17-information-phi-phi");
 
 const SYSTEM_PROMPT_FILE = "00_SYSTEM_PROMPT.md";
 const FEW_SHOTS_FILE = "FEW_SHOTS_GiliTrawangan.md";
