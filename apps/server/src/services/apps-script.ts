@@ -49,6 +49,25 @@ import { addDays } from "./program-schedule.js";
 const FRESHNESS_MS = 30_000; // 30 seconds — short enough that hora_actual_wita stays accurate.
 
 /**
+ * Our `programa` enum (consultar-disponibilidad tool input) doesn't match
+ * Miguel's CURSOS keys in the KT v2 Apps Script for two courses. Without
+ * this translation the script can't find AOW / RescueDiver in CURSOS and
+ * falls through to "no curso filter" — meaning AM/PM rules and group-size
+ * filters wouldn't fire for those two course names. Other programa
+ * values match verbatim and pass through unchanged.
+ *
+ * Miguel's CURSOS keys (paraphrased from his 2026-05-18 note):
+ *   TryScuba, ScubaDiver, OW, OW30, Advanced, Rescue, Refresh, Night
+ *
+ * Anything we send that isn't in his CURSOS table makes the script
+ * fall through to "no curso filter" — same as the legacy behavior.
+ */
+const PROGRAMA_TO_CURSO: Record<string, string> = {
+  AOW: "Advanced",
+  RescueDiver: "Rescue",
+};
+
+/**
  * Per-call options for the Apps Script roster endpoint. `pax` / `curso`
  * / `mode` are forwarded as query params; the Koh Tao v2 script uses
  * them to filter slots, older scripts ignore them harmlessly.
@@ -210,7 +229,11 @@ export class AppsScriptService {
     const params = new URLSearchParams({ date, days: String(days) });
     if (opts.pax !== undefined) params.set("pax", String(opts.pax));
     if (opts.curso !== undefined && opts.curso !== "") {
-      params.set("curso", opts.curso);
+      // Translate our programa enum to Miguel's CURSOS keys when they
+      // differ (AOW → Advanced, RescueDiver → Rescue). Pass-through for
+      // values that already match.
+      const curso = PROGRAMA_TO_CURSO[opts.curso] ?? opts.curso;
+      params.set("curso", curso);
     }
     if (opts.mode !== undefined) params.set("mode", opts.mode);
     const fullUrl = `${url}?${params.toString()}`;
