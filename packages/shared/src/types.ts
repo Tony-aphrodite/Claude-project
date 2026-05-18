@@ -480,6 +480,18 @@ export type AvailabilityResponse = {
   primer_dia_disponible: string;
   resumen: string;
   detalle: AvailabilityDay[];
+  /**
+   * Multi-day course window chosen by the Apps Script (KT v2+ only).
+   * Present when `curso` was a multi-day course (OW/OW30/Rescue=3 days,
+   * Advanced=2 days) and the script found a valid consecutive block.
+   * Older scripts and single-day courses omit this field.
+   *
+   * Server consumers (process-message.ts) ignore this for now and stick
+   * with the per-slot verdict in `detalle`. Kept on the type so a
+   * future feature (surfacing the window in the AI's response text) can
+   * read it without another schema change.
+   */
+  ventana?: { fecha_inicio: string; fecha_fin: string };
 };
 
 // enviar_catalogo — invoked when the AI decides to send the customer a

@@ -1,7 +1,19 @@
 // ============================================================================
-// Google Apps Script availability fetcher. Owner spec (Miguel, 2026-05-06):
+// Google Apps Script availability fetcher.
 //
-//   GET <url>?date=YYYY-MM-DD&days=N   →  AvailabilityResponse
+// Owner spec (Miguel, 2026-05-06, revised 2026-05-18):
+//
+//   GET <url>?date=YYYY-MM-DD&days=N[&pax=N][&curso=NAME][&mode=single|range]
+//     → AvailabilityResponse
+//
+// The pax / curso / mode params were added in Miguel's Koh Tao v2 roster
+// script (see information/16-information-koh-tao/ROSTER_SCRIPT_v2_NOTES.md).
+// They let the script filter slots that wouldn't actually fit the
+// customer's request — pre-v2 the script ignored these even when sent,
+// and Emma confirmed bookings on full / wrong-slot boats. Other sedes'
+// scripts (GT/GA/PP/NP) currently ignore unknown query params (Apps
+// Script's e.parameter just doesn't see them), so it's safe to send the
+// new params to every sede — pre-v2 scripts behave exactly as before.
 //
 // Response includes a fresh `hora_actual_wita` ("HH:mm" 24h in Asia/Makassar)
 // that we MUST NOT cache — the time-of-day cutoff logic in
@@ -13,16 +25,16 @@
 //
 // Cache policy: we keep a very short Supabase-backed cache (≤30 s) so
 // rapid-fire AI calls within the same conversation turn don't flood Apps
-// Script, but anything older than 30 s is refetched. Setting the cache
-// row uses the SAME (date, days) tuple as cache key so different windows
-// don't collide.
+// Script, but anything older than 30 s is refetched. Cache key includes
+// pax + curso + mode so two requests for different group sizes don't
+// share a cached response with the wrong filters applied.
 //
-// Multi-day fan-out (workaround for current Apps Script behavior, 2026-05-06):
-// Miguel's deployed Apps Script ignores the `days` parameter and always
-// returns a single day in `detalle`. We compensate by issuing one call per
-// missing date in parallel and merging. When Miguel ships the fix that
-// returns the full window in one call, the first response will already
-// cover all dates and the per-day fan-out becomes a no-op.
+// Multi-day fan-out (workaround for pre-v2 Apps Script behavior):
+// Older deployments ignored the `days` parameter and always returned a
+// single day in `detalle`. We compensate by issuing one call per missing
+// date in parallel and merging. With Miguel's v2 KT script (and any future
+// script that respects `days`) the first response already covers all dates
+// and the per-day fan-out becomes a no-op.
 // ============================================================================
 
 import { and, desc, eq, gt, sql } from "drizzle-orm";
@@ -36,6 +48,19 @@ import { addDays } from "./program-schedule.js";
 
 const FRESHNESS_MS = 30_000; // 30 seconds — short enough that hora_actual_wita stays accurate.
 
+/**
+ * Per-call options for the Apps Script roster endpoint. `pax` / `curso`
+ * / `mode` are forwarded as query params; the Koh Tao v2 script uses
+ * them to filter slots, older scripts ignore them harmlessly.
+ */
+export type FetchAvailabilityOpts = {
+  date: string;
+  days: number;
+  pax?: number;
+  curso?: string;
+  mode?: "single" | "range";
+};
+
 export class AppsScriptService {
   /**
    * Fetch availability for `days` consecutive dates starting at `date`.
@@ -44,9 +69,18 @@ export class AppsScriptService {
    */
   async fetchAvailability(
     sede: Sede,
-    opts: { date: string; days: number },
+    opts: FetchAvailabilityOpts,
   ): Promise<AvailabilityResponse | null> {
-    const cacheKey = `${opts.date}|${opts.days}`;
+    // Cache key must include every param that changes the response — a
+    // pax=2 vs pax=30 request returns different slot verdicts, so they
+    // mustn't share a cached row.
+    const cacheKey = [
+      opts.date,
+      opts.days,
+      opts.pax ?? "",
+      opts.curso ?? "",
+      opts.mode ?? "",
+    ].join("|");
     const cached = await this.readCache(sede.id, cacheKey);
     if (cached) return cached;
 
@@ -102,14 +136,14 @@ export class AppsScriptService {
 
   private async fetchFresh(
     sede: Sede,
-    opts: { date: string; days: number },
+    opts: FetchAvailabilityOpts,
   ): Promise<AvailabilityResponse | null> {
     const url = (sede.rosterConfig as { url?: string } | null)?.url;
     if (!url) return null;
 
     // Always start with a single call for the requested window. If Miguel's
     // Apps Script returns the full window we're done; otherwise we fan out.
-    const first = await this.fetchOne(sede, url, opts.date, opts.days);
+    const first = await this.fetchOne(sede, url, opts, opts.date, opts.days);
     if (!first) return null;
 
     if (opts.days <= 1) return first;
@@ -124,13 +158,20 @@ export class AppsScriptService {
 
     // Fan out one call per missing date. Each call still asks days=1 — the
     // Apps Script returns just that day. We then merge into a single response.
+    // pax/curso/mode are NOT propagated to the fan-out calls because they
+    // only make sense across the full window (e.g. a 3-day-consecutive
+    // OW check). Per-day fan-out is the legacy fallback path; the v2 KT
+    // script returns the full window in one call so this loop is a no-op
+    // for KT and we can keep the legacy fan-out simple.
     const log = getLogger();
     log.info(
       { sede: sede.nombre, requested: opts.days, returned: first.detalle.length, missing: missing.length },
       "apps_script returned partial window — filling in per-day",
     );
 
-    const extras = await Promise.all(missing.map((d) => this.fetchOne(sede, url, d, 1)));
+    const extras = await Promise.all(
+      missing.map((d) => this.fetchOne(sede, url, { date: d, days: 1 }, d, 1)),
+    );
     const merged = [...first.detalle];
     for (const r of extras) {
       if (r && Array.isArray(r.detalle)) merged.push(...r.detalle);
@@ -154,6 +195,7 @@ export class AppsScriptService {
   private async fetchOne(
     sede: Sede,
     url: string,
+    opts: FetchAvailabilityOpts,
     date: string,
     days: number,
   ): Promise<AvailabilityResponse | null> {
@@ -161,7 +203,17 @@ export class AppsScriptService {
     const log = getLogger();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), env.APPS_SCRIPT_TIMEOUT_MS);
-    const fullUrl = `${url}?date=${encodeURIComponent(date)}&days=${days}`;
+    // Build query string. date + days always; pax / curso / mode only when
+    // the caller supplied them. Older Apps Script versions (pre-v2 KT, and
+    // every other sede until they upgrade) silently ignore unknown params,
+    // so this is safe to send across the board.
+    const params = new URLSearchParams({ date, days: String(days) });
+    if (opts.pax !== undefined) params.set("pax", String(opts.pax));
+    if (opts.curso !== undefined && opts.curso !== "") {
+      params.set("curso", opts.curso);
+    }
+    if (opts.mode !== undefined) params.set("mode", opts.mode);
+    const fullUrl = `${url}?${params.toString()}`;
 
     try {
       const res = await fetch(fullUrl, {

@@ -862,10 +862,21 @@ export async function processIncomingMessage(
     }
 
     // Fetch a window covering the highest dayOffset.
+    //
+    // 2026-05-18: forward pax + programa + mode to the Apps Script so the
+    // Koh Tao v2 roster script can filter slots by group size / course
+    // type / consecutive-window. Older sede scripts (pre-v2) silently
+    // ignore unknown params, so this is safe everywhere. See
+    // information/16-information-koh-tao/ROSTER_SCRIPT_v2_NOTES.md for
+    // the contract and the AOW→Advanced / RescueDiver→Rescue mapping
+    // open question.
     const windowDays = maxDayOffset(required) + 1;
     const fresh = await appsScriptService.fetchAvailability(sede, {
       date: input.start_date,
       days: windowDays,
+      pax: input.pax,
+      curso: input.programa,
+      mode: windowDays > 1 ? "range" : "single",
     });
     if (!fresh) {
       return {

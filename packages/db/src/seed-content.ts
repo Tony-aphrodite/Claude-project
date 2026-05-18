@@ -459,6 +459,14 @@ const NP_ROSTER_URL =
 const PP_ROSTER_URL =
   "https://script.google.com/macros/s/AKfycbyF4bGoz8ep2jFf9k7xLTxSO_g6HAZtBUfK95xINvMBsTNgEcof9xnoq1g5waEBS4Hg/exec";
 
+// Koh Tao roster URL — Miguel 2026-05-18 (Web App deployment, /exec).
+// Completes the 5-of-5 roster wiring: KT was the last sede whose
+// consultar_disponibilidad calls were returning timeout because no URL
+// was configured. With this constant set, Emma can verify capacity for
+// boat slots against the live Koh Tao schedule.
+const KT_ROSTER_URL =
+  "https://script.google.com/macros/s/AKfycbyJ7sQ_Xu7ZA3ESLcdBJ4T06dW0ujgKZ_CcQcMxQD34mQUPOAHUAzLXPuq2IvWUbftM/exec";
+
 export async function seedGaSedeConfig(): Promise<{ updated: boolean } | null> {
   const db = getDb();
   const [gaSede] = await db
@@ -685,6 +693,46 @@ export async function seedGaKbBundle(): Promise<{
 async function buildKtSystemPromptContent(): Promise<string> {
   const sysPrompt = (await readKtInfo(KT_SYSTEM_PROMPT_FILE)).trim();
   return sysPrompt;
+}
+
+export async function seedKtSedeConfig(): Promise<{ updated: boolean } | null> {
+  const db = getDb();
+  const [ktSede] = await db
+    .select()
+    .from(sedes)
+    .where(eq(sedes.nombre, "Koh Tao"))
+    .limit(1);
+  if (!ktSede) {
+    console.warn("[seed-content] Koh Tao sede missing — skipping config");
+    return null;
+  }
+
+  // Same /dev → /exec guard as the other sedes. We refuse to write the
+  // broken endpoint type instead of silently pushing it and letting
+  // Railway hit 401s.
+  if (KT_ROSTER_URL.endsWith("/dev")) {
+    console.warn(
+      "[seed-content] Koh Tao roster URL still ends in /dev — refusing to seed. " +
+        "Ask Miguel to redeploy the Apps Script as a Web App (Execute as: Me, " +
+        "Who has access: Anyone) and replace KT_ROSTER_URL with the /exec URL.",
+    );
+    return { updated: false };
+  }
+
+  const currentUrl = (ktSede.rosterConfig as { url?: string } | null)?.url;
+  if (currentUrl === KT_ROSTER_URL) {
+    console.log("[seed-content] Koh Tao roster_config already set");
+    return { updated: false };
+  }
+
+  await db
+    .update(sedes)
+    .set({ rosterConfig: { url: KT_ROSTER_URL }, updatedAt: new Date() })
+    .where(eq(sedes.id, ktSede.id));
+  console.log(
+    `[seed-content] Koh Tao roster_config updated → ${KT_ROSTER_URL.slice(0, 60)}…`,
+  );
+  return { updated: true };
 }
 
 async function buildKtKbBundle(): Promise<string> {
@@ -1425,6 +1473,7 @@ export async function seedAll(): Promise<void> {
   await seedGaSedeConfig();
   await seedGaSystemPrompt();
   await seedKtSystemPrompt();
+  await seedKtSedeConfig();
   await seedPpSedeConfig();
   await seedPpSystemPrompt();
   await seedNpSedeConfig();
