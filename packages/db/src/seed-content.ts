@@ -445,6 +445,20 @@ async function buildGaKbBundle(): Promise<string> {
 const GA_ROSTER_URL =
   "https://script.google.com/macros/s/AKfycby5DCwi-X_Gcx-VX7bYKeLQ5I7uotSADINxIO4BAkU/exec";
 
+// Nusa Penida roster URL — Miguel 2026-05-18 (Web App deployment, /exec).
+// Different deployment ID than the earlier /dev URL he sent before
+// understanding the deployment step — that one's superseded. Same shape
+// as GA_ROSTER_URL: AppsScriptService reads it via sede.rosterConfig.url.
+const NP_ROSTER_URL =
+  "https://script.google.com/macros/s/AKfycbz8tCjLt-oY7r5AqCBcL_kJkBps-SQMNCkESMSbmxQjYeDsedLWXZ0yswCB9vW7ZNCwZg/exec";
+
+// Koh Phi Phi roster URL — Miguel 2026-05-18 (Web App deployment, /exec).
+// Different deployment ID than the earlier /dev URL he sent before
+// understanding the deployment step — that one's superseded. Same shape
+// as GA_ROSTER_URL: AppsScriptService reads it via sede.rosterConfig.url.
+const PP_ROSTER_URL =
+  "https://script.google.com/macros/s/AKfycbyF4bGoz8ep2jFf9k7xLTxSO_g6HAZtBUfK95xINvMBsTNgEcof9xnoq1g5waEBS4Hg/exec";
+
 export async function seedGaSedeConfig(): Promise<{ updated: boolean } | null> {
   const db = getDb();
   const [gaSede] = await db
@@ -898,7 +912,11 @@ async function buildPpKbBundle(): Promise<string> {
   return parts.join("\n");
 }
 
-export async function seedPpSedeConfig(): Promise<{ renamed: boolean } | null> {
+export async function seedPpSedeConfig(): Promise<{
+  renamed: boolean;
+  rosterUpdated: boolean;
+  warning?: string;
+} | null> {
   const db = getDb();
   // Find by respond_io_tag (stable key) since the nombre might still be
   // the legacy 'Phi Phi' on older DBs.
@@ -911,17 +929,51 @@ export async function seedPpSedeConfig(): Promise<{ renamed: boolean } | null> {
     console.warn("[seed-content] Koh Phi Phi sede missing — skipping config");
     return null;
   }
-  if (ppSede.nombre === "Koh Phi Phi") {
-    return { renamed: false };
+
+  let renamed = false;
+  if (ppSede.nombre !== "Koh Phi Phi") {
+    await db
+      .update(sedes)
+      .set({ nombre: "Koh Phi Phi", updatedAt: new Date() })
+      .where(eq(sedes.id, ppSede.id));
+    console.log(
+      `[seed-content] Koh Phi Phi sede renamed '${ppSede.nombre}' → 'Koh Phi Phi'`,
+    );
+    renamed = true;
   }
+
+  // Roster URL handling: refuse to seed while still /dev (script-owner-
+  // only endpoint that 401s when called from Railway). Same guard as NP.
+  if (PP_ROSTER_URL.endsWith("/dev")) {
+    console.warn(
+      "[seed-content] Koh Phi Phi roster URL still ends in /dev — refusing to seed. " +
+        "Ask Miguel to redeploy the Apps Script as a Web App (Execute as: Me, " +
+        "Who has access: Anyone) and replace PP_ROSTER_URL with the /exec URL.",
+    );
+    return {
+      renamed,
+      rosterUpdated: false,
+      warning: "PP_ROSTER_URL ends in /dev (script-owner-only endpoint)",
+    };
+  }
+
+  const currentUrl = (ppSede.rosterConfig as { url?: string } | null)?.url;
+  if (currentUrl === PP_ROSTER_URL) {
+    console.log("[seed-content] Koh Phi Phi roster_config already set");
+    return { renamed, rosterUpdated: false };
+  }
+
   await db
     .update(sedes)
-    .set({ nombre: "Koh Phi Phi", updatedAt: new Date() })
+    .set({
+      rosterConfig: { url: PP_ROSTER_URL },
+      updatedAt: new Date(),
+    })
     .where(eq(sedes.id, ppSede.id));
   console.log(
-    `[seed-content] Koh Phi Phi sede renamed '${ppSede.nombre}' → 'Koh Phi Phi'`,
+    `[seed-content] Koh Phi Phi roster_config updated → ${PP_ROSTER_URL.slice(0, 60)}…`,
   );
-  return { renamed: true };
+  return { renamed, rosterUpdated: true };
 }
 
 export async function seedPpSystemPrompt(): Promise<{
@@ -1118,6 +1170,58 @@ export async function seedPpKbBundle(): Promise<{
 async function buildNpSystemPromptContent(): Promise<string> {
   const sysPrompt = (await readNpInfo(NP_SYSTEM_PROMPT_FILE)).trim();
   return sysPrompt;
+}
+
+export async function seedNpSedeConfig(): Promise<{
+  updated: boolean;
+  warning?: string;
+} | null> {
+  const db = getDb();
+  const [npSede] = await db
+    .select()
+    .from(sedes)
+    .where(eq(sedes.nombre, "Nusa Penida"))
+    .limit(1);
+  if (!npSede) {
+    console.warn("[seed-content] Nusa Penida sede missing — skipping config");
+    return null;
+  }
+
+  // Refuse to seed a `/dev` URL. Apps Script `/dev` endpoints only
+  // authorize the script owner's Google session — Railway calls hit a
+  // 401 and the AI degrades to "no_configurado". Writing the broken
+  // value to the DB would make David look like he's failing when the
+  // real fix is a redeploy on Miguel's side.
+  if (NP_ROSTER_URL.endsWith("/dev")) {
+    console.warn(
+      "[seed-content] Nusa Penida roster URL still ends in /dev — refusing to seed. " +
+        "Ask Miguel to redeploy the Apps Script as a Web App (Execute as: Me, " +
+        "Who has access: Anyone) and replace NP_ROSTER_URL with the /exec URL.",
+    );
+    return {
+      updated: false,
+      warning: "NP_ROSTER_URL ends in /dev (script-owner-only endpoint)",
+    };
+  }
+
+  const currentUrl = (npSede.rosterConfig as { url?: string } | null)?.url;
+  if (currentUrl === NP_ROSTER_URL) {
+    console.log("[seed-content] Nusa Penida roster_config already set");
+    return { updated: false };
+  }
+
+  await db
+    .update(sedes)
+    .set({
+      rosterConfig: { url: NP_ROSTER_URL },
+      updatedAt: new Date(),
+    })
+    .where(eq(sedes.id, npSede.id));
+
+  console.log(
+    `[seed-content] Nusa Penida roster_config updated → ${NP_ROSTER_URL.slice(0, 60)}…`,
+  );
+  return { updated: true };
 }
 
 async function buildNpKbBundle(): Promise<string> {
@@ -1323,6 +1427,7 @@ export async function seedAll(): Promise<void> {
   await seedKtSystemPrompt();
   await seedPpSedeConfig();
   await seedPpSystemPrompt();
+  await seedNpSedeConfig();
   await seedNpSystemPrompt();
   // KB bundle requires Supabase Storage credentials; skip silently when they
   // are missing so local dev / CI without Supabase can still run the

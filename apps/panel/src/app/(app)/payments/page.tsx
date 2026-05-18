@@ -3,6 +3,7 @@ import { DEPOSIT_AMOUNT, type LeadMetadata } from "@dpm/shared";
 import { PageHeader } from "~/app/_components/page-header";
 import { ageTone, elapsedHours, formatElapsed } from "~/app/_components/stage";
 import { confirmDepositReceived, markLeadLost } from "~/app/actions/leads";
+import { requireUserContext } from "~/lib/auth-context";
 import { listDepositPending } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +52,17 @@ function OcrChip({ result }: { result: NonNullable<LeadMetadata["ocr_result"]> }
 }
 
 export default async function PaymentsPage() {
-  const rows = await listDepositPending();
+  // Office users are scoped to their own sede — Miguel's hard requirement
+  // ("solo tengan acceso a lo que necesitan ver que es sobre todo la de
+  // depositos que tienen que aceptar"). Admins see all pending deposits
+  // across every sede. Sede assignment lives in Supabase user_metadata
+  // and is resolved by requireUserContext.
+  const user = await requireUserContext();
+  const rows = await listDepositPending(
+    user.role === "office" && user.sedeId
+      ? { sedeId: user.sedeId }
+      : {},
+  );
   const total = rows.length;
   const requiringHuman = rows.filter((r) => {
     const meta = (r.conv.leadMetadata as LeadMetadata | null) ?? {};

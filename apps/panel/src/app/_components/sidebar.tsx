@@ -10,7 +10,10 @@ type NavItem = {
   href: string;
   label: string;
   icon: React.ReactNode;
-  group: "live" | "config";
+  group: "live" | "config" | "admin";
+  // Visible only to admins. Used for the user-management surface
+  // (/admin/users) — office staff don't see the link at all.
+  adminOnly?: boolean;
 };
 
 const NAV: NavItem[] = [
@@ -147,6 +150,24 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/admin/users",
+    label: "Usuarios",
+    group: "admin",
+    adminOnly: true,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+        <circle cx="7.5" cy="7" r="2.8" stroke="currentColor" strokeWidth="1.6" />
+        <circle cx="14" cy="8" r="2" stroke="currentColor" strokeWidth="1.6" />
+        <path
+          d="M2.5 16c.7-2.5 2.7-4 5-4s4.3 1.5 5 4M12.5 16c.5-1.8 2-3 4-3s3.5 1.2 4 3"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  {
     href: "/regression",
     label: "Regression",
     group: "config",
@@ -175,7 +196,18 @@ export function Sidebar({ user }: { user: UserContext | null }) {
   const groups: { id: NavItem["group"]; label: string }[] = [
     { id: "live", label: "Operación" },
     { id: "config", label: "Configuración" },
+    // The "Administración" group renders only when the visible nav (after
+    // adminOnly filtering) actually has items — keeps office sidebars
+    // clean instead of showing an empty section header.
+    { id: "admin", label: "Administración" },
   ];
+
+  // Hide adminOnly items from non-admin users. Server-side route gates
+  // (notFound() in /admin/users/page.tsx) are the real protection — this
+  // is just UX so office staff don't see links they can't follow.
+  const visibleNav = NAV.filter(
+    (n) => !n.adminOnly || user?.role === "admin",
+  );
 
   return (
     <aside className="hidden md:flex w-60 shrink-0 flex-col bg-abyss-rail border-r border-ink-200/70 text-ink-700 sticky top-0 h-screen self-start">
@@ -205,12 +237,15 @@ export function Sidebar({ user }: { user: UserContext | null }) {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-6 scrollbar-thin">
-        {groups.map((g) => (
+        {groups.map((g) => {
+          const items = visibleNav.filter((n) => n.group === g.id);
+          if (items.length === 0) return null;
+          return (
           <div key={g.id} className="space-y-1">
             <div className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-ink-500">
               {g.label}
             </div>
-            {NAV.filter((n) => n.group === g.id).map((n) => {
+            {items.map((n) => {
               const active = isActive(n.href);
               return (
                 <Link
@@ -238,7 +273,8 @@ export function Sidebar({ user }: { user: UserContext | null }) {
               );
             })}
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* Footer — account info, sign out, and pilot scope.

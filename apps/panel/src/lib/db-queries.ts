@@ -436,7 +436,7 @@ export type AutoConfirmedRow = {
 };
 
 export async function listAutoConfirmedDeposits(
-  opts: { scope?: AutoConfirmedScope; showResolved?: boolean } = {},
+  opts: { scope?: AutoConfirmedScope; showResolved?: boolean; sedeId?: string } = {},
 ): Promise<AutoConfirmedRow[]> {
   const scope = opts.scope ?? "today";
   const showResolved = opts.showResolved ?? false;
@@ -476,6 +476,12 @@ export async function listAutoConfirmedDeposits(
   // scan via the JSONB operator), then in JS filter to the history.note
   // match. For pilot volumes (<50 auto-confirms/day) this is fine; if it
   // grows we add a materialized view.
+  // Sede scoping (Miguel 2026-05-18): office users get filtered to their
+  // own sede; admins pass `sedeId` undefined and see the global list.
+  const sedeFilter = opts.sedeId
+    ? sql`AND ${conversaciones.sedeId} = ${opts.sedeId}`
+    : sql``;
+
   const baseRows = await db
     .select({
       conv: conversaciones,
@@ -489,7 +495,7 @@ export async function listAutoConfirmedDeposits(
     )
     .leftJoin(sedes, eq(sedes.id, conversaciones.sedeId))
     .where(
-      sql`(${conversaciones.leadMetadata} -> 'ocr_result' ->> 'validated') = 'true'`,
+      sql`(${conversaciones.leadMetadata} -> 'ocr_result' ->> 'validated') = 'true' ${sedeFilter}`,
     )
     .orderBy(desc(conversaciones.leadStageChangedAt))
     .limit(200);
@@ -564,9 +570,18 @@ export async function listAutoConfirmedDeposits(
  * Joined with chat_contacts so the operator sees the client name + phone
  * without a second hop.
  */
-export async function listDepositPending() {
-  if (isMockMode()) return mockListDepositPending();
+export async function listDepositPending(opts: { sedeId?: string } = {}) {
+  if (isMockMode()) {
+    const rows = mockListDepositPending();
+    return opts.sedeId
+      ? rows.filter((r) => r.conv.sedeId === opts.sedeId)
+      : rows;
+  }
   const db = getDb();
+  const where = and(
+    eq(conversaciones.leadStage, "deposit_pending"),
+    opts.sedeId ? eq(conversaciones.sedeId, opts.sedeId) : undefined,
+  );
   return db
     .select({
       conv: conversaciones,
@@ -579,7 +594,7 @@ export async function listDepositPending() {
       eq(chatContacts.respondIoContactId, conversaciones.respondIoContactId),
     )
     .leftJoin(sedes, eq(sedes.id, conversaciones.sedeId))
-    .where(eq(conversaciones.leadStage, "deposit_pending"))
+    .where(where)
     .orderBy(conversaciones.leadStageChangedAt);
 }
 

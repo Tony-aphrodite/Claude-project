@@ -27,7 +27,20 @@ import {
   getDb,
 } from "@dpm/db";
 import type { LeadMetadata } from "@dpm/shared";
+import { requireUserContext } from "~/lib/auth-context";
 import { requireUser } from "~/lib/supabase";
+
+/**
+ * Refuse the action if an office user is reaching across sedes. Same
+ * pattern as actions/leads.ts — protects against form-replay attacks
+ * even when the office user can see only their own rows in the list.
+ */
+async function assertSedeAccess(sedeId: string | null): Promise<boolean> {
+  if (!sedeId) return true;
+  const user = await requireUserContext();
+  if (user.role === "admin") return true;
+  return user.sedeId === sedeId;
+}
 
 async function currentOperatorEmail(): Promise<string | null> {
   try {
@@ -50,6 +63,7 @@ export async function flagAutoConfirm(formData: FormData) {
     .where(eq(conversaciones.id, conversacionId))
     .limit(1);
   if (!conv) return;
+  if (!(await assertSedeAccess(conv.sedeId))) return;
 
   const meta = (conv.leadMetadata as LeadMetadata | null) ?? {};
   const ocr = meta.ocr_result;
@@ -144,6 +158,14 @@ export async function unflagAutoConfirm(formData: FormData) {
   if (!conversacionId) return;
 
   const db = getDb();
+  const [conv] = await db
+    .select({ sedeId: conversaciones.sedeId })
+    .from(conversaciones)
+    .where(eq(conversaciones.id, conversacionId))
+    .limit(1);
+  if (!conv) return;
+  if (!(await assertSedeAccess(conv.sedeId))) return;
+
   const resolvedBy = (await currentOperatorEmail()) ?? "unknown";
 
   await db.insert(errores).values({

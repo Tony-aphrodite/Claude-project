@@ -5,6 +5,7 @@ import type { LeadMetadata } from "@dpm/shared";
 import { PageHeader } from "~/app/_components/page-header";
 import { formatElapsed } from "~/app/_components/stage";
 import { flagAutoConfirm, unflagAutoConfirm } from "~/app/actions/auto-confirm";
+import { requireUserContext } from "~/lib/auth-context";
 import {
   listAutoConfirmedDeposits,
   type AutoConfirmedScope,
@@ -34,7 +35,18 @@ export default async function DepositosAutoPage({
     params.scope === "7d" || params.scope === "all" ? params.scope : "today";
   const showResolved = params.showResolved === "1";
 
-  const rows = await listAutoConfirmedDeposits({ scope, showResolved });
+  // Sede scope (Miguel 2026-05-18): office staff see only their own
+  // sede's auto-confirmed deposits — same model as /payments. Admins
+  // pass undefined and see every sede.
+  const user = await requireUserContext();
+  const sedeId =
+    user.role === "office" && user.sedeId ? user.sedeId : undefined;
+
+  const rows = await listAutoConfirmedDeposits({
+    scope,
+    showResolved,
+    ...(sedeId ? { sedeId } : {}),
+  });
   const total = rows.length;
   const flagged = rows.filter((r) => r.flagState === "flagged").length;
   const lastHour = rows.filter((r) => hoursSince(r.autoConfirmedAt) <= 1).length;

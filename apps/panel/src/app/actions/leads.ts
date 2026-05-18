@@ -36,7 +36,26 @@ import {
   type LeadStage,
 } from "@dpm/shared";
 
+import { requireUserContext } from "~/lib/auth-context";
 import { applyContactTag } from "~/lib/respond-io";
+
+/**
+ * Refuse the action if the current user is an office staff member and
+ * the target conversation belongs to a different sede. Server actions
+ * are addressable HTTP endpoints — relying on the UI filter alone would
+ * let a determined office user POST against another sede's conversation
+ * by hand-crafting the form. Admins pass through.
+ *
+ * Silently no-ops (instead of throwing) so a CSRF-style probe gets no
+ * useful response. The caller's revalidatePath() will still run, which
+ * is harmless on an unchanged DB.
+ */
+async function assertSedeAccess(sedeId: string | null): Promise<boolean> {
+  if (!sedeId) return true;
+  const user = await requireUserContext();
+  if (user.role === "admin") return true;
+  return user.sedeId === sedeId;
+}
 
 /**
  * POST to the server's /admin/force-transition endpoint, which runs the
@@ -139,6 +158,9 @@ export async function confirmDepositReceived(formData: FormData) {
     .where(eq(conversaciones.id, conversacionId))
     .limit(1);
   if (!row) return;
+
+  // Office users can only confirm deposits for their own sede.
+  if (!(await assertSedeAccess(row.conv.sedeId))) return;
 
   await applyForceTransition(conversacionId, "deposit_paid", "panel:confirm_deposit");
 
@@ -249,6 +271,17 @@ export async function markLeadLost(formData: FormData) {
   const conversacionId = String(formData.get("conversacionId") ?? "");
   const note = String(formData.get("note") ?? "panel:manual_lost");
   if (!conversacionId) return;
+
+  // Sede gate: office users can only mark their own sede's leads as
+  // lost. Look up the conversation's sedeId first.
+  const db = getDb();
+  const [conv] = await db
+    .select({ sedeId: conversaciones.sedeId })
+    .from(conversaciones)
+    .where(eq(conversaciones.id, conversacionId))
+    .limit(1);
+  if (!conv) return;
+  if (!(await assertSedeAccess(conv.sedeId))) return;
 
   await applyForceTransition(conversacionId, "lost", note);
 
