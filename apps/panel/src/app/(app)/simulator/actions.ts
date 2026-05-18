@@ -4,6 +4,13 @@
 // /admin/simulator/* endpoints. The Respond.io API key and the
 // Anthropic key live only on the server; the panel just forwards
 // auth'd HTTP calls.
+//
+// Per-user sede scoping: actions consult the user context and, when the
+// caller is an office staffer (role=office), force the request to their
+// assigned sede regardless of the inputs. This protects against a
+// modified client bypassing the locked dropdown.
+
+import { requireUserContext } from "~/lib/auth-context";
 
 export type SimulatorPromptVersion = {
   id: string;
@@ -95,13 +102,19 @@ export async function fetchSimulatorSedes(): Promise<SimulatorSede[]> {
 export async function resetSimulatorSession(
   opts: { sedeId?: string } = {},
 ): Promise<{ conversacionId: string; sedeId: string }> {
+  const user = await requireUserContext();
+  // Office users always get their own sede — ignore any value coming in
+  // from the (potentially-modified) client. Admins pass through unchanged.
+  const sedeId =
+    user.role === "office" ? user.sedeId ?? undefined : opts.sedeId;
+
   const data = await adminFetch<{
     ok: boolean;
     conversacionId: string;
     sedeId: string;
   }>("/admin/simulator/session", {
     method: "POST",
-    json: opts.sedeId ? { sedeId: opts.sedeId } : {},
+    json: sedeId ? { sedeId } : {},
   });
   return { conversacionId: data.conversacionId, sedeId: data.sedeId };
 }

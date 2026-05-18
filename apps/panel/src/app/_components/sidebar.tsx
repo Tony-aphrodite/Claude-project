@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { signOut } from "~/app/actions/auth";
+import type { UserContext } from "~/lib/auth-context";
+
 type NavItem = {
   href: string;
   label: string;
@@ -164,7 +167,7 @@ const NAV: NavItem[] = [
   },
 ];
 
-export function Sidebar() {
+export function Sidebar({ user }: { user: UserContext | null }) {
   const pathname = usePathname();
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -238,7 +241,11 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Footer — account access + pilot status */}
+      {/* Footer — account info, sign out, and pilot scope.
+          Shows the current user's email + role/sede so each office staff
+          member can see at a glance which account they're in. Sign-out is
+          a POST form so it survives a hard refresh and can't be triggered
+          by a malicious link. */}
       <div className="border-t border-ink-200/70 px-3 py-3 space-y-2">
         <Link
           href="/account"
@@ -260,14 +267,59 @@ export function Sidebar() {
           </svg>
           Mi cuenta
         </Link>
-        <div className="flex items-center gap-2 px-3 text-[11px]">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inset-0 rounded-full bg-ok-500 animate-pulseSoft" />
-            <span className="absolute inset-0 rounded-full bg-ok-500 blur-[3px] opacity-80" />
-          </span>
-          <span className="text-ink-600">piloto · </span>
-          <span className="text-ink-800 font-medium">Gili Trawangan</span>
-        </div>
+
+        {user && (
+          <div className="px-3 py-1 space-y-1">
+            <div
+              className="text-[11px] text-ink-600 truncate"
+              title={user.email}
+            >
+              {user.email}
+            </div>
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inset-0 rounded-full bg-ok-500 animate-pulseSoft" />
+                <span className="absolute inset-0 rounded-full bg-ok-500 blur-[3px] opacity-80" />
+              </span>
+              {user.role === "admin" ? (
+                <span className="text-ink-800 font-medium">
+                  admin · todas las sedes
+                </span>
+              ) : (
+                <>
+                  <span className="text-ink-600">oficina ·</span>
+                  <span className="text-ink-800 font-medium">
+                    {user.sedeName ?? "(sede no encontrada)"}
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        <form action={signOut}>
+          <button
+            type="submit"
+            className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-ink-700 hover:bg-bad-500/10 hover:text-bad-700 transition-colors"
+          >
+            <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+              <path
+                d="M12 4.5h3a1.5 1.5 0 011.5 1.5v8a1.5 1.5 0 01-1.5 1.5h-3"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+              <path
+                d="M9 13l3-3-3-3M3 10h9"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Cerrar sesión
+          </button>
+        </form>
       </div>
     </aside>
   );

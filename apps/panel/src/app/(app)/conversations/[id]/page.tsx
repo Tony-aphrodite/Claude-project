@@ -9,6 +9,7 @@ import {
 
 import { StageChip, STAGE_META } from "~/app/_components/stage";
 import { overrideLeadStage } from "~/app/actions/leads";
+import { requireUserContext } from "~/lib/auth-context";
 import { getConversation } from "~/lib/db-queries";
 
 import { ReplaySection } from "./replay-section";
@@ -20,9 +21,15 @@ export default async function ConversationDetail({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
+  const [{ id }, user] = await Promise.all([params, requireUserContext()]);
   const conv = await getConversation(id);
   if (!conv) notFound();
+
+  // Office users can only view conversations from their own sede. Return
+  // 404 (not 403) so we don't reveal that the conversation exists at all.
+  if (user.role === "office" && conv.conv.sedeId !== user.sedeId) {
+    notFound();
+  }
 
   const contact = conv.contact;
   const stage = conv.conv.leadStage as LeadStage;

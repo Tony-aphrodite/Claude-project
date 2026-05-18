@@ -73,13 +73,26 @@ function relativeTime(iso: string): string {
   return `hace ${Math.round(diff / 86_400_000)} días`;
 }
 
-export function SimulatorClient() {
+// Props passed from the server-component wrapper. When the user is an
+// office staff member, the server hands us their sedeId so we can lock
+// the selector to that sede only. Admins get null and see the full list.
+type SimulatorClientProps = {
+  lockedSedeId?: string | null;
+  lockedSedeName?: string | null;
+};
+
+export function SimulatorClient({
+  lockedSedeId = null,
+  lockedSedeName = null,
+}: SimulatorClientProps = {}) {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [prompts, setPrompts] = useState<SimulatorPromptVersion[]>([]);
   const [selectedPromptId, setSelectedPromptId] = useState<string>("");
   const [sedeList, setSedeList] = useState<SimulatorSede[]>([]);
-  const [selectedSedeId, setSelectedSedeId] = useState<string>("");
+  const [selectedSedeId, setSelectedSedeId] = useState<string>(
+    lockedSedeId ?? "",
+  );
   const [conversacionId, setConversacionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<SimulatorMessage[]>([]);
   const [input, setInput] = useState("");
@@ -310,11 +323,23 @@ export function SimulatorClient() {
           <select
             value={selectedSedeId}
             onChange={(e) => handleSedeChange(e.target.value)}
-            className="select min-w-[170px]"
-            disabled={isBusy}
-            title="Cambiar de sede inicia una conversación nueva con el prompt + KB + tools de esa sede"
+            className={
+              lockedSedeId
+                ? "select min-w-[170px] opacity-70 cursor-not-allowed"
+                : "select min-w-[170px]"
+            }
+            disabled={isBusy || lockedSedeId !== null}
+            title={
+              lockedSedeId
+                ? "Tu usuario está fijado a esta sede"
+                : "Cambiar de sede inicia una conversación nueva con el prompt + KB + tools de esa sede"
+            }
           >
-            {sedeList.length === 0 && <option value="">—</option>}
+            {sedeList.length === 0 && (
+              <option value={lockedSedeId ?? ""}>
+                {lockedSedeName ?? "—"}
+              </option>
+            )}
             {sedeList.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.nombre}

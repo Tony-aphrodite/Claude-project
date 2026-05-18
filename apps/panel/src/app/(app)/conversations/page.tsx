@@ -4,6 +4,7 @@ import { type LeadStage } from "@dpm/shared";
 
 import { PageHeader } from "~/app/_components/page-header";
 import { StageChip } from "~/app/_components/stage";
+import { requireUserContext } from "~/lib/auth-context";
 import { listConversations, listSedes } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
@@ -13,11 +14,20 @@ export default async function ConversationsPage({
 }: {
   searchParams: Promise<{ sede?: string; status?: string }>;
 }) {
-  const params = await searchParams;
+  const [params, user] = await Promise.all([searchParams, requireUserContext()]);
+
+  // Office users are pinned to their own sede regardless of what comes in
+  // on the URL — pasting a different sedeId in the querystring must not
+  // widen scope. Admins see what they filter to (or all when blank).
+  const effectiveSedeId =
+    user.role === "office"
+      ? user.sedeId ?? "__no_sede__"
+      : params.sede || null;
+
   const [sedes, rows] = await Promise.all([
     listSedes(),
     listConversations({
-      ...(params.sede ? { sedeId: params.sede } : {}),
+      ...(effectiveSedeId ? { sedeId: effectiveSedeId } : {}),
       ...(params.status ? { status: params.status } : {}),
       limit: 100,
     }),
@@ -33,14 +43,28 @@ export default async function ConversationsPage({
           <form className="flex items-end gap-2">
             <label className="text-xs">
               <div className="metric-label mb-1">Sede</div>
-              <select name="sede" defaultValue={params.sede ?? ""} className="select">
-                <option value="">Todas</option>
-                {sedes.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.nombre}
+              {user.role === "office" ? (
+                <select
+                  name="sede"
+                  defaultValue={user.sedeId ?? ""}
+                  disabled
+                  className="select opacity-70 cursor-not-allowed"
+                  title="Tu usuario está fijado a esta sede"
+                >
+                  <option value={user.sedeId ?? ""}>
+                    {user.sedeName ?? "(sin sede)"}
                   </option>
-                ))}
-              </select>
+                </select>
+              ) : (
+                <select name="sede" defaultValue={params.sede ?? ""} className="select">
+                  <option value="">Todas</option>
+                  {sedes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nombre}
+                    </option>
+                  ))}
+                </select>
+              )}
             </label>
             <label className="text-xs">
               <div className="metric-label mb-1">Estado</div>
