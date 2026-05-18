@@ -125,7 +125,7 @@ export default async function LoginPage({
         </button>
 
         {params.error && (
-          <div className="rounded-lg bg-bad-500/15 px-3 py-2 text-sm text-bad-50 ring-1 ring-inset ring-bad-500/30">
+          <div className="rounded-lg bg-bad-500/15 px-3 py-2 text-sm text-bad-700 ring-1 ring-inset ring-bad-500/30">
             Error: {params.error}
           </div>
         )}
