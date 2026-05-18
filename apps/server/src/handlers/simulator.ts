@@ -177,10 +177,18 @@ function buildStubbedToolHandlers(): ToolHandlers {
     consultar_disponibilidad: async (
       input,
     ): Promise<ConsultarDisponibilidadResult> => {
-      // Simulator-mode availability: always assume the requested day +
-      // course is available. Realistic enough that the prompt flows
-      // normally; the operator iterating the prompt isn't trying to
-      // validate Apps Script — they're testing wording.
+      // Simulator-mode availability: assume the requested day + course is
+      // available. The operator iterating the prompt isn't trying to
+      // validate the Apps Script roster — they're testing wording.
+      //
+      // 2026-05-18 Miguel feedback (Phi Phi): "dice que hay espacio en el
+      // barco pero está lleno". The fake "always-available" outcome is
+      // misleading when the operator forgets the tool is stubbed. The
+      // chat UI now carries an explicit "tools stubeadas" banner so the
+      // operator can read the AI's "yes, available" response in context.
+      // The stub itself stays optimistic so the AI can exercise the
+      // happy-path wording it would use in production with a real boat
+      // open.
       const startDate = input.start_date;
       return {
         ok: true,
@@ -191,7 +199,8 @@ function buildStubbedToolHandlers(): ToolHandlers {
           { date: startDate, slot: "AM", available: true, espacios: 8 },
           { date: startDate, slot: "PM", available: true, espacios: 8 },
         ],
-        notes: "[simulator stub — disponibilidad asumida OK]",
+        notes:
+          "[SIMULADOR — disponibilidad simulada, no es el roster real. Para validar capacidad real consultá con la sede.]",
       };
     },
     solicitar_deposito: async (input): Promise<SolicitarDepositoResult> => {

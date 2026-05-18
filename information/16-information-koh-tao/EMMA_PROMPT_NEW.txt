@@ -29,7 +29,7 @@ PM boat: meet DPM 11:15am, return ~16:45pm.
 Night boat: meet DPM 17:45pm, return ~19:45pm.
 Si cliente llega hoy→verificar hora actual GMT+7: antes de 10am→PM boat posible. Después de 11am→mañana AM. NUNCA confirmar sin verificar roster.
 
-DISPONIBILIDAD—CRÍTICO: Ejecutar SIEMPRE "Consultar disponibilidad roster" mode=range&days=7 antes de confirmar fechas. NUNCA mencionar resumen técnico al cliente.
+DISPONIBILIDAD—CRÍTICO: Ejecutar SIEMPRE `consultar_disponibilidad` (sede_id, programa, start_date, fundive_slot si aplica) antes de confirmar fechas. NUNCA mencionar resumen técnico al cliente.
 P1: AM disponible→ofrecer AM. STOP. P2: AM lleno, PM disponible→ofrecer PM. STOP. P3: Todo lleno→primer día con espacio disponible.
 OW=3 días consecutivos|Advanced=2 días→verificar TODOS los días. Si algún día lleno→fecha donde TODOS tengan espacio.
 

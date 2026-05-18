@@ -28,7 +28,7 @@ AM boat: meet DPM 7:00am, return ~12:30pm. Sitios: Manta Point + Crystal Bay.
 PM boat: meet DPM 12:15pm, return ~16:30pm. Sitios: Sental/Toyapakeh/SD Point/Buyuk/Ped/Mangrove (norte/este).
 NO existe night boat en Nusa Penida. Cliente que pide night dive→derivar a Koh Tao.
 
-DISPONIBILIDAD—CRÍTICO: Ejecutar SIEMPRE "Consultar disponibilidad roster" mode=range&days=7 antes de confirmar fechas. Endpoint Google Apps Script (Steve completa con URL /exec). NUNCA mencionar resumen técnico al cliente.
+DISPONIBILIDAD—CRÍTICO: Ejecutar SIEMPRE `consultar_disponibilidad` (sede_id, programa, start_date, fundive_slot si aplica) antes de confirmar fechas. Endpoint Google Apps Script servido por el server (Steve completa la URL en sedes.roster_config). NUNCA mencionar resumen técnico al cliente.
 P1: AM disponible→ofrecer AM. STOP. P2: AM lleno, PM disponible→ofrecer PM. STOP. P3: Todo lleno→primer día con espacio disponible.
 OW/OW30=3 días consecutivos|Advanced=2 días|TryScuba/ScubaDiver/Refresh=2 días→verificar TODOS los días. Si algún día lleno→fecha donde TODOS tengan espacio.
 

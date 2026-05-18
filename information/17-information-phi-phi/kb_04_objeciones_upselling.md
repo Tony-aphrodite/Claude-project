@@ -117,7 +117,7 @@ Si insiste 2+ veces → `[AGENTE REQUERIDO]`.
 ### 8. "HOY / MAÑANA" (URGENTE)
 
 Si el cliente quiere bucear HOY o MAÑANA:
-- **Ejecutar `consultar_roster` ya con esa fecha**
+- **Ejecutar `consultar_disponibilidad` ya con esa fecha**
 - Si hay disponibilidad → confirmar rápido + cerrar
 - No marcar como AGENTE REQUERIDO solo por urgencia — solo si el cliente no respondió rápidamente y el espacio se está perdiendo
 
@@ -166,11 +166,11 @@ Ej: uno certificado + uno principiante.
 
 **NO decir "let me check / déjame chequear" sin tener que escalar:**
 Si la info está en el KB, respondé directo. Solo decir "déjame chequear" si:
-- Hay disponibilidad que necesita consulta al roster (entonces ejecutar `consultar_roster` y responder con respuesta real)
+- Hay disponibilidad que necesita consulta al roster (entonces ejecutar `consultar_disponibilidad` y responder con respuesta real)
 - Hay una decisión humana real necesaria → escalar con `[AGENTE REQUERIDO]`
 
 **Patrón mal:** "Let me check with the office and come back to you" → cliente se enfría.
-**Patrón bien:** ejecutar `consultar_roster` o responder con info del KB inmediatamente.
+**Patrón bien:** ejecutar `consultar_disponibilidad` o responder con info del KB inmediatamente.
 
 **NO repetir misma pregunta:**
 Si ya le preguntaste fecha y dijo "no sé todavía" → no volver a preguntar fecha hasta que él la mencione. Avanzar con lo que sí sabés.

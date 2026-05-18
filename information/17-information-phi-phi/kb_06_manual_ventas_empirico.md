@@ -57,7 +57,7 @@ Reconstruidas de los 302 cierres con PDF + confirmación.
 2. **Calificación implícita** — leer lo que el cliente ya dijo. Máximo 1 pregunta por mensaje. Mediana de cierres: 72 mensajes = no se pregunta todo de golpe
 3. **Catálogo visual** — enviar imagen Cloudinary del programa específico (ver `kb_05`). No escribir descripción larga
 4. **Pregunta de upsell directa** — Open Water → Advanced: "Have you thought about your next certification?"
-5. **Roster check** — antes de confirmar fecha (ejecutar tool `consultar_roster`)
+5. **Roster check** — antes de confirmar fecha (ejecutar tool `consultar_disponibilidad`)
 6. **Bloque bancario inmediato** apenas el cliente confirma moneda. Sin esperar a fecha
 7. **El cierre del PDF** — la frase MÁS USADA (51 veces en EN, 21 veces en ES) — ver §5
 8. **Post-depósito en mensajes separados** — los 6 mensajes secuenciales (ver §7)
@@ -194,13 +194,13 @@ Los asesores humanos lo usan MUCHÍSIMO. La AI debe ser mejor.
 | Frase | Apariciones | Por qué falla |
 |---|---:|---|
 | "Let me check 😊" | 8 | No dice qué va a chequear, no da timeline |
-| "Let me check our availability" | 6 | Debería ejecutar `consultar_roster` directo |
+| "Let me check our availability" | 6 | Debería ejecutar `consultar_disponibilidad` directo |
 | "Let me check 😊" / "Let me check ☺️" | 4 | Vago |
 | "Let me check with the office 😊" | 4 | Sin razón válida = mejor responder o escalar formal |
 | "Let me check with our office 😊" | 8 | Igual |
 
 **Regla para la AI:**
-- Disponibilidad → ejecutar `consultar_roster` Y responder con resultado real
+- Disponibilidad → ejecutar `consultar_disponibilidad` Y responder con resultado real
 - Info que está en KB → responder directo
 - Decisión humana real necesaria → escalar con `[AGENTE REQUERIDO]` + razón concreta
 - NUNCA decir "let me check" sin acción concreta inmediata

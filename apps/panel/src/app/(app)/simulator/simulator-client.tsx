@@ -468,9 +468,60 @@ export function SimulatorClient({
         </section>
       )}
 
+      {/* ── Stubbed-tools advisory ─────────────────────────────────
+          2026-05-18 Miguel feedback (Phi Phi): the simulator stub for
+          consultar_disponibilidad always returns "available", so when an
+          operator tests with a sede where the real boat is full, the AI
+          confidently says "yes there's space" and the operator thinks
+          the AI is broken. This banner makes the stub behavior explicit
+          so testers know availability output here doesn't reflect the
+          real Apps Script roster. */}
+      <div
+        className="card flex items-start gap-3 ring-1 ring-inset ring-warn-500/30 bg-warn-500/10 !py-3"
+        role="note"
+      >
+        <span className="mt-0.5 shrink-0 text-warn-700">
+          <svg viewBox="0 0 20 20" fill="none" className="h-5 w-5">
+            <path
+              d="M10 3l8 14H2L10 3z"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M10 9v3"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
+            <circle cx="10" cy="14.5" r="0.7" fill="currentColor" />
+          </svg>
+        </span>
+        <div className="text-sm leading-relaxed">
+          <p className="font-semibold text-ink-900">
+            Las herramientas están stubeadas — la AI no toca datos reales
+          </p>
+          <p className="text-ink-700">
+            <code className="font-mono text-brand-300">
+              consultar_disponibilidad
+            </code>
+            ,{" "}
+            <code className="font-mono text-brand-300">solicitar_deposito</code>
+            ,{" "}
+            <code className="font-mono text-brand-300">enviar_catalogo</code> y{" "}
+            <code className="font-mono text-brand-300">send_product_card</code>{" "}
+            devuelven respuestas ficticias para que la AI pueda razonar y
+            responderte como si hubiera datos reales. Eso significa que la
+            disponibilidad <strong>siempre da OK</strong> aunque el barco esté
+            lleno en la operación real. Para validar capacidad real probá en
+            producción (WhatsApp piloto) o consultá con la sede.
+          </p>
+        </div>
+      </div>
+
       {/* ── Error banner ──────────────────────────────────────────── */}
       {errorMsg && (
-        <div className="card border border-bad-500/30 bg-bad-50 text-bad-700 text-sm !py-3">
+        <div className="card border border-bad-500/30 bg-bad-500/15 text-bad-700 text-sm !py-3 ring-1 ring-inset ring-bad-500/30">
           <strong>Error:</strong> {errorMsg}
         </div>
       )}
