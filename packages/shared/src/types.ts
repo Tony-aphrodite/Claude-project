@@ -482,16 +482,28 @@ export type AvailabilityResponse = {
   detalle: AvailabilityDay[];
   /**
    * Multi-day course window chosen by the Apps Script (KT v2+ only).
-   * Present when `curso` was a multi-day course (OW/OW30/Rescue=3 days,
-   * Advanced=2 days) and the script found a valid consecutive block.
-   * Older scripts and single-day courses omit this field.
+   * Array of every YYYY-MM-DD in the consecutive block — Miguel's v2
+   * script returns 3 entries for OW/OW30/Rescue and 2 entries for
+   * Advanced. Single-day courses (TryScuba/ScubaDiver/Refresh) get a
+   * 1-entry array. Older scripts omit this field entirely.
+   *
+   * Verified shape from a 2026-05-18 probe:
+   *   `"ventana":["2026-05-21","2026-05-22","2026-05-23"]`
    *
    * Server consumers (process-message.ts) ignore this for now and stick
-   * with the per-slot verdict in `detalle`. Kept on the type so a
-   * future feature (surfacing the window in the AI's response text) can
-   * read it without another schema change.
+   * with the per-slot verdict in `detalle`. Kept on the type so future
+   * code that wants to surface the window in the AI's reply can read it
+   * without another schema change.
    */
-  ventana?: { fecha_inicio: string; fecha_fin: string };
+  ventana?: string[];
+  /**
+   * KT v2 echoes back the resolved curso + pax + days_needed so callers
+   * can sanity-check that the script understood the params. Optional
+   * because older scripts don't return them.
+   */
+  curso?: string;
+  pax?: number;
+  dias_necesarios?: number;
 };
 
 // enviar_catalogo — invoked when the AI decides to send the customer a
