@@ -232,6 +232,15 @@ export default async function Dashboard() {
   const p95Tone = latencyTone(lat?.p95 ?? 0);
   const cacheTone: Tone = cacheRate > 60 ? "ok" : cacheRate > 30 ? "warn" : "bad";
 
+  // No production API calls in the last 24h — the cards will all show 0,
+  // which Miguel reads as "the system broke". Surface a single banner that
+  // distinguishes "no data" from "values are zero" so the dashboard is
+  // honest about what's happening: simulator/replay traffic is deliberately
+  // excluded so dev testing doesn't pollute production metrics; cards will
+  // populate the moment a real WhatsApp lead lands. (2026-05-18 Miguel
+  // feedback: "los valores ya no se marcan".)
+  const noTraffic24h = !lat || lat.total === 0;
+
   return (
     <>
       {/* ─────── Hero ─────── */}
@@ -273,6 +282,29 @@ export default async function Dashboard() {
           </div>
         </div>
       </section>
+
+      {/* ─────── No-traffic banner ─────── */}
+      {noTraffic24h && (
+        <section
+          className="card flex items-start gap-3 ring-1 ring-inset ring-warn-500/30 bg-warn-500/10"
+          role="status"
+        >
+          <span className="mt-0.5 shrink-0 text-warn-700">{Icon.warning}</span>
+          <div className="text-sm leading-relaxed">
+            <p className="font-semibold text-ink-900">
+              Sin tráfico de producción en las últimas 24 h
+            </p>
+            <p className="text-ink-700">
+              Las tarjetas de Volumen, Latencia, Cache y Costo muestran 0 porque
+              el servidor no recibió mensajes reales de Respond.io en este
+              período. La actividad del Simulador y los Replay queda fuera a
+              propósito para que las métricas reflejen solo tráfico de clientes.
+              En cuanto llegue un mensaje real, los valores se actualizan en
+              vivo.
+            </p>
+          </div>
+        </section>
+      )}
 
       {/* ─────── KPI grid ─────── */}
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
