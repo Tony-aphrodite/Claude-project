@@ -139,37 +139,69 @@ export async function getDashboardSnapshot(rangeHours = 24) {
   };
 }
 
+// Shared page-size options for list pages. Office staff with smaller
+// screens get the 10/25 options; admins triaging a busy queue use 100.
+// Anything outside this whitelist is rejected back to the default.
+export const LIST_PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const;
+export const LIST_PAGE_SIZE_DEFAULT = 50;
+
+export function normalizePageSize(raw: string | number | undefined): number {
+  const n = typeof raw === "number" ? raw : Number.parseInt(raw ?? "", 10);
+  return (LIST_PAGE_SIZE_OPTIONS as readonly number[]).includes(n)
+    ? n
+    : LIST_PAGE_SIZE_DEFAULT;
+}
+
 export async function listConversations(opts: {
   sedeId?: string;
   status?: string;
-  limit?: number;
+  page?: number;
+  pageSize?: number;
 }) {
+  const pageSize = normalizePageSize(opts.pageSize);
+  const page = Math.max(1, opts.page ?? 1);
+
   if (isMockMode()) {
     let rows = mockListConversations();
     if (opts.sedeId) rows = rows.filter((r) => r.conv.sedeId === opts.sedeId);
     if (opts.status) rows = rows.filter((r) => r.conv.status === opts.status);
-    return rows.slice(0, opts.limit ?? 50);
+    const total = rows.length;
+    const start = (page - 1) * pageSize;
+    return { rows: rows.slice(start, start + pageSize), total, page, pageSize };
   }
+
   const db = getDb();
   const where = and(
     opts.sedeId ? eq(conversaciones.sedeId, opts.sedeId) : undefined,
     opts.status ? eq(conversaciones.status, opts.status) : undefined,
   );
-  return db
-    .select({
-      conv: conversaciones,
-      contact: chatContacts,
-      sedeName: sedes.nombre,
-    })
-    .from(conversaciones)
-    .leftJoin(sedes, eq(sedes.id, conversaciones.sedeId))
-    .leftJoin(
-      chatContacts,
-      eq(chatContacts.respondIoContactId, conversaciones.respondIoContactId),
-    )
-    .where(where)
-    .orderBy(desc(conversaciones.updatedAt))
-    .limit(opts.limit ?? 50);
+
+  // Page + total in parallel — same shape as listFollowUps so the page
+  // component can render a generic pagination footer.
+  const [rows, [{ total }]] = await Promise.all([
+    db
+      .select({
+        conv: conversaciones,
+        contact: chatContacts,
+        sedeName: sedes.nombre,
+      })
+      .from(conversaciones)
+      .leftJoin(sedes, eq(sedes.id, conversaciones.sedeId))
+      .leftJoin(
+        chatContacts,
+        eq(chatContacts.respondIoContactId, conversaciones.respondIoContactId),
+      )
+      .where(where)
+      .orderBy(desc(conversaciones.updatedAt))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+    db
+      .select({ total: sql<number>`COUNT(*)::int` })
+      .from(conversaciones)
+      .where(where) as unknown as Promise<[{ total: number }]>,
+  ]);
+
+  return { rows, total, page, pageSize };
 }
 
 export async function getConversation(id: string) {

@@ -5,14 +5,25 @@ import { type LeadStage } from "@dpm/shared";
 import { PageHeader } from "~/app/_components/page-header";
 import { StageChip } from "~/app/_components/stage";
 import { requireUserContext } from "~/lib/auth-context";
-import { listConversations, listSedes } from "~/lib/db-queries";
+import {
+  LIST_PAGE_SIZE_OPTIONS,
+  LIST_PAGE_SIZE_DEFAULT,
+  listConversations,
+  listSedes,
+  normalizePageSize,
+} from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function ConversationsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ sede?: string; status?: string }>;
+  searchParams: Promise<{
+    sede?: string;
+    status?: string;
+    page?: string;
+    pageSize?: string;
+  }>;
 }) {
   const [params, user] = await Promise.all([searchParams, requireUserContext()]);
 
@@ -24,14 +35,40 @@ export default async function ConversationsPage({
       ? user.sedeId ?? "__no_sede__"
       : params.sede || null;
 
-  const [sedes, rows] = await Promise.all([
+  // Parse pagination params defensively. Page < 1 or non-numeric → 1.
+  // pageSize outside the whitelist → default 50 (normalizePageSize).
+  const requestedPage = Math.max(
+    1,
+    Number.parseInt(params.page ?? "1", 10) || 1,
+  );
+  const pageSize = normalizePageSize(params.pageSize);
+
+  const [sedes, { rows, total, page }] = await Promise.all([
     listSedes(),
     listConversations({
       ...(effectiveSedeId ? { sedeId: effectiveSedeId } : {}),
       ...(params.status ? { status: params.status } : {}),
-      limit: 100,
+      page: requestedPage,
+      pageSize,
     }),
   ]);
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const startIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const endIdx = Math.min(total, page * pageSize);
+
+  // Builds `?sede=…&status=…&pageSize=…&page=N` while preserving every
+  // active filter. Used by both Prev/Next and the page-size selector.
+  const pageHref = (n: number, overrides: { pageSize?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.sede && user.role !== "office") qs.set("sede", params.sede);
+    if (params.status) qs.set("status", params.status);
+    const ps = overrides.pageSize ?? pageSize;
+    if (ps !== LIST_PAGE_SIZE_DEFAULT) qs.set("pageSize", String(ps));
+    if (n > 1) qs.set("page", String(n));
+    const q = qs.toString();
+    return q ? `?${q}` : "?";
+  };
 
   return (
     <>
@@ -73,6 +110,20 @@ export default async function ConversationsPage({
                 <option value="active">Active</option>
                 <option value="closed">Closed</option>
                 <option value="follow_up_disabled">Follow-up disabled</option>
+              </select>
+            </label>
+            <label className="text-xs">
+              <div className="metric-label mb-1">Por página</div>
+              <select
+                name="pageSize"
+                defaultValue={String(pageSize)}
+                className="select"
+              >
+                {LIST_PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={String(n)}>
+                    {n}
+                  </option>
+                ))}
               </select>
             </label>
             <button className="btn-primary">Filtrar</button>
@@ -159,6 +210,55 @@ export default async function ConversationsPage({
           </div>
         )}
       </div>
+
+      {/* Pagination footer. Hidden when the result set fits in one
+          page since Prev/Next would have nothing to do. The page-size
+          selector lives up in the top "Filtrar" form so changing it
+          piggybacks on the same submit as sede/status. */}
+      {total > pageSize && (
+        <nav
+          className="flex flex-wrap items-center justify-between gap-3 text-sm"
+          aria-label="Paginación"
+        >
+          <div className="text-ink-600">
+            Mostrando{" "}
+            <span className="font-medium text-ink-900 tabular-nums">
+              {startIdx}–{endIdx}
+            </span>{" "}
+            de{" "}
+            <span className="font-medium text-ink-900 tabular-nums">
+              {total}
+            </span>{" "}
+            (página {page} / {totalPages})
+          </div>
+          <div className="flex items-center gap-2">
+            {page > 1 ? (
+              <a
+                href={pageHref(page - 1)}
+                className="rounded-lg bg-ink-100/70 px-3 py-1.5 text-ink-700 ring-1 ring-inset ring-ink-300/70 hover:bg-ink-200/60 hover:text-ink-900"
+              >
+                ← Anterior
+              </a>
+            ) : (
+              <span className="rounded-lg bg-ink-100/30 px-3 py-1.5 text-ink-500 ring-1 ring-inset ring-ink-300/30 cursor-not-allowed">
+                ← Anterior
+              </span>
+            )}
+            {page < totalPages ? (
+              <a
+                href={pageHref(page + 1)}
+                className="rounded-lg bg-brand-600 px-3 py-1.5 text-white shadow-card hover:bg-brand-500"
+              >
+                Siguiente →
+              </a>
+            ) : (
+              <span className="rounded-lg bg-ink-100/30 px-3 py-1.5 text-ink-500 ring-1 ring-inset ring-ink-300/30 cursor-not-allowed">
+                Siguiente →
+              </span>
+            )}
+          </div>
+        </nav>
+      )}
     </>
   );
 }
