@@ -49,22 +49,27 @@ import { addDays } from "./program-schedule.js";
 const FRESHNESS_MS = 30_000; // 30 seconds — short enough that hora_actual_wita stays accurate.
 
 /**
- * Our `programa` enum (consultar-disponibilidad tool input) doesn't match
- * Miguel's CURSOS keys in the KT v2 Apps Script for two courses. Without
- * this translation the script can't find AOW / RescueDiver in CURSOS and
- * falls through to "no curso filter" — meaning AM/PM rules and group-size
- * filters wouldn't fire for those two course names. Other programa
- * values match verbatim and pass through unchanged.
+ * Our `programa` enum (consultar-disponibilidad tool input) is a smaller
+ * historical set than Miguel's per-sede CURSOS dictionaries in his v2
+ * Apps Scripts. This table translates the names that DIFFER on the way
+ * out so each sede's .gs can apply its slot/pax filters.
  *
- * Miguel's CURSOS keys (paraphrased from his 2026-05-18 note):
- *   TryScuba, ScubaDiver, OW, OW30, Advanced, Rescue, Refresh, Night
+ * The 4-sede v2 rollout (Miguel 2026-05-19) confirmed the canonical
+ * keys — see information/ROSTER_SCRIPT_v2_FULL_ROLLOUT.md for the full
+ * per-sede vocabulary tables.
  *
- * Anything we send that isn't in his CURSOS table makes the script
- * fall through to "no curso filter" — same as the legacy behavior.
+ * Anything not in this table passes through unchanged (TryScuba,
+ * ScubaDiver, OW, OW30, Refresh, DeepSpecialty, ReactRight,
+ * NitroxSpecialty all match verbatim). If a value isn't in the target
+ * sede's CURSOS table the script silently falls through to "no curso
+ * filter" — equivalent to legacy behavior, safe degradation.
  */
 const PROGRAMA_TO_CURSO: Record<string, string> = {
   AOW: "Advanced",
   RescueDiver: "Rescue",
+  RefreshAdv: "RefreshAdvanced",
+  FunDive: "FunDives",
+  DeepAdvFD: "DeepAdventure",
 };
 
 /**

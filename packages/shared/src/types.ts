@@ -433,6 +433,13 @@ export type ConsultarDisponibilidadResult =
       failingSlots?: SlotVerdict[];
       /** Suggested earlier/later start_date when current is blocked. */
       alternativeStartDate?: string;
+      /**
+       * How many days the v2 Apps Script auto-shifted forward to find a
+       * fit. `0` (or omitted) = no shift, the requested date worked.
+       * `>0` = the AI should say "el día que pediste no entraba, pero N
+       * días después sí". Surfaced from Miguel's v2 .gs `offset_dias`.
+       */
+      offsetDias?: number;
       /** Free-form note for the model to surface (e.g. "AM ya zarpó"). */
       notes?: string;
     }
@@ -504,6 +511,28 @@ export type AvailabilityResponse = {
   curso?: string;
   pax?: number;
   dias_necesarios?: number;
+  /**
+   * Number of days the script had to walk forward from `fecha_consultada`
+   * to find a valid window. `0` means the requested date fit; `>0` means
+   * the script auto-shifted (up to 14 days). The AI can use this to say
+   * "el día que pediste no entraba pero 2 días después sí". Field added
+   * in Miguel's 2026-05-19 4-sede v2 rollout — see
+   * information/ROSTER_SCRIPT_v2_FULL_ROLLOUT.md.
+   */
+  offset_dias?: number;
+  /**
+   * Set when the script could NOT find any window in the 14-day search
+   * horizon. Each entry describes one slot that failed and why
+   * (no_boat / under_pax / curso_not_allowed / past_cutoff / etc.).
+   * Surfaced to the AI so it can compose a specific refusal instead of
+   * a generic "no hay lugar".
+   */
+  failingSlots?: Array<{
+    fecha: string;
+    slot: "AM" | "PM" | "NOC";
+    motivo: string;
+    espacios?: number;
+  }>;
 };
 
 // enviar_catalogo — invoked when the AI decides to send the customer a

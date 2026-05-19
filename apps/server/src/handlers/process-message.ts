@@ -974,6 +974,15 @@ export async function processIncomingMessage(
       fresh.primer_dia_disponible !== input.start_date
         ? { alternativeStartDate: fresh.primer_dia_disponible }
         : {}),
+      // v2 rollout (Miguel 2026-05-19): the .gs returns offset_dias
+      // when its 14-day forward search had to walk past the requested
+      // date. Surfacing it lets the AI compose precise replies
+      // ("el día que pediste no entraba, te ofrezco 2 días después").
+      // Older scripts don't return the field — `?? undefined` keeps
+      // the property off the result entirely in that case.
+      ...(typeof fresh.offset_dias === "number" && fresh.offset_dias > 0
+        ? { offsetDias: fresh.offset_dias }
+        : {}),
     };
   };
 
