@@ -42,6 +42,7 @@ export default async function FollowUpsPage({
   searchParams: Promise<{
     status?: "pending" | "sent" | "cancelled";
     page?: string;
+    q?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -49,24 +50,40 @@ export default async function FollowUpsPage({
   // the route, just falls back to page 1.
   const pageParam = Number.parseInt(params.page ?? "1", 10);
   const requestedPage = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
+  const searchQuery = (params.q ?? "").trim();
 
   const [metrics, { rows, total, page, pageSize }] = await Promise.all([
     getFollowUpMetrics(),
-    listFollowUps({ status: params.status, page: requestedPage }),
+    listFollowUps({
+      status: params.status,
+      page: requestedPage,
+      q: searchQuery || undefined,
+    }),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const startIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const endIdx = Math.min(total, page * pageSize);
 
-  // Helper that builds a `?status=…&page=N` URL preserving the current
-  // status tab — avoids dropping the filter when you click Next.
+  // Helper that builds a `?status=…&q=…&page=N` URL preserving the
+  // active status tab + search query — avoids dropping filters when
+  // you click Next or switch tabs.
   const pageHref = (n: number) => {
     const qs = new URLSearchParams();
     if (params.status) qs.set("status", params.status);
+    if (searchQuery) qs.set("q", searchQuery);
     if (n > 1) qs.set("page", String(n));
     const q = qs.toString();
     return q ? `?${q}` : "?";
+  };
+
+  // URL for a status-tab click: keep search query, reset page.
+  const tabHref = (status?: string) => {
+    const qs = new URLSearchParams();
+    if (status) qs.set("status", status);
+    if (searchQuery) qs.set("q", searchQuery);
+    const s = qs.toString();
+    return s ? `?${s}` : "?";
   };
 
   return (
@@ -91,34 +108,92 @@ export default async function FollowUpsPage({
         />
       </section>
 
-      <nav className="flex gap-2 text-sm">
-        {TABS.map((t) => {
-          const active = params.status === t.value;
-          return (
-            <a
-              key={t.value}
-              href={`?status=${t.value}`}
-              className={
-                active
-                  ? "rounded-lg bg-brand-600 px-3 py-1.5 text-white shadow-card"
-                  : "rounded-lg bg-ink-100/70 px-3 py-1.5 text-ink-700 ring-1 ring-inset ring-ink-300/70 hover:bg-ink-200/60 hover:text-ink-900"
-              }
+      {/* Tabs (status) + search row. The search is a GET form so a
+          fresh `?q=…` survives a hard refresh and is shareable as a URL.
+          We preserve the active status tab via a hidden input so
+          submitting the search doesn't drop the user's tab. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <nav className="flex gap-2 text-sm">
+          {TABS.map((t) => {
+            const active = params.status === t.value;
+            return (
+              <a
+                key={t.value}
+                href={tabHref(t.value)}
+                className={
+                  active
+                    ? "rounded-lg bg-brand-600 px-3 py-1.5 text-white shadow-card"
+                    : "rounded-lg bg-ink-100/70 px-3 py-1.5 text-ink-700 ring-1 ring-inset ring-ink-300/70 hover:bg-ink-200/60 hover:text-ink-900"
+                }
+              >
+                {t.label}
+              </a>
+            );
+          })}
+          <a
+            href={tabHref(undefined)}
+            className={
+              !params.status
+                ? "rounded-lg bg-brand-600 px-3 py-1.5 text-white shadow-card"
+                : "rounded-lg bg-ink-100/70 px-3 py-1.5 text-ink-700 ring-1 ring-inset ring-ink-300/70 hover:bg-ink-200/60 hover:text-ink-900"
+            }
+          >
+            Todos
+          </a>
+        </nav>
+
+        <form method="get" className="flex items-center gap-2">
+          {params.status && (
+            <input type="hidden" name="status" value={params.status} />
+          )}
+          <div className="relative">
+            <svg
+              viewBox="0 0 20 20"
+              fill="none"
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-500 pointer-events-none"
+              aria-hidden
             >
-              {t.label}
+              <circle cx="9" cy="9" r="5.5" stroke="currentColor" strokeWidth="1.6" />
+              <path
+                d="M13.5 13.5L17 17"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+              />
+            </svg>
+            <input
+              type="search"
+              name="q"
+              defaultValue={searchQuery}
+              placeholder="Buscar por conv ID o razón…"
+              className="rounded-lg border border-ink-300/70 bg-ink-100/70 pl-8 pr-3 py-1.5 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30 min-w-[260px]"
+              autoComplete="off"
+            />
+          </div>
+          <button
+            type="submit"
+            className="rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500"
+          >
+            Buscar
+          </button>
+          {searchQuery && (
+            <a
+              href={params.status ? `?status=${params.status}` : "?"}
+              className="text-xs text-ink-500 hover:text-ink-700 underline"
+              title="Limpiar búsqueda"
+            >
+              limpiar
             </a>
-          );
-        })}
-        <a
-          href="?"
-          className={
-            !params.status
-              ? "rounded-lg bg-brand-600 px-3 py-1.5 text-white shadow-card"
-              : "rounded-lg bg-ink-100/70 px-3 py-1.5 text-ink-700 ring-1 ring-inset ring-ink-300/70 hover:bg-ink-200/60 hover:text-ink-900"
-          }
-        >
-          Todos
-        </a>
-      </nav>
+          )}
+        </form>
+      </div>
+
+      {searchQuery && (
+        <div className="text-xs text-ink-600">
+          Resultados para <span className="font-mono text-ink-900">"{searchQuery}"</span>
+          {" "}— {total} match{total === 1 ? "" : "es"}
+        </div>
+      )}
 
       <div className="card !p-0 overflow-x-auto">
         <table className="tbl">

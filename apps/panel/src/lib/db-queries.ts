@@ -315,29 +315,57 @@ export async function listFollowUps(opts: {
   status?: "pending" | "sent" | "cancelled";
   page?: number;
   pageSize?: number;
+  // Free-text search. Currently matches against the conversacionId UUID
+  // (substring, case-insensitive) and the cancellation_reason. Wired
+  // through to a single ILIKE — Postgres handles this fine at our row
+  // counts without needing a trigram or full-text index.
+  q?: string;
 }) {
   const pageSize = opts.pageSize ?? FOLLOW_UPS_PAGE_SIZE;
   const page = Math.max(1, opts.page ?? 1);
+  const q = (opts.q ?? "").trim();
 
   if (isMockMode()) {
     let rows = mockListFollowUps();
     if (opts.status === "pending") rows = rows.filter((r) => !r.sentAt && !r.cancelledAt);
     else if (opts.status === "sent") rows = rows.filter((r) => r.sentAt);
     else if (opts.status === "cancelled") rows = rows.filter((r) => r.cancelledAt);
+    if (q) {
+      const needle = q.toLowerCase();
+      rows = rows.filter((r) =>
+        r.conversacionId.toLowerCase().includes(needle) ||
+        (r.cancellationReason ?? "").toLowerCase().includes(needle),
+      );
+    }
     const total = rows.length;
     const start = (page - 1) * pageSize;
     return { rows: rows.slice(start, start + pageSize), total, page, pageSize };
   }
 
   const db = getDb();
-  let where;
+  // Build a status filter and (optionally) a search filter, then
+  // combine with AND. Drizzle's `and()` tolerates undefined entries so
+  // we can mix the two conditions cleanly.
+  let statusFilter;
   if (opts.status === "pending") {
-    where = and(sql`sent_at IS NULL`, sql`cancelled_at IS NULL`);
+    statusFilter = and(sql`sent_at IS NULL`, sql`cancelled_at IS NULL`);
   } else if (opts.status === "sent") {
-    where = sql`sent_at IS NOT NULL`;
+    statusFilter = sql`sent_at IS NOT NULL`;
   } else if (opts.status === "cancelled") {
-    where = sql`cancelled_at IS NOT NULL`;
+    statusFilter = sql`cancelled_at IS NOT NULL`;
   }
+
+  // Match against the conversacionId text (UUIDs cast to text via ::text)
+  // and the cancellation reason. ILIKE is case-insensitive so users can
+  // paste a prefix like "0958099f" or a partial reason like "no answer".
+  const searchFilter = q
+    ? sql`(${followUps.conversacionId}::text ILIKE ${"%" + q + "%"} OR ${followUps.cancellationReason} ILIKE ${"%" + q + "%"})`
+    : undefined;
+
+  const where =
+    statusFilter && searchFilter
+      ? and(statusFilter, searchFilter)
+      : (statusFilter ?? searchFilter);
 
   // Fetch one page + the total in parallel. Postgres COUNT(*) is cheap
   // at follow-ups volume (~400 rows in the screenshot Miguel sent) so
