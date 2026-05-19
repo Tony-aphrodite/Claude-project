@@ -309,14 +309,26 @@ export async function getActiveKbForSede(sedeId: string) {
   return row ?? null;
 }
 
-export async function listFollowUps(opts: { status?: "pending" | "sent" | "cancelled" }) {
+export const FOLLOW_UPS_PAGE_SIZE = 50;
+
+export async function listFollowUps(opts: {
+  status?: "pending" | "sent" | "cancelled";
+  page?: number;
+  pageSize?: number;
+}) {
+  const pageSize = opts.pageSize ?? FOLLOW_UPS_PAGE_SIZE;
+  const page = Math.max(1, opts.page ?? 1);
+
   if (isMockMode()) {
-    const rows = mockListFollowUps();
-    if (opts.status === "pending") return rows.filter((r) => !r.sentAt && !r.cancelledAt);
-    if (opts.status === "sent") return rows.filter((r) => r.sentAt);
-    if (opts.status === "cancelled") return rows.filter((r) => r.cancelledAt);
-    return rows;
+    let rows = mockListFollowUps();
+    if (opts.status === "pending") rows = rows.filter((r) => !r.sentAt && !r.cancelledAt);
+    else if (opts.status === "sent") rows = rows.filter((r) => r.sentAt);
+    else if (opts.status === "cancelled") rows = rows.filter((r) => r.cancelledAt);
+    const total = rows.length;
+    const start = (page - 1) * pageSize;
+    return { rows: rows.slice(start, start + pageSize), total, page, pageSize };
   }
+
   const db = getDb();
   let where;
   if (opts.status === "pending") {
@@ -326,13 +338,25 @@ export async function listFollowUps(opts: { status?: "pending" | "sent" | "cance
   } else if (opts.status === "cancelled") {
     where = sql`cancelled_at IS NOT NULL`;
   }
-  const rows = await db
-    .select()
-    .from(followUps)
-    .where(where)
-    .orderBy(desc(followUps.createdAt))
-    .limit(100);
-  return rows;
+
+  // Fetch one page + the total in parallel. Postgres COUNT(*) is cheap
+  // at follow-ups volume (~400 rows in the screenshot Miguel sent) so
+  // we don't need to bother with windowed estimates.
+  const [rows, [{ total }]] = await Promise.all([
+    db
+      .select()
+      .from(followUps)
+      .where(where)
+      .orderBy(desc(followUps.createdAt))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+    db
+      .select({ total: sql<number>`COUNT(*)::int` })
+      .from(followUps)
+      .where(where) as unknown as Promise<[{ total: number }]>,
+  ]);
+
+  return { rows, total, page, pageSize };
 }
 
 export async function getFollowUpMetrics() {
