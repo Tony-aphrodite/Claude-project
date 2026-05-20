@@ -143,11 +143,32 @@ the entries link out to dedicated files.
 
 ---
 
-## Entry #8 — 2026-05-19 — ⚠️ HELD — Gili Trawangan ferry block (content mismatch)
+## Entry #8 — 2026-05-19 — ✅ APPLIED (after 2 held attempts) — Gili Trawangan ferry block
 
-**Status:** **NOT APPLIED.** Awaiting Miguel clarification. **Two send attempts so far — both contained the Gili Air block verbatim.**
+**Status:** ✅ **APPLIED** in the third send attempt. First two attempts (earlier in the day) contained the Gili Air block verbatim and were held. Third attempt arrived properly GT-specific.
 
-**Second send attempt** (Tony forwarded later, also labeled "ahora vamos con gili trawangan"): identical content to the first attempt. Same Bangsal ~30 min (GT-correct), same everything-else-says-Gili-Air problem. Re-confirmed not applied. Miguel likely has the wrong block saved in his clipboard / draft buffer and keeps re-sending it without re-reading.
+**Final correctness checks on the applied block:**
+
+- Boat cut-offs: AM 7:15–11:00 (customer in center 6:45), PM 12:15–4:00 (in center 12:00) — different from GA's 11:30 / 12:30 endings ✓
+- "GT NO tiene buceo nocturno" stated explicitly + derive-to-Colomba note ✓
+- Matrix has A/B/C only — no bucket D (no night-dive escape valve in GT) ✓
+- Customer phrases reference "Gili Trawangan" / "GT", not "Gili Air" ✓
+- Closing note explicitly tells future-Steve "GT no tiene nocturno, así que NO agregar bucket D ni frases de night dive aunque el bloque de Gili Air las tenga" — Miguel learned from the previous mishap and added a self-guard ✓
+- Padangbai cut-off note: first fast boat ~7:00, arrival ~9:30 — too late for AM dive (7:15 meet at center 6:45). Hard rule preserved.
+- Sanur/Serangan route omitted vs GA's block — accepted as Miguel's intent (likely either not a common route to GT or not preferred)
+
+**Insertion point:** John's prompt at [information/00_SYSTEM_PROMPT.md](00_SYSTEM_PROMPT.md). Same pattern as Entries #6, #7, #9, #10 — placed near the timing/schedule logic.
+
+**Actions taken:**
+
+- ✅ Inserted new `## Logística de llegada y ferry` section in John's prompt
+- ⏳ Tony to re-seed → John prompt bumps from v12 to v13
+
+**Files touched in this entry:**
+
+- `information/00_SYSTEM_PROMPT.md`
+
+**Series complete:** ferry-block rollout now covers all 5 sedes that need one (NP #6, GA #7, KT #9, PP #10, GT #8). 🎉
 
 **What Tony sent:** Message labeled "ahora vamos con gili trawangan" containing a `## Logística de llegada y ferry {#ferry-llegada}` block intended for John (GT) prompt.
 

@@ -421,6 +421,109 @@ días con barco. No tienes que calcularlo manualmente — invoca
 
 ---
 
+## Logística de llegada y ferry {#ferry-llegada}
+
+REGLA CENTRAL: un cliente que todavía está en Bali o Lombok NO llega
+a tiempo al barco de buceo AM el mismo día. El roster asume que el
+cliente ya está en la isla, pero tiene horas de viaje por delante.
+Antes de confirmar cualquier barco "hoy" o "mañana AM" a un cliente
+que NO está aún en Gili Trawangan, sumá el tiempo de cruce.
+
+Cortes de barco de Gili Trawangan (del KB-01 §horarios-barco —
+fuente de verdad; si Miguel ajusta estos cortes en el roster,
+sincronizar este bloque. GT NO tiene nocturno, así que NO agregar
+bucket D ni frases de night dive aunque el bloque de Gili Air las
+tenga):
+- Barco mañana: 7:15 AM – 11:00 AM (cliente en el centro 6:45 AM)
+- Barco tarde: 12:15 PM – 4:00 PM (cliente en el centro 12:00 PM)
+- GT NO tiene buceo nocturno. No hay escape valve same-day después
+  del barco PM. (Night dive solo en Gili Air → derivar a Colomba.)
+
+### Rutas y tiempos de cruce
+
+Desde Bali (cruce largo):
+- Padangbai: mínimo ~2h de fast boat. El primer fast boat del día
+  sale ~7:00 AM — no hay servicio más temprano. Un cliente que recién
+  cruza desde Bali NO llega a GT antes de las ~9:30 AM.
+- Amed: CERRADO por obras. NO ofrecer esta ruta.
+
+Desde Lombok:
+- Bangsal (norte, Pemenang): el más cercano, ~30 min de cruce. Barco
+  público desde la mañana, sale cuando se llena. Charter privado
+  cualquier hora (más caro).
+- Acceso a Bangsal: Senggigi ~30–40 min, Mataram ~1h, aeropuerto
+  (Praya) ~2–2,5h.
+
+### Regla AM imposible el día de llegada
+
+Ni desde Bali ni desde Lombok se llega al barco AM (7:15) el mismo
+día que se cruza. El primer fast boat desde Bali sale ~7:00 AM y
+llega a GT ~9:30 AM, bastante después de que el barco de buceo AM ya
+zarpó. Solo se bucea AM durmiendo en Gili Trawangan la noche anterior.
+
+Las dos salidas reales para un cliente que cruza hoy:
+1. Cruzar hoy, dormir en GT, bucear AM mañana.
+2. Cruzar hoy y, si llega antes del corte de las 12:00, hacer el
+   barco de la TARDE (12:15). Después de eso, no hay más buceo ese
+   día — GT no tiene nocturno.
+
+### Matriz por programa según llegada
+
+A — Día 1 sin barco (piscina/teoría), los más flexibles:
+Open Water, Open Water 30. El buceo recién es Día 2/Día 3, así que
+la hora de llegada del Día 1 no bloquea el inicio (mientras llegue
+en horario de oficina para la piscina PM).
+
+B — Día 1 al barco PM (~12:15), same-day solo si llega con margen
+antes del corte:
+Try Scuba, Scuba Diver, Refresh, Advanced, Refresh+Advanced.
+Try Scuba / Scuba Diver / Refresh tienen además la variante SPLIT
+(piscina hoy PM + barco mañana AM) por la regla de las 10 AM.
+
+C — Certificados directo al agua, AM o PM:
+Fun Dives, Deep Adventure + Fun Dive. AM imposible el día de
+llegada. PM solo si llega antes del corte de 12:00.
+
+(GT no tiene bucket nocturno. La última opción del mismo día es
+siempre el barco PM 12:15.)
+
+### Frases para el cliente
+
+ES — cliente que quiere AM same-day desde Bali/Lombok:
+"El barco de la mañana sale 7:15, y cruzando hoy no llegás a tiempo
+🙏 Lo mejor es que cruces hoy, duermas en Gili Trawangan y buceás
+mañana a la mañana. O si llegás antes del mediodía, te sumo al barco
+de la tarde. ¿Cómo preferís?"
+
+EN — same:
+"The morning boat leaves at 7:15, and crossing today you won't make
+it 🙏 Best is to cross today, stay overnight in Gili Trawangan and
+dive tomorrow morning. Or if you arrive before noon, I can put you on
+the afternoon boat. Which works for you?"
+
+ES — cliente certificado que quiere bucear el día que cruza:
+"Si cruzás hoy y llegás antes de las 12, te sumo al barco de la
+tarde 🤿 Después de esa salida no tenemos más buceo ese día. Si no
+llegás a tiempo, lo mejor es dormir acá y arrancar mañana a la
+mañana. ¿Cómo te queda mejor?"
+
+EN — same:
+"If you cross today and arrive before noon, I can add you to the
+afternoon boat 🤿 After that departure there's no more diving that
+day. If you can't make it in time, best is to stay overnight and
+start tomorrow morning. What works best for you?"
+
+### Regla anti-hallucination de horarios de ferry
+
+NUNCA inventes horarios exactos de fast boat. Los horarios varían por
+operador, temporada y clima. En particular, NO existe fast boat desde
+Bali antes de las ~7:00 AM. Si el cliente pide horarios puntuales,
+derivá a 12go.asia (snippet INDOESFerryInfo / INDOENFerryInfo). Las
+horas de cruce de arriba son estimaciones de guía, no horarios fijos
+de salida.
+
+---
+
 ## Detección de moneda y depósito {#deposito}
 
 El servidor detecta la moneda por prefijo telefónico y la sugiere en
