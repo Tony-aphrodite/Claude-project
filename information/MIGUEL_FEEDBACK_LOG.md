@@ -11,6 +11,57 @@ the entries link out to dedicated files.
 
 ---
 
+## Entry #12 — 2026-05-19 — Hardening: kill ES→PT language drift
+
+**Topic:** Miguel reported the AI flipping to Portuguese on Spanish-speaking conversations "en casi todas las sedes" — recurring. Two-root-cause fix applied: an inbound-side PT-grapheme cross-check + removal of the `contact.language` runtime fallback that was acting as a persistence layer for franc-min misclassifications.
+
+**Verbatim from Miguel:**
+
+> hay un problema recurrente que es el cambio de idioma al portugues. esta pasando en casi todas las sedes.
+
+**Diagnosis:**
+
+The failure was at the language-detection layer, not at any single sede's prompt — that's why it presented as cross-sede. Two interacting issues created a feedback loop:
+
+1. **franc-min false-positive on accent-less Spanish.** Spanish without `ñ` / `¿` / accents looks statistically like Portuguese to a tri-gram detector. A single substantive (60+ char) Spanish message could get classified as `por`.
+
+2. **`contact.language` Respond.io fallback persisted the misclassification.** Once franc said "por" on one turn, the server wrote `contact.language = "pt"` to Respond.io. Every subsequent short message (≤60 chars: "sí", "ok", "gracias", typical tourism follow-ups) returned `undefined` from franc → fell back to the polluted `contact.language` → produced a HARD anchor "IDIOMA OBLIGATORIO: português" in Bloque 4. The AI stayed in PT for the rest of the conversation until a long-enough Spanish message overwrote the contact field.
+
+**Two-layer fix:**
+
+**A. PT-grapheme cross-check in [services/language.ts](../apps/server/src/services/language.ts).** When franc returns `por`, require the text to contain PT-specific markers (`ã`, `õ`, `ç`, `mergulh`, `obrigad[ao]`, `-ção`, `entendo`, `fazendo`, `instrutor`) before accepting the verdict. Real Portuguese customers almost always include at least one. Spanish misclassified as PT essentially never does.
+
+  - `PT_ONLY_PATTERNS` and `looksLikePortuguese()` moved from anthropic.ts to language.ts as the single source of truth.
+  - anthropic.ts now imports them from language.ts for its outbound reply-side drift guard (same set used in both directions: detection + emission).
+
+**B. Removed the `contact.language` READ fallback in [handlers/process-message.ts:747](../apps/server/src/handlers/process-message.ts#L747).** When franc can't detect (short message), the prompt-builder's soft anchor now takes over — the AI uses conversation history from Bloque 3 to maintain language continuity, instead of inheriting from a pollutable external sticky variable.
+
+  - The write-side stays intact: we still push `contact.language` to Respond.io for operator-UI visibility. Just no longer use it as a runtime fallback.
+
+**Why this is "perfect" enough:**
+
+- Single-turn misclassification: prevented by (A). franc says PT but no PT markers → return undefined → soft anchor → no wrong hard anchor.
+- Multi-turn drift via persistence: prevented by (B). Even if (A) somehow fails, there's no sticky pollution path anymore.
+- Real PT customers: still detected correctly. Their substantive messages contain PT markers.
+- Recovery from any latent flip: automatic on next turn, since there's no longer a sticky variable to overwrite.
+
+**Actions taken:**
+
+- ✅ Moved PT_ONLY_PATTERNS + looksLikePortuguese to language.ts (single source of truth, exported)
+- ✅ Added PT-grapheme cross-check inside `detectLanguage()`
+- ✅ Dropped `contact.language` READ fallback in process-message.ts
+- ✅ Kept `contact.language` WRITE intact (for operator visibility in Respond.io)
+- ✅ anthropic.ts imports the shared patterns instead of duplicating them
+- ⏳ Tony to push so Railway picks up. No re-seed needed — this is server code, not prompts/KBs.
+
+**Files touched in this entry:**
+
+- `apps/server/src/services/language.ts`
+- `apps/server/src/services/anthropic.ts`
+- `apps/server/src/handlers/process-message.ts`
+
+---
+
 ## Entry #11 — 2026-05-19 — Behavior change: always show OW + OW30 (GT + GA)
 
 **Topic:** Both John (GT) and Colomba (GA) had a rule that offered OW30 first and only fell back to the Conventional OW if the customer said no. Miguel is reversing that: both options must be shown **together** from the start, OW30 marked as recommended, customer chooses. 4 edits total, 2 per sede.

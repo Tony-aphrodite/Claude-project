@@ -744,7 +744,20 @@ export async function processIncomingMessage(
   });
 
   // Step 6: dynamic block + 5: 4-block prompt
-  const detectedLanguage = detectLanguage(incomingText) ?? contact.language ?? undefined;
+  //
+  // 2026-05-19 (Entry #12): removed the `?? contact.language` fallback.
+  // It used to inherit Respond.io's persisted language tag when franc
+  // couldn't detect from short messages, but a single franc
+  // misclassification (Spanish-without-accents → PT) would write "pt"
+  // to contact.language and then every subsequent short message
+  // ("sí", "ok") fell back to that polluted value as a HARD anchor,
+  // keeping the AI in PT until a long Spanish turn arrived. The AI
+  // already has the full conversation history in Bloque 3 — when
+  // franc can't decide, the prompt-builder's soft anchor lets the AI
+  // maintain language continuity from history instead of from a
+  // pollutable external variable. See language.ts header for the
+  // matching detection-side PT-grapheme guard.
+  const detectedLanguage = detectLanguage(incomingText) ?? undefined;
   // ISO-639-1 code (e.g. "es", "en") for Respond.io's contact.language
   // field. Pushed through updateContactCustomFields so Miguel's
   // "DPM GT - Onboarding Piloto" workflow routes Spanish-speaking

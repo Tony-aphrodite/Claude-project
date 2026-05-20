@@ -27,6 +27,7 @@ import {
 import { loadEnv } from "../env.js";
 import { CostLimitError, UpstreamError } from "../lib/errors.js";
 import { getLogger } from "../logger.js";
+import { looksLikePortuguese } from "./language.js";
 import {
   consultarDisponibilidadTool,
   parseToolInput as parseConsultarDisponibilidadInput,
@@ -522,9 +523,10 @@ function looksLikeLeakedReasoning(text: string): boolean {
   return REASONING_LEAK_PATTERNS.some((p) => p.test(text));
 }
 
-// Portuguese-only orthography + function-word patterns. These rarely appear
-// in Spanish prose, so when the conversation is detected as Spanish but the
-// AI reply hits one of these, it's drift — block + escalate.
+// Portuguese-only orthography + function-word patterns are imported from
+// language.ts which now owns them as the single source of truth (used
+// both for inbound detection and outbound drift checking). See the
+// language.ts header for the full rationale.
 //
 // 2026-05-15 (Tony retest of Miguel scenario A): on turn 11 the model
 // emitted a clean JSON envelope whose `respuesta` value started "Entendo
@@ -533,24 +535,6 @@ function looksLikeLeakedReasoning(text: string): boolean {
 // internal monologue, it's a customer reply) and the prompt-level
 // language anchor in Bloque 4 had been bypassed under frustration.
 // This is the last line of defence for that failure mode.
-const PT_ONLY_PATTERNS: RegExp[] = [
-  /\bmergulh/i, // mergulhar / mergulho (ES: bucear / buceo)
-  /\bentendo\b/i, // PT 1st-person; ES is "entiendo" with an i
-  /\bfazendo\b/i, // PT; ES is "haciendo"
-  /\binstrutor\b/i, // PT spelling; ES is "instructor"
-  /\bobrigad[ao]\b/i, // PT thanks; ES is "gracias"
-  /ç[ãa]o\b/i, // PT "-ção" ending (atenção, opção); ES uses "-ción"
-  // Catch-all on PT-only graphemes. JS regex `\b` doesn't treat
-  // diacritic chars as word boundaries (ASCII-only), which made the
-  // word-boundary version of vocês / você miss in tests. The bare
-  // grapheme set is the most robust check — these letters don't appear
-  // in any Spanish word.
-  /[ãõê]/,
-];
-
-function looksLikePortuguese(text: string): boolean {
-  return PT_ONLY_PATTERNS.some((p) => p.test(text));
-}
 
 // Phrases that mean "I'm handing off to a human". When any of these appears
 // in the AI's reply but escalation_reason came back null, the server-side
