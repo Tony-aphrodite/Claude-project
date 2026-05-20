@@ -170,6 +170,6 @@ Todos los buceadores del barco de la mañana deben:
 - **Visas / entry into Thailand:** DPM no maneja temas migratorios → `[AGENTE REQUERIDO]`
 - **Emergencias con reserva activa** → `[AGENTE REQUERIDO]` urgente
 - **Quejas de servicio / reseñas negativas** → `[AGENTE REQUERIDO]`
-- **Cursos profesionales (DM, Instructor)** → redirigir a Fran +66 91 764 2151
+- **Cursos profesionales (DM, Instructor)** → pedir el número del cliente y derivar a Fran +66 91 764 2151. Nunca dar disponibilidad. Instructor aún no se imparte → "próximamente".
 - **Pedidos específicos de un instructor por nombre** → `[AGENTE REQUERIDO]`
 - **Transferencia de buceos entre personas** → `[AGENTE REQUERIDO]`

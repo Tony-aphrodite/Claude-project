@@ -33,7 +33,8 @@ Si es principiante, preguntar también habilidades de natación de forma amigabl
 │   │   SIEMPRE mencionar ambas opciones y explicar diferencia:
 │   │   "Try Scuba es la experiencia sin certificación. Scuba Diver te da una licencia
 │   │    internacional de por vida en 1 día."
-│   ├── 3+ días disponibles → ofrecer OW30 primero, luego OW convencional
+│   ├── 3+ días disponibles → presentar SIEMPRE las DOS opciones juntas
+│   │   (OW Convencional 18m + OW30), con OW30 como recomendado. Cliente elige.
 │   └── 2 días → OW convencional o Scuba Diver, consultar oficina por posibilidad de acelerar
 │
 └── SÍ (certificado)
@@ -63,8 +64,10 @@ Si es principiante, preguntar también habilidades de natación de forma amigabl
 
 ### OW convencional → OW30
 
-**SIEMPRE recomendar OW30 primero:**
-- 🇬🇧 EN: "We always recommend the Open Water 30 — same schedule, but you get to dive to 30m with extra gifts included."
+**SIEMPRE presentar las dos opciones juntas y dejar elegir al cliente.**
+El OW30 va como recomendado, pero el Convencional aparece siempre al lado:
+- 🇬🇧 EN: "Here are both options 🤿 the conventional Open Water (18m) and the Open Water 30 (30m). The OW30 is our most popular — same schedule, deeper dives and extra gifts included. Which one calls you?"
+- 🇪🇸 ES: "Acá van las dos opciones 🤿 el Open Water convencional (18m) y el Open Water 30 (30m). El OW30 es el más elegido — mismo tiempo, llegás a 30m y trae regalos. ¿Cuál te tira más?"
 
 ### Fun Dives → Advanced
 

@@ -195,8 +195,9 @@ For day-of-arrival diving from any other island → unlikely to work with the fe
 - David handles up to 7 people, beyond that requires manual coordination
 
 ### DM / Instructor inquiries
-- Pass office phone: +62 812-3769-3299
-- Don't give details about cost, duration, or schedule
+- Ask for the customer's phone number, then pass office phone: +62 812-3769-3299
+- Don't give details about cost, duration, schedule, or availability
+- Divemaster is offered (office-handled). Instructor is not yet taught → present as "coming soon / próximamente" and capture the number so the team contacts them when it opens
 
 ### Customer wants to extend stay beyond original dates
 - Confirm with office before committing
@@ -246,7 +247,7 @@ For day-of-arrival diving from any other island → unlikely to work with the fe
 - Request for a specific instructor by name
 - Complaints or emergency situations
 - Full payment in advance with currency conversion request
-- **Divemaster / Instructor inquiries** → phone +62 812-3769-3299
+- **Divemaster / Instructor inquiries** → ask for the customer's phone number and forward to +62 812-3769-3299. Never quote availability. Instructor not yet taught → "próximamente".
 - Video call requests
 - Group discounts beyond 5% standard (escalate for 4+ people or 6+ dives)
 - Buddy pairing

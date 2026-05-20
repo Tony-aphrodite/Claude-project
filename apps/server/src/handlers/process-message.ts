@@ -886,6 +886,48 @@ export async function processIncomingMessage(
       };
     }
 
+    // Out-of-scope handoff from Miguel's v3/v4 .gs: course is not
+    // bookable through availability (Divemaster/Instructor at any
+    // sede). The AI must NOT confirm or quote — it must follow the
+    // prompt's escalation path. We surface the structured payload so
+    // the AI sees exactly which accion to take (capturar_numero_y_derivar
+    // for KT/NP/PP/GA, derivar_a_sede for GT) plus the office phone or
+    // target sede. See MIGUEL_FEEDBACK_LOG entries #1-#5 for the
+    // prompt-side counterpart of this rule.
+    if (fresh.out_of_scope === true) {
+      const accion = fresh.accion ?? "capturar_numero_y_derivar";
+      const notes =
+        accion === "derivar_a_sede"
+          ? `Curso fuera del scope de esta sede — derivar al cliente a ${
+              fresh.derivar_a_sede ?? "otra sede DPM"
+            }. Seguir el flujo del prompt §escalar (excepción Divemaster/Instructor).`
+          : `Curso fuera del scope de la AI — pedir contacto al cliente (número/nombre/email según prompt de la sede) y derivar a oficina ${
+              fresh.oficina_tel ?? ""
+            }. NO cotizar precio ni disponibilidad.${
+              fresh.proximamente
+                ? ' El curso aún no se imparte aquí — usar framing "próximamente / coming soon".'
+                : ""
+            }`;
+      return {
+        ok: true,
+        programa: input.programa,
+        startDate: input.start_date,
+        available: false,
+        slots: [],
+        outOfScope: {
+          accion,
+          ...(fresh.oficina_tel ? { oficinaTel: fresh.oficina_tel } : {}),
+          ...(fresh.derivar_a_sede
+            ? { derivarASede: fresh.derivar_a_sede }
+            : {}),
+          ...(typeof fresh.proximamente === "boolean"
+            ? { proximamente: fresh.proximamente }
+            : {}),
+        },
+        notes,
+      };
+    }
+
     const detalleByDate = new Map(fresh.detalle.map((d) => [d.fecha, d]));
     // The Apps Script's "today" is whatever date matches its WITA clock —
     // we infer it from fecha_consultada which is the first day in the

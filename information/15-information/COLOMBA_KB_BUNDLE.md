@@ -443,7 +443,8 @@ Si es principiante, preguntar también habilidades de natación de forma amigabl
 │   │   SIEMPRE mencionar ambas opciones y explicar diferencia:
 │   │   "Try Scuba es la experiencia sin certificación. Scuba Diver te da una licencia
 │   │    internacional de por vida en 1 día."
-│   ├── 3+ días disponibles → ofrecer OW30 primero, luego OW convencional
+│   ├── 3+ días disponibles → presentar SIEMPRE las DOS opciones juntas
+│   │   (OW Convencional 18m + OW30), con OW30 como recomendado. Cliente elige.
 │   └── 2 días → OW convencional o Scuba Diver, consultar oficina por posibilidad de acelerar
 │
 └── SÍ (certificado)
@@ -473,8 +474,10 @@ Si es principiante, preguntar también habilidades de natación de forma amigabl
 
 ### OW convencional → OW30
 
-**SIEMPRE recomendar OW30 primero:**
-- 🇬🇧 EN: "We always recommend the Open Water 30 — same schedule, but you get to dive to 30m with extra gifts included."
+**SIEMPRE presentar las dos opciones juntas y dejar elegir al cliente.**
+El OW30 va como recomendado, pero el Convencional aparece siempre al lado:
+- 🇬🇧 EN: "Here are both options 🤿 the conventional Open Water (18m) and the Open Water 30 (30m). The OW30 is our most popular — same schedule, deeper dives and extra gifts included. Which one calls you?"
+- 🇪🇸 ES: "Acá van las dos opciones 🤿 el Open Water convencional (18m) y el Open Water 30 (30m). El OW30 es el más elegido — mismo tiempo, llegás a 30m y trae regalos. ¿Cuál te tira más?"
 
 ### Fun Dives → Advanced
 
@@ -1629,6 +1632,22 @@ Si la condición es más seria → escalar a oficina con `escalation_reason: med
 Refresh obligatorio antes del Advanced. Ofrecer combo **Refresh + Advanced: 5,950,000 IDR** (ver `KB-01 §refresh-advanced`).
 
 ---
+
+## Cliente pregunta por curso Divemaster o Instructor {#divemaster-instructor}
+
+Estos son cursos profesionales. Colomba NUNCA cotiza precio, duración ni disponibilidad por chat.
+
+- *Divemaster*: SÍ se ofrece en Gili Air, pero lo gestiona la oficina (estructura, fechas y precio dependen de la experiencia del candidato).
+- *Instructor (IDC/OWSI)*: aún NO se imparte en Gili Air → presentarlo como "próximamente / coming soon".
+
+En ambos casos Colomba pide nombre completo + email + número de WhatsApp y escala con escalation_reason: instructor_request (ver prompt §instructor-handoff). El equipo profesional contacta de forma asíncrona. Oficina: +6282266153697.
+
+- 🇪🇸 ES: "El Divemaster lo coordina directamente el equipo 🤿 ¿Me pasás tu nombre, email y WhatsApp y te contactan con todos los detalles?"
+- 🇬🇧 EN: "The Divemaster is coordinated directly by the team 🤿 Can you share your name, email and WhatsApp so they reach out with all the details?"
+- 🇪🇸 ES (Instructor): "El curso de Instructor está por abrir en Gili Air 🤿 dejame tu nombre, email y WhatsApp y te avisamos apenas arranque."
+- 🇬🇧 EN (Instructor): "The Instructor course is coming soon to Gili Air 🤿 leave me your name, email and WhatsApp and we'll let you know as soon as it opens."
+
+(Nota: un buceador que YA tiene certificación DM/Instructor y quiere Fun Dives es OTRO caso — ver KB-03 árbol de decisión y KB-05 §refresh-obligatorio. NO aplica esta sección y NO necesita Refresh.)
 
 ## Pregunta sin respuesta en ningún KB {#pregunta-sin-respuesta}
 

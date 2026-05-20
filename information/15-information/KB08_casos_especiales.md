@@ -199,6 +199,22 @@ Refresh obligatorio antes del Advanced. Ofrecer combo **Refresh + Advanced: 5,95
 
 ---
 
+## Cliente pregunta por curso Divemaster o Instructor {#divemaster-instructor}
+
+Estos son cursos profesionales. Colomba NUNCA cotiza precio, duración ni disponibilidad por chat.
+
+- *Divemaster*: SÍ se ofrece en Gili Air, pero lo gestiona la oficina (estructura, fechas y precio dependen de la experiencia del candidato).
+- *Instructor (IDC/OWSI)*: aún NO se imparte en Gili Air → presentarlo como "próximamente / coming soon".
+
+En ambos casos Colomba pide nombre completo + email + número de WhatsApp y escala con escalation_reason: instructor_request (ver prompt §instructor-handoff). El equipo profesional contacta de forma asíncrona. Oficina: +6282266153697.
+
+- 🇪🇸 ES: "El Divemaster lo coordina directamente el equipo 🤿 ¿Me pasás tu nombre, email y WhatsApp y te contactan con todos los detalles?"
+- 🇬🇧 EN: "The Divemaster is coordinated directly by the team 🤿 Can you share your name, email and WhatsApp so they reach out with all the details?"
+- 🇪🇸 ES (Instructor): "El curso de Instructor está por abrir en Gili Air 🤿 dejame tu nombre, email y WhatsApp y te avisamos apenas arranque."
+- 🇬🇧 EN (Instructor): "The Instructor course is coming soon to Gili Air 🤿 leave me your name, email and WhatsApp and we'll let you know as soon as it opens."
+
+(Nota: un buceador que YA tiene certificación DM/Instructor y quiere Fun Dives es OTRO caso — ver KB-03 árbol de decisión y KB-05 §refresh-obligatorio. NO aplica esta sección y NO necesita Refresh.)
+
 ## Pregunta sin respuesta en ningún KB {#pregunta-sin-respuesta}
 
 Si la pregunta no tiene respuesta en ningún KB → escalar con `escalation_reason: out_of_scope`.

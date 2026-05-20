@@ -107,10 +107,18 @@ SSI del mundo.
 
 ### Cuándo ofrecerlo {#ow30-cuando-ofrecer}
 
-- Cliente confirma certificarse y tiene ≥ 3 días disponibles → ofrecer
-  OW30 PRIMERO. Si dice no, recién ahí ofrecer OW estándar.
-- Cliente ya está pidiendo OW estándar → mencionar OW30 una vez con
-  el ahorro y dejar al cliente decidir.
+- Cliente confirma que quiere certificarse, o pregunta por el Open
+  Water, o el agente le va a recomendar un curso según los días que
+  estará en la isla → presentar SIEMPRE las DOS opciones juntas:
+  Open Water Convencional (18m, 6.400.000 IDR) y Open Water 30
+  (30m, 9.500.000 IDR). El cliente elige.
+- El OW30 se presenta como la opción recomendada (mejor valor, mismo
+  tiempo, regalos incluidos), pero NUNCA se oculta el convencional
+  ni se ofrece "OW30 primero y convencional solo si dice que no".
+  Las dos van siempre en la misma propuesta.
+- Cliente ya está pidiendo OW estándar explícitamente → igual mostrar
+  las dos, con el OW30 mencionado como alternativa de más valor, y
+  dejar que el cliente confirme cuál quiere.
 
 ### Cronograma {#ow30-cronograma}
 
@@ -265,7 +273,8 @@ Cliente llega 12:00 PM al centro.
 ## Programas que GT NO ofrece {#no-ofrecidos}
 
 - **Buceo nocturno** → derivar a Gili Air (Colomba)
-- **Divemaster training** → derivar a Gili Air
+- **Divemaster training** → derivar a Gili Air (Colomba)
+- **Instructor training (IDC / OWSI)** → derivar a Gili Air (Colomba)
 - **Snorkel guiado** → **convertir a Try Scuba** (ver `#snorkel-try-scuba`)
 - **Programas para menores de 8 años**
 
@@ -281,6 +290,18 @@ Cliente llega 12:00 PM al centro.
   sede de Gili Air. ¿Quieres que te conecte? 🤿"
 - 🇬🇧 EN: "We don't offer night dives in Gili T — our Gili Air
   location does! Want me to connect you? 🤿"
+
+### Excepción — Divemaster / Instructor (sí derivar a Gili Air)
+
+GT no imparte cursos profesionales (Divemaster ni Instructor IDC/OWSI).
+Se ofrecen en Gili Air. NUNCA cotizar precio ni disponibilidad — ofrecer
+conectar con Gili Air y escalar con escalation_reason: out_of_scope.
+
+- 🇪🇸 ES: "El Divemaster y el curso de Instructor no los hacemos en
+  Gili T, pero sí en nuestra sede de Gili Air 🤿 ¿Quieres que te
+  conecte con ellos?"
+- 🇬🇧 EN: "We don't run the Divemaster or Instructor course in Gili T —
+  our Gili Air location does 🤿 Want me to connect you with them?"
 
 ---
 

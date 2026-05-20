@@ -170,6 +170,11 @@ export class AppsScriptService {
     const first = await this.fetchOne(sede, url, opts, opts.date, opts.days);
     if (!first) return null;
 
+    // Out-of-scope responses are a structured handoff, not an availability
+    // report. No fan-out makes sense — every per-day call would return the
+    // same out_of_scope payload. Return immediately.
+    if (first.out_of_scope === true) return first;
+
     if (opts.days <= 1) return first;
 
     const have = new Set(first.detalle.map((d) => d.fecha));
@@ -257,9 +262,25 @@ export class AppsScriptService {
         return null;
       }
       const json = (await res.json()) as Partial<AvailabilityResponse>;
+      if (typeof json !== "object" || json === null) {
+        log.warn(
+          { sede: sede.nombre, date },
+          "apps_script returned malformed availability",
+        );
+        return null;
+      }
+      // Out-of-scope handoff path (Miguel v3/v4 .gs): when curso is
+      // Divemaster/Instructor the script returns out_of_scope:true with
+      // an accion/oficina_tel/derivar_a_sede/proximamente payload and
+      // no detalle. Accept that shape — downstream code that iterates
+      // detalle gets an empty array so it can't trip.
+      if (json.out_of_scope === true) {
+        if (!Array.isArray(json.detalle)) {
+          (json as { detalle: unknown }).detalle = [];
+        }
+        return json as AvailabilityResponse;
+      }
       if (
-        typeof json !== "object" ||
-        json === null ||
         typeof json.fecha_consultada !== "string" ||
         !Array.isArray(json.detalle)
       ) {

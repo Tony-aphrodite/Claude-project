@@ -440,6 +440,25 @@ export type ConsultarDisponibilidadResult =
        * días después sí". Surfaced from Miguel's v2 .gs `offset_dias`.
        */
       offsetDias?: number;
+      /**
+       * Out-of-scope handoff. Set when the .gs detected the course is
+       * not bookable through availability (Divemaster / Instructor at
+       * any sede). When present the AI MUST NOT confirm or quote — it
+       * must follow the prompt's escalation path for that sede:
+       *   • `capturar_numero_y_derivar` (KT/NP/PP/GA) → ask the
+       *     customer for their phone, give `oficinaTel`, escalate.
+       *   • `derivar_a_sede` (GT only) → redirect to the named sede
+       *     (always "Gili Air" in current data).
+       * `proximamente: true` flags Instructor as "coming soon" so the
+       * AI can frame it accordingly instead of treating it as "not
+       * offered at all".
+       */
+      outOfScope?: {
+        accion: "capturar_numero_y_derivar" | "derivar_a_sede";
+        oficinaTel?: string;
+        derivarASede?: string;
+        proximamente?: boolean;
+      };
       /** Free-form note for the model to surface (e.g. "AM ya zarpó"). */
       notes?: string;
     }
@@ -533,6 +552,29 @@ export type AvailabilityResponse = {
     motivo: string;
     espacios?: number;
   }>;
+  /**
+   * Out-of-scope handoff payload from Miguel's v3/v4 .gs scripts. Set
+   * when the AI invoked `consultar_disponibilidad` with a course the
+   * sede doesn't sell directly (Divemaster / Instructor).
+   *
+   *   • KT / NP / PP / GA: `accion = "capturar_numero_y_derivar"` →
+   *     AI must capture the customer's phone and forward to `oficina_tel`.
+   *   • GT: `accion = "derivar_a_sede"` → AI must redirect the
+   *     customer to `derivar_a_sede` (e.g. "Gili Air") because GT
+   *     doesn't teach DM/Instructor at all.
+   *
+   * When `out_of_scope` is true, `detalle` may be absent or empty —
+   * the response is a structured handoff, not an availability report.
+   * `proximamente: true` signals the course is "coming soon" (currently
+   * Instructor at KT/NP/PP/GA). See MIGUEL_FEEDBACK_LOG entries #1-#5
+   * for the prompt-side counterpart of this rule.
+   */
+  out_of_scope?: boolean;
+  accion?: "capturar_numero_y_derivar" | "derivar_a_sede";
+  oficina_tel?: string;
+  proximamente?: boolean;
+  derivar_a_sede?: string;
+  sede?: string;
 };
 
 // enviar_catalogo — invoked when the AI decides to send the customer a

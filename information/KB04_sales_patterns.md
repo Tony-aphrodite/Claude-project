@@ -43,7 +43,11 @@ Cualquier certificado (OW, Advanced o superior) puede bucear junto al alumno de 
 
 ### Gancho OW30 — upsell {#gancho-ow30}
 
-Ofrecer SIEMPRE una vez confirmado interés en OW.
+Presentar SIEMPRE las dos opciones (Convencional + OW30) cuando el
+cliente muestra interés en OW o cuando el agente recomienda un curso
+por los días disponibles. El OW30 va con su gancho de valor, pero el
+Convencional siempre aparece al lado como opción elegible. El cliente
+decide entre los dos.
 
 - EN: "For a bit more you can go to 30m, get a free DPM mask, snorkel and bottle, plus 50% off fun dives at all other DPM locations 🤿"
 - ES: "Por un poco más llegas a 30m, te llevas máscara, snorkel y botella de regalo, y 50% off en fun dives en todas las otras sedes DPM 🤿"
