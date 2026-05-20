@@ -15,13 +15,25 @@
 
 import { and, desc, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { getDb, kbDocuments, sedes } from "@dpm/db";
 
+import { requireUserContext } from "~/lib/auth-context";
 import { sedeSlug, uploadKbBlob } from "~/lib/kb-storage";
 
+// Admin gate (2026-05-19 audit pass): both saveKbDraft and
+// promoteKbVersion require role=admin. Office users have no business
+// editing or activating KB content; the sidebar already hides the
+// surface from them, but the actions are addressable HTTP endpoints
+// so we add the guard at the action layer too.
+async function requireAdmin(): Promise<void> {
+  const user = await requireUserContext();
+  if (user.role !== "admin") notFound();
+}
+
 export async function saveKbDraft(formData: FormData) {
+  await requireAdmin();
   const sedeId = String(formData.get("sedeId") ?? "");
   // Browsers normalize textarea contents to CRLF on form submit even when the
   // text was originally LF. Storing CRLF would make every diff against the
@@ -66,6 +78,7 @@ export async function saveKbDraft(formData: FormData) {
 }
 
 export async function promoteKbVersion(formData: FormData) {
+  await requireAdmin();
   const id = String(formData.get("id") ?? "");
   const force = formData.get("force") === "1";
   if (!id) return;

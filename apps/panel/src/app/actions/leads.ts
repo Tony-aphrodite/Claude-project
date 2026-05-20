@@ -301,6 +301,20 @@ export async function overrideLeadStage(formData: FormData) {
   if (!conversacionId) return;
   if (!LEAD_STAGES.includes(target)) return;
 
+  // Sede gate: office users can only override their own sede's leads.
+  // Without this, an office staffer on /pipeline (which currently shows
+  // all sedes' kanban) could drag-drop another sede's conversation and
+  // override its stage. Pre-audit gap caught during the 2026-05-19
+  // verification pass.
+  const db = getDb();
+  const [conv] = await db
+    .select({ sedeId: conversaciones.sedeId })
+    .from(conversaciones)
+    .where(eq(conversaciones.id, conversacionId))
+    .limit(1);
+  if (!conv) return;
+  if (!(await assertSedeAccess(conv.sedeId))) return;
+
   await applyForceTransition(conversacionId, target, note);
 
   revalidatePath("/payments");

@@ -1,15 +1,29 @@
 "use server";
 
-// Server actions for the prompts editor. All writes go through here so we can
-// audit them and enforce regression-passed gating before promotion.
+// Server actions for the prompts editor. All writes go through here so we
+// can audit them and enforce regression-passed gating before promotion.
+//
+// Admin gate (2026-05-19 audit pass): both savePromptDraft and
+// promotePromptVersion require role=admin. Office users have no business
+// editing or activating prompts — the surface is invisible to them in
+// the sidebar and the page returns 404, but the actions themselves are
+// addressable HTTP endpoints so we add the guard at the action layer too.
 
 import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { getDb, promptsVersiones } from "@dpm/db";
 
+import { requireUserContext } from "~/lib/auth-context";
+
+async function requireAdmin(): Promise<void> {
+  const user = await requireUserContext();
+  if (user.role !== "admin") notFound();
+}
+
 export async function savePromptDraft(formData: FormData) {
+  await requireAdmin();
   const basedOnId = String(formData.get("basedOnId") ?? "");
   const content = String(formData.get("content") ?? "").trim();
   if (!basedOnId || !content) return;
@@ -49,6 +63,7 @@ export async function savePromptDraft(formData: FormData) {
 }
 
 export async function promotePromptVersion(formData: FormData) {
+  await requireAdmin();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
 
