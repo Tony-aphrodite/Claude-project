@@ -193,10 +193,16 @@ export async function createPanelUserAction(formData: FormData): Promise<void> {
     userId = created.id;
   }
 
-  // Stash the password + email in a one-time httpOnly cookie so the
-  // landing render can show it. 60s lifetime is enough to read it once
-  // and copy; after that it's gone for good (we never store the plaintext
-  // anywhere — Supabase only keeps a bcrypt hash).
+  // Stash the password + email in a short-lived httpOnly cookie so the
+  // landing render can show it. 30s lifetime: long enough for the admin
+  // to read + copy, short enough that a refresh after copying clears it.
+  // We never store plaintext anywhere — Supabase only keeps a bcrypt hash.
+  //
+  // Note: we deliberately do NOT delete the cookie from the page's render
+  // path. In Next.js 15 cookie mutations are only allowed inside a Server
+  // Action invoked from a form (or a Route Handler) — calling `.delete()`
+  // during a Server Component render throws and the page renders an
+  // application-error digest. The 30s expiry is the cleanup mechanism.
   const c = await cookies();
   c.set(
     "panel-user-new",
@@ -206,7 +212,7 @@ export async function createPanelUserAction(formData: FormData): Promise<void> {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/admin/users",
-      maxAge: 60,
+      maxAge: 30,
     },
   );
 
@@ -240,8 +246,15 @@ export async function deletePanelUserAction(formData: FormData): Promise<void> {
 }
 
 /**
- * Read + clear the one-time new-user cookie. Called by the page server
- * component on render so the credential panel only shows once.
+ * Read the one-time new-user cookie. Called by the page server component
+ * on render to display the just-created credentials.
+ *
+ * In Next.js 15, cookie *writes* are only legal inside Server Actions
+ * invoked from a form / Route Handlers. Calling `.delete()` from a Server
+ * Component render throws — which is exactly what was producing the
+ * "Application error" digest after creating a user. So this function only
+ * READS; the cookie cleans itself up via the short maxAge set at write
+ * time (30s — long enough to copy, short enough that a refresh clears it).
  */
 export async function consumeNewUserFlash(): Promise<{
   email: string;
@@ -254,17 +267,14 @@ export async function consumeNewUserFlash(): Promise<{
   const raw = c.get("panel-user-new")?.value;
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as {
+    return JSON.parse(raw) as {
       email: string;
       password: string;
       role: "admin" | "office";
       sede: string | null;
       userId: string;
     };
-    c.delete("panel-user-new");
-    return parsed;
   } catch {
-    c.delete("panel-user-new");
     return null;
   }
 }

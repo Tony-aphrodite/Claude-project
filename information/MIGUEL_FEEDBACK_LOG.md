@@ -11,6 +11,200 @@ the entries link out to dedicated files.
 
 ---
 
+## Entry #16 — 2026-05-23 — Four corrections to my draft reply (scope/architecture alignment)
+
+**Topic:** Tony drafted a unified Spanish reply to Miguel's v1 brief that included a milestones section. Miguel responded with **four explicit corrections** before approving the go-ahead. The draft was never sent — the corrections need to land in the actual reply (English, per Tony's instruction).
+
+**Verbatim from Miguel (key excerpts):**
+
+1. *"El alcance es las 5 sedes, no un piloto. Cuando leí 'solo Gili T usa el sistema en producción' me sonó a piloto de una sede dejando las otras cuatro afuera, y eso no es lo que busco... Lo que necesito es que las 5 estén construidas y que el escalonado sea de días, no de semanas con las otras esperando."*
+
+2. *"¿Qué querés decir con 'BubbleManager apagado'? Esto me frenó. La regla madre del proyecto es que BubbleManager NO se toca y queda intacto — ahí viven las finanzas serias (caja, gastos, sueldos, impuestos) y se quedan ahí. DPM Cloud solo le manda 'el cliente pagó'. Así que apagar el Access no va."*
+
+3. *"Tres cosas que aparecieron y no estaban en el brief: la 'factura SAT', el 'flujo de reembolsos con trazabilidad' y la 'solicitud de review SSI al certificar'. La factura SAT me llamó la atención — SAT es el sistema fiscal de México y nosotros operamos en Tailandia e Indonesia... Los reembolsos son un tema entero que toca plata, que justamente vive en el Access. Y el review SSI se me mezcla con las dos reseñas que pedimos no mezclar."*
+
+4. *"Orden de encendido: arrancamos por Gili Trawangan, no Gili Air. En tu cronograma pusiste Gili Air en el rollout pero Gili T en el prototipo."*
+
+**Plus payment structure:** *"El pago va por Workana Escrow en porcentajes, como venimos trabajando desde que empezamos. Atamos cada tramo a los hitos del cronograma — se libera cuando se cumple cada milestone."*
+
+### Corrections to internalize (forever)
+
+| # | Wrong in draft | Correct rule |
+|---|---|---|
+| 1 | "Piloto en Gili T en semanas 3-4" | **All 5 sedes built complete. Staggered activation in DAYS not weeks, GT first.** Same destination, robust landing. No sede "waits" while another runs. |
+| 2 | "BubbleManager apagado" at end of rollout | **BubbleManager is NEVER touched. Stays intact forever.** It owns finances (cash, expenses, salaries, taxes). DPM Cloud only sends ONE event: "customer paid." |
+| 3 | "Factura SAT emitida en automático" | **SAT does not apply.** SAT = Mexican fiscal authority; DPM operates in Thailand + Indonesia. This was contamination from another project. Remove entirely. |
+| 4 | "Flujo de reembolsos con trazabilidad" | **Refunds are out of scope.** Refunds touch money → money lives in Access. If a refund use case comes up, it's an Access workflow, not DPM Cloud. |
+| 5 | "Solicitud de review SSI al certificar" | **There is NO SSI review.** Two reviews only: (a) internal instructor review (unlocks 10% off + ranking), (b) public Google review (triggers on photo download). Do NOT introduce a third. |
+| 6 | "Activación: GT first then Gili Air..." with timeline inconsistency | **GT first, period.** GT is where everything is most aceitado. Then stagger the others over days. |
+| 7 | Payment terms unspecified | **Workana Escrow, percentage-based, released on milestone completion.** Specific percentages per milestone TBD jointly. |
+
+### What this changes in the milestones section
+
+The "Semanas 1–2 / 3–4 / 5–6 / 7–8" cadence stays, but the content shifts:
+- Weeks 1–2: Build Phase 1 complete (5 sedes, not pilot) + instructor panel prototype.
+- Weeks 3–4: Build Phase 2 complete (5 sedes) + full integration testing.
+- Weeks 5–6: End-to-end QA across all 5 sedes; SSI seam hardened; everything proven before any sede goes live.
+- Weeks 7–8: Staggered activation in days starting Gili Trawangan; if first weekend is clean, the other 4 follow within the same week. BubbleManager stays untouched throughout; the only handshake is the "customer paid" event.
+
+### Architectural rule, written in stone
+
+> **BubbleManager (Access) is NEVER touched.** DPM Cloud is a connector that adds a cloud DB + web surface alongside Access. The only thing DPM Cloud writes to Access is the confirmed-payment event keyed by `DPM-XXXX`. Everything else (cash, expenses, salaries, taxes, refunds, accounting reports) lives in Access and stays there.
+
+This is the "regla madre" of the project. Any feature that proposes touching Access for anything other than the payment-confirmed write is out of scope by definition.
+
+**Files touched in this entry:**
+
+- `information/MIGUEL_FEEDBACK_LOG.md` (this entry)
+
+---
+
+## Entry #15 — 2026-05-19 — DPM Cloud canonical v1 execution brief
+
+**Topic:** Miguel sent the formal v1 execution brief plus 2 interactive HTML demos (Phase 1 registration + Phase 2 red viva). **This is now the canonical spec.** Every prior discovery / mockup / verbal scope discussion is superseded by this document where they conflict.
+
+**Saved to:** [DPM_CLOUD_EXECUTION_BRIEF_v1.md](DPM_CLOUD_EXECUTION_BRIEF_v1.md) — full verbatim text plus structured summary of the 2 HTML demos.
+
+### Key changes vs my prior understanding
+
+| Topic | Before | v1 brief says |
+|---|---|---|
+| Price | Open / minimum quoted was €15,500 | **Closed at USD 9,000 for both phases** (Miguel framed as "ya cerrado") |
+| Code generation | "one code per booking" | **One code per (diver + course)** — a single payment can cover multiple divers/courses → multiple codes |
+| SSI integration | Mentioned as desirable | **Core scope.** SSI API integration is part of Phase 1. Old BubbleManager VBA had it; check the .accdb for legacy logic. Robustness rule: if SSI is down, DPM Cloud still saves the record and retries. |
+| Field set | 5 fields shown in mockups | **~20 fields** (the OnlineCustomers set) + emergency contact + equipment sizes (wetsuit + footwear sizes) |
+| Office workflow | Just review | **Tri-state semáforo:** datos completos → documentos firmados → revisado y OK por oficina. THEN office finishes registration in SSI. Final step: certify + confirm paid. |
+| Instructor panel | Standard schedule + commissions | **Activity-block-based** (not student-by-student). Multiple groups chained in time, each on a different course day. Assign per-activity in real-time. Load dive + certify at group level. **Miguel explicitly asked to see Steve's design BEFORE building.** |
+| Reviews | Single rating system | **Two distinct systems**: internal review to instructor (unlocks 10% off + feeds fair ranking with min review threshold + monthly prize 2-3 days hotel) AND public Google review to school (triggers on photo download = max emotion moment) |
+| Course close | Diploma unlock | **Full "enamorate" close**: SSI cert + photo download button + Photo Preset Pack + 10% OFF for 10 hours (unlocked by leaving review, not by score) |
+| Course timeline | Generic | **Strict order:** Reservation+deposit → Registration+sign (Phase 1) → Manager assigns instructor → Theory+pool → Sea dives → **Full payment (at end, after dives)** → Certification |
+| No-fly logic | Not mentioned | **Required.** Instructor loads dive once (from their computer data), student sees countdown, marketed as DAN/SSI guide with disclaimer (not a dive computer) |
+| Financial scope | Implied broad | **Drastically limited.** DPM Cloud does NOT touch accounting. Finances stay in BubbleManager. The only money event we send to Access is "customer paid" when confirmed. |
+| Rollout strategy | Single-sede pilot first | **Build all 5 complete, staggered rollout sede-by-sede over days starting with Gili Trawangan.** No single-sede-only release. |
+| Bug-fix policy | Not specified | **Bug = free; scope change = quoted separately.** Should be in writing. |
+
+### Miguel's two explicit asks of Steve in the brief
+
+1. **Show how you'll think about the instructor panel BEFORE building it.** Activity-block-based scheduling with chained overlapping groups is "where the app either serves the instructor or becomes a pretty mockup nobody uses." Surface design / wireframe / interactive prototype needed.
+
+2. **Look in the .accdb files for the old SSI integration VBA.** It existed in the past, will save us from discovering the SSI API from scratch.
+
+### What we still need from Miguel (beyond the 5 hard blockers already known)
+
+- The 2 HTML demo files themselves (he referenced them as attachments — need the actual files to study the interactions in detail, not just the screenshots)
+- The official SSI PDFs (medical questionnaire + liability release) for use as signature templates
+- Photo Preset Pack — what is this exactly? A Lightroom preset file? A LUT? Needs spec.
+- Photo storage / delivery — where do the underwater photos come from? Does the instructor upload? How? To where?
+- Multiple-instructor-per-group case (assistants in larger courses?)
+- Refund flow — if a customer cancels mid-course, what happens to the code, the registration, the SSI pre-load?
+
+### Open commercial question for Tony
+
+Miguel framed USD 9,000 as "ya cerrado." That's roughly half of what we'd quoted internally. Decision: Tony either accepts (margin question) or pushes back BEFORE acknowledging the brief.
+
+**Files touched in this entry:**
+
+- `information/DPM_CLOUD_EXECUTION_BRIEF_v1.md` (NEW — verbatim canonical)
+- `information/BUBBLEMANAGER_REGISTRATION_BRIEF.md` (annotated as superseded, kept for history)
+
+---
+
+## Entry #14 — 2026-05-19 — Future ecosystem integration: dpmdiving.com website
+
+**Topic:** Miguel mentioned he's independently building out **dpmdiving.com as an e-commerce site** with 109 catalogs of courses. He wants this **wired into the ecosystem in the future** and asked us to design Phase 1 + Phase 2 so the integration works without breaking changes.
+
+**Verbatim from Miguel:**
+
+> Tengo algo que vengo trabajando con la parte de web site que me gustaría que se pudiera cablear en el futuro con todo el ecosistema. La estamos haciendo más e-commerce. www.dpmdiving.com. Ahí viven 109 catálogos como los que tenemos en WhatsApp para los cursos pero. Creo que mejor. Prepara el archivo definitivo de la que vas a armar con si tenes algunas mejoras y partimos.
+
+**Key architectural insight:**
+
+This adds a **4th surface** to the ecosystem (alongside AI agent, Phase 1 form, Phase 2 cloud platform). The clean way to handle it: separate concerns by source-of-truth. Website CMS owns content (titles, descriptions, photos, marketing copy of the 109 catalogs). Cloud DB owns transactional data (availability, bookings, payments, signatures). BubbleManager owns sede operations. DPM AI panel owns conversational state. Each surface reads what it needs from the canonical source via API.
+
+**Improvements I'm baking into Phase 1 + 2 design to enable this later (no extra cost now):**
+
+1. Stable `product_id` field on every course row — later maps to website catalog IDs
+2. `DPM-XXXX` code generation as a stable function, callable from the website's checkout
+3. Cloud platform API surface is public-callable with auth (not tightly coupled to panel)
+4. Audit trail accepts multiple "entry channels" (whatsapp / website / walk-in)
+5. Web form is embeddable as an iframe if the website ever wants to inline it
+
+**Materials I need from Miguel before we can fully scope Phase 3 (website integration):**
+
+1. Website stack (WordPress / Shopify / Webflow / custom Next.js?)
+2. Catalog schema export (or sample of 3-5 entries with all fields)
+3. Current e-commerce state (Stripe configured? Checkout wired?)
+4. Hosting + admin access (read-only API access at minimum)
+5. DNS situation for `registro.dpmdiving.com` / `cloud.dpmdiving.com` subdomains
+
+**Status:**
+
+- Phase 3 (website integration) is **future work, not in current scope**
+- Architectural seams baked in now → no breaking refactor when we wire it in later
+- Miguel asked for the "archivo definitivo" of what we're building — that's [BUBBLEMANAGER_REGISTRATION_BRIEF.md](BUBBLEMANAGER_REGISTRATION_BRIEF.md), now consolidated with Phase 1 + 2 + 3 visions
+
+**Files touched in this entry:**
+
+- `information/BUBBLEMANAGER_REGISTRATION_BRIEF.md` (added Phase 3 / Future Integration section)
+
+---
+
+## Entry #13 — 2026-05-19 — New project brief: restore BubbleManager online registration
+
+**Topic:** Miguel sent a detailed brief asking us to **restore the online customer registration** feature that used to exist in BubbleManager (Microsoft Access) before the previous dev (Karl) stopped paying for A2 Hosting. The VBA on the Access side is intact; only the cloud SQL Server + the public web form need rebuilding. Plus the AI agent on our side needs to send the registration link after deposit confirmation.
+
+**Critical framing:** This is a **separate project** from the DPM AI panel we built today. The integration point with our system is one place — appending a registration link to the deposit-confirmation flow.
+
+**UPDATE 2026-05-19 — Miguel sent 5 mockups** labeled "MOCKUP DE REFERENCIA · PARA STEVE". These supersede several scope decisions in the verbal brief:
+
+- Entry-by-code (DPM-XXXX) not entry-by-shopID URL param. AI agent must **create the registration record before sending the link** (not just send a static URL with shop param).
+- SSI medical signature is **core Phase 1**, not optional. Via real e-signature provider, audit-trail required, minor → tutor flow.
+- Per-diver link / per-diver code / per-diver signature model.
+- Phase 1 field set is the **5 essentials** (Nombre/Apellido/Email/WhatsApp/País), not the 35-field RegisterFormField table.
+
+Revised estimate: **~3-4 weeks** (was ~2). Revised hosting cost: **~$35-115/mo** (was ~$5-10) because e-signature provider charges per envelope.
+
+Full mockup analysis in [BUBBLEMANAGER_REGISTRATION_BRIEF.md](BUBBLEMANAGER_REGISTRATION_BRIEF.md) §"Mockup-driven scope revision".
+
+**UPDATE 2026-05-19 (Step 2 mockups received)** — Miguel sent 4 additional mockups under the **"DPM Cloud"** brand showing a full multi-role cloud platform: Owner global dashboard, Manager per-sede operations, Instructor personal dashboard (with commissions, ratings, schedule, visa runs), and Alumno self-service portal (keyed by the same `DPM-XXXX` code from Phase 1).
+
+This is what the original brief listed as **"fase 2 futura, NO cotizar ahora"** — Miguel is now committing to build it as Step 2 (immediately after Phase 1 connector).
+
+Key continuity: the alumno's code from Phase 1 (`DPM-7K3M`) becomes their **permanent zero-friction login** to the cloud platform — no email/password ever required. One code spans deposit → registration → in-water progress → diploma unlock.
+
+Full Step 2 analysis in [BUBBLEMANAGER_REGISTRATION_BRIEF.md](BUBBLEMANAGER_REGISTRATION_BRIEF.md) §"Step 2 — DPM Cloud multi-role platform".
+
+**Full brief saved to:** [information/BUBBLEMANAGER_REGISTRATION_BRIEF.md](BUBBLEMANAGER_REGISTRATION_BRIEF.md). That file has Miguel's verbatim spec + my technical analysis + draft answers to his 7 questions + risk inventory.
+
+**Quick summary of what's in vs out:**
+
+- ✅ In scope: cloud DB, web form, Access reconnection, AI-agent link send
+- 🔵 Optional: photo upload, waivers w/ digital signature, equipment sizes
+- ❌ Out of scope (phase 2): instructor profiles, commissions, student portal, Access modernization
+
+**What's pending — Tony decides:**
+
+1. Take this on himself or sub-contract the Access VBA part?
+2. Stack choice for the web form (recommend Next.js + Vercel for consistency)
+3. Get materials from Miguel (.accdb files, catalog exports)
+4. Verify a critical open question: are the catalog IDs (Country, State, DiveOrg, DiveLevel, Language) **the same across all 5 sedes' .accdb files** or have they drifted? This affects scope significantly.
+5. Quote model — fixed-price recommended
+
+**Estimated scope:** ~2 weeks of work for one full-stack dev, ~$5-10/month ongoing hosting. See the brief file for the breakdown.
+
+**Actions taken on our side:**
+
+- ✅ Brief saved + analyzed
+- ✅ Draft answers to Miguel's 7 questions prepared (in the brief)
+- ⏳ Tony to reply to Miguel with decision + quote
+- ⏳ No code changes on our existing project until Miguel confirms direction
+
+**Files touched in this entry:**
+
+- `information/BUBBLEMANAGER_REGISTRATION_BRIEF.md` (NEW)
+
+---
+
 ## Entry #12 — 2026-05-19 — Hardening: kill ES→PT language drift
 
 **Topic:** Miguel reported the AI flipping to Portuguese on Spanish-speaking conversations "en casi todas las sedes" — recurring. Two-root-cause fix applied: an inbound-side PT-grapheme cross-check + removal of the `contact.language` runtime fallback that was acting as a persistence layer for franc-min misclassifications.
