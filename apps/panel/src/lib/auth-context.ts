@@ -94,3 +94,18 @@ export async function requireUserContext(): Promise<UserContext> {
   }
   return ctx;
 }
+
+/**
+ * Gate a route to admin only. Office users get a 404 (we 404 rather than
+ * 403 so the URL leaks no information about the existence of the route).
+ * Use as the first await in page components that office users must never
+ * see — prompts/KB/regression/simulator/admin surfaces.
+ */
+export async function requireAdminContext(): Promise<UserContext> {
+  const ctx = await requireUserContext();
+  if (ctx.role !== "admin") {
+    const { notFound } = await import("next/navigation");
+    notFound();
+  }
+  return ctx;
+}

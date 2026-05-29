@@ -9,6 +9,7 @@ import {
   elapsedHours,
   formatElapsed,
 } from "~/app/_components/stage";
+import { requireUserContext } from "~/lib/auth-context";
 import {
   listConversationsForPipeline,
   listSedes,
@@ -36,10 +37,21 @@ export default async function PipelinePage({
 }: {
   searchParams: Promise<{ sede?: string }>;
 }) {
-  const params = await searchParams;
+  const [params, user] = await Promise.all([searchParams, requireUserContext()]);
+
+  // Office users see only their assigned sede regardless of what's in the
+  // URL — pasting `?sede=<other-id>` does not escape the scope. Admins can
+  // filter freely with `?sede=…` or get all sedes if no param.
+  const effectiveSedeId =
+    user.role === "office"
+      ? user.sedeId ?? "__no_sede__"
+      : params.sede ?? undefined;
+
   const [sedes, rows] = await Promise.all([
     listSedes(),
-    listConversationsForPipeline(params.sede ? { sedeId: params.sede } : {}),
+    listConversationsForPipeline(
+      effectiveSedeId ? { sedeId: effectiveSedeId } : {},
+    ),
   ]);
 
   const byStage = new Map<LeadStage, typeof rows>();
@@ -66,20 +78,35 @@ export default async function PipelinePage({
           <form className="flex items-end gap-2">
             <label className="text-xs">
               <div className="metric-label mb-1">Sede</div>
-              <select
-                name="sede"
-                defaultValue={params.sede ?? ""}
-                className="select"
-              >
-                <option value="">Todas</option>
-                {sedes.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.nombre}
+              {user.role === "office" ? (
+                <select
+                  name="sede"
+                  defaultValue={user.sedeId ?? ""}
+                  disabled
+                  className="select"
+                >
+                  <option value={user.sedeId ?? ""}>
+                    {user.sedeName ?? "(sin sede)"}
                   </option>
-                ))}
-              </select>
+                </select>
+              ) : (
+                <select
+                  name="sede"
+                  defaultValue={params.sede ?? ""}
+                  className="select"
+                >
+                  <option value="">Todas</option>
+                  {sedes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nombre}
+                    </option>
+                  ))}
+                </select>
+              )}
             </label>
-            <button className="btn-primary">Filtrar</button>
+            {user.role !== "office" && (
+              <button className="btn-primary">Filtrar</button>
+            )}
           </form>
         }
       />

@@ -5,6 +5,7 @@ import { getDb, sedes } from "@dpm/db";
 
 import { PageHeader } from "~/app/_components/page-header";
 import { saveKbDraft } from "~/app/actions/kb";
+import { requireAdminContext } from "~/lib/auth-context";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,7 @@ export default async function NewKbPage({
 }: {
   searchParams: Promise<{ sede?: string }>;
 }) {
+  await requireAdminContext();
   const { sede: sedeId } = await searchParams;
   if (!sedeId) notFound();
 

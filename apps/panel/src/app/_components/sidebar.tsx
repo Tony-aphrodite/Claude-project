@@ -21,6 +21,7 @@ const NAV: NavItem[] = [
     href: "/",
     label: "Dashboard",
     group: "live",
+    adminOnly: true,
     icon: (
       <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
         <path
@@ -78,6 +79,7 @@ const NAV: NavItem[] = [
     href: "/simulator",
     label: "Simulador",
     group: "live",
+    adminOnly: true,
     icon: (
       <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
         <path
@@ -120,6 +122,7 @@ const NAV: NavItem[] = [
     href: "/prompts",
     label: "Prompts",
     group: "config",
+    adminOnly: true,
     icon: (
       <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
         <path
@@ -136,6 +139,7 @@ const NAV: NavItem[] = [
     href: "/kb",
     label: "Knowledge Base",
     group: "config",
+    adminOnly: true,
     icon: (
       <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
         <path
@@ -171,6 +175,7 @@ const NAV: NavItem[] = [
     href: "/regression",
     label: "Regression",
     group: "config",
+    adminOnly: true,
     icon: (
       <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
         <path

@@ -1,4 +1,5 @@
 import { PageHeader } from "~/app/_components/page-header";
+import { requireUserContext } from "~/lib/auth-context";
 import { getFollowUpMetrics, listFollowUps } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
@@ -45,19 +46,27 @@ export default async function FollowUpsPage({
     q?: string;
   }>;
 }) {
-  const params = await searchParams;
+  const [params, user] = await Promise.all([searchParams, requireUserContext()]);
   // Parse page param defensively — a bogus `?page=foo` shouldn't 500
   // the route, just falls back to page 1.
   const pageParam = Number.parseInt(params.page ?? "1", 10);
   const requestedPage = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
   const searchQuery = (params.q ?? "").trim();
 
+  // Office users see only follow-ups for their assigned sede. Admins see
+  // everything (no sedeId filter). Sentinel `__no_sede__` keeps office
+  // users with a missing sede assignment from accidentally seeing the
+  // global queue while they get reassigned.
+  const sedeIdScope =
+    user.role === "office" ? user.sedeId ?? "__no_sede__" : undefined;
+
   const [metrics, { rows, total, page, pageSize }] = await Promise.all([
-    getFollowUpMetrics(),
+    getFollowUpMetrics({ ...(sedeIdScope ? { sedeId: sedeIdScope } : {}) }),
     listFollowUps({
       status: params.status,
       page: requestedPage,
       q: searchQuery || undefined,
+      ...(sedeIdScope ? { sedeId: sedeIdScope } : {}),
     }),
   ]);
 

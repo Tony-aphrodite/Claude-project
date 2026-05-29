@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { PageHeader } from "~/app/_components/page-header";
+import { requireAdminContext } from "~/lib/auth-context";
 import { listPrompts } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,7 @@ const PERSONA_BY_SEDE: Record<string, string> = {
 };
 
 export default async function PromptsPage() {
+  await requireAdminContext();
   const versions = await listPrompts("system");
 
   return (

@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { PageHeader } from "~/app/_components/page-header";
+import { requireAdminContext } from "~/lib/auth-context";
 import { listKbVersions, listSedes } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export default async function KbListPage({
 }: {
   searchParams: Promise<{ sede?: string }>;
 }) {
+  await requireAdminContext();
   const params = await searchParams;
   const [sedes, versions] = await Promise.all([
     listSedes(),

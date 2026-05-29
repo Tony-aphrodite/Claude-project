@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { requireAdminContext } from "~/lib/auth-context";
 import { getRegressionRunDetail } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export default async function RegressionRunDetail({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requireAdminContext();
   const { id } = await params;
   const detail = await getRegressionRunDetail(id);
   if (!detail.run) notFound();

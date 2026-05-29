@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { LATENCY_TARGETS } from "@dpm/shared";
 
+import { requireUserContext } from "~/lib/auth-context";
 import { getDashboardSnapshot } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
@@ -221,6 +223,14 @@ const QUICK = [
 ];
 
 export default async function Dashboard() {
+  // The dashboard mixes system-wide infra metrics (cost, cache hit, tier,
+  // P95) with operational signals. Office staff don't need infra/cost
+  // visibility, and sede-scoping the system metrics would be misleading
+  // (latency/cost aren't naturally per-sede). So: admins see the dashboard,
+  // office users get redirected to their operational landing (Pipeline).
+  const user = await requireUserContext();
+  if (user.role !== "admin") redirect("/pipeline");
+
   const snap = await getDashboardSnapshot(24);
   const lat = snap.latency;
   const errors = snap.errors;

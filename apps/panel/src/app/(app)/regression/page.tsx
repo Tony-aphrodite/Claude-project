@@ -1,11 +1,13 @@
 import Link from "next/link";
 
 import { PageHeader } from "~/app/_components/page-header";
+import { requireAdminContext } from "~/lib/auth-context";
 import { listRegressionRuns } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function RegressionPage() {
+  await requireAdminContext();
   const rows = (await listRegressionRuns()) as unknown as Array<{
     id: string;
     prompt_version_id: string | null;

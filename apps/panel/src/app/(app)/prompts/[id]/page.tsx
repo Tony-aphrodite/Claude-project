@@ -7,6 +7,7 @@ import { getDb, promptsVersiones } from "@dpm/db";
 import { DiffView } from "~/app/_components/diff-view";
 import { PageHeader } from "~/app/_components/page-header";
 import { promotePromptVersion, savePromptDraft } from "~/app/actions/prompts";
+import { requireAdminContext } from "~/lib/auth-context";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default async function PromptDetail({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ view?: "edit" | "diff" }>;
 }) {
+  await requireAdminContext();
   const { id } = await params;
   const sp = await searchParams;
   const view = sp.view ?? "edit";

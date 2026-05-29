@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "~/app/_components/page-header";
 import { DiffView } from "~/app/_components/diff-view";
 import { promoteKbVersion, saveKbDraft } from "~/app/actions/kb";
+import { requireAdminContext } from "~/lib/auth-context";
 import {
   getActiveKbForSede,
   getKbVersionRow,
@@ -20,6 +21,7 @@ export default async function KbDetailPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ view?: "edit" | "diff" }>;
 }) {
+  await requireAdminContext();
   const { id } = await params;
   const sp = await searchParams;
   const view = sp.view ?? "edit";

@@ -352,6 +352,10 @@ export async function listFollowUps(opts: {
   // through to a single ILIKE — Postgres handles this fine at our row
   // counts without needing a trigram or full-text index.
   q?: string;
+  // Optional sede scope. Joins through `conversaciones` to filter by the
+  // sede that owns the conversation. Set this for office users so they
+  // only see follow-ups for their own sede; leave undefined for admins.
+  sedeId?: string;
 }) {
   const pageSize = opts.pageSize ?? FOLLOW_UPS_PAGE_SIZE;
   const page = Math.max(1, opts.page ?? 1);
@@ -369,6 +373,11 @@ export async function listFollowUps(opts: {
         (r.cancellationReason ?? "").toLowerCase().includes(needle),
       );
     }
+    // The mock dataset doesn't carry sedeId on follow-up rows so when an
+    // office user is sede-scoped in mock mode we just return an empty
+    // list — the panel still renders cleanly without leaking another
+    // sede's mock data.
+    if (opts.sedeId) rows = [];
     const total = rows.length;
     const start = (page - 1) * pageSize;
     return { rows: rows.slice(start, start + pageSize), total, page, pageSize };
@@ -380,11 +389,11 @@ export async function listFollowUps(opts: {
   // we can mix the two conditions cleanly.
   let statusFilter;
   if (opts.status === "pending") {
-    statusFilter = and(sql`sent_at IS NULL`, sql`cancelled_at IS NULL`);
+    statusFilter = and(sql`${followUps.sentAt} IS NULL`, sql`${followUps.cancelledAt} IS NULL`);
   } else if (opts.status === "sent") {
-    statusFilter = sql`sent_at IS NOT NULL`;
+    statusFilter = sql`${followUps.sentAt} IS NOT NULL`;
   } else if (opts.status === "cancelled") {
-    statusFilter = sql`cancelled_at IS NOT NULL`;
+    statusFilter = sql`${followUps.cancelledAt} IS NOT NULL`;
   }
 
   // Match against the conversacionId text (UUIDs cast to text via ::text)
@@ -394,44 +403,93 @@ export async function listFollowUps(opts: {
     ? sql`(${followUps.conversacionId}::text ILIKE ${"%" + q + "%"} OR ${followUps.cancellationReason} ILIKE ${"%" + q + "%"})`
     : undefined;
 
-  const where =
-    statusFilter && searchFilter
-      ? and(statusFilter, searchFilter)
-      : (statusFilter ?? searchFilter);
+  const sedeFilter = opts.sedeId
+    ? eq(conversaciones.sedeId, opts.sedeId)
+    : undefined;
+
+  const where = and(statusFilter, searchFilter, sedeFilter);
 
   // Fetch one page + the total in parallel. Postgres COUNT(*) is cheap
   // at follow-ups volume (~400 rows in the screenshot Miguel sent) so
   // we don't need to bother with windowed estimates.
+  //
+  // When sedeId is set we join to conversaciones; otherwise we don't —
+  // keeps the admin path unchanged.
+  const baseRows = db
+    .select({
+      id: followUps.id,
+      conversacionId: followUps.conversacionId,
+      level: followUps.level,
+      scheduledAt: followUps.scheduledAt,
+      sentAt: followUps.sentAt,
+      cancelledAt: followUps.cancelledAt,
+      cancellationReason: followUps.cancellationReason,
+      messageSent: followUps.messageSent,
+      clientResponded: followUps.clientResponded,
+      resultedInSale: followUps.resultedInSale,
+      saleAmountUsd: followUps.saleAmountUsd,
+      createdAt: followUps.createdAt,
+    })
+    .from(followUps);
+
+  const baseCount = db
+    .select({ total: sql<number>`COUNT(*)::int` })
+    .from(followUps);
+
   const [rows, [{ total }]] = await Promise.all([
-    db
-      .select()
-      .from(followUps)
+    (opts.sedeId
+      ? baseRows.innerJoin(
+          conversaciones,
+          eq(conversaciones.id, followUps.conversacionId),
+        )
+      : baseRows
+    )
       .where(where)
       .orderBy(desc(followUps.createdAt))
       .limit(pageSize)
       .offset((page - 1) * pageSize),
-    db
-      .select({ total: sql<number>`COUNT(*)::int` })
-      .from(followUps)
-      .where(where) as unknown as Promise<[{ total: number }]>,
+    (opts.sedeId
+      ? baseCount.innerJoin(
+          conversaciones,
+          eq(conversaciones.id, followUps.conversacionId),
+        )
+      : baseCount
+    ).where(where) as unknown as Promise<[{ total: number }]>,
   ]);
 
   return { rows, total, page, pageSize };
 }
 
-export async function getFollowUpMetrics() {
-  if (isMockMode()) return mockGetFollowUpMetrics();
+export async function getFollowUpMetrics(opts: { sedeId?: string } = {}) {
+  if (isMockMode()) {
+    // Mock dataset has no sede on follow-ups; return zeros when scoped so
+    // the office view doesn't show another sede's mock numbers.
+    if (opts.sedeId) {
+      return { pending: 0, sent: 0, cancelled: 0, responded: 0, sales: 0, recoveredUsd: 0 };
+    }
+    return mockGetFollowUpMetrics();
+  }
   const db = getDb();
-  const [agg] = await db
+
+  const baseAgg = db
     .select({
-      pending: sql<number>`COUNT(*) FILTER (WHERE sent_at IS NULL AND cancelled_at IS NULL)::int`,
-      sent: sql<number>`COUNT(*) FILTER (WHERE sent_at IS NOT NULL)::int`,
-      cancelled: sql<number>`COUNT(*) FILTER (WHERE cancelled_at IS NOT NULL)::int`,
-      responded: sql<number>`COUNT(*) FILTER (WHERE client_responded = TRUE)::int`,
-      sales: sql<number>`COUNT(*) FILTER (WHERE resulted_in_sale = TRUE)::int`,
-      recoveredUsd: sql<number>`COALESCE(SUM(sale_amount_usd) FILTER (WHERE resulted_in_sale = TRUE), 0)::float`,
+      pending: sql<number>`COUNT(*) FILTER (WHERE ${followUps.sentAt} IS NULL AND ${followUps.cancelledAt} IS NULL)::int`,
+      sent: sql<number>`COUNT(*) FILTER (WHERE ${followUps.sentAt} IS NOT NULL)::int`,
+      cancelled: sql<number>`COUNT(*) FILTER (WHERE ${followUps.cancelledAt} IS NOT NULL)::int`,
+      responded: sql<number>`COUNT(*) FILTER (WHERE ${followUps.clientResponded} = TRUE)::int`,
+      sales: sql<number>`COUNT(*) FILTER (WHERE ${followUps.resultedInSale} = TRUE)::int`,
+      recoveredUsd: sql<number>`COALESCE(SUM(${followUps.saleAmountUsd}) FILTER (WHERE ${followUps.resultedInSale} = TRUE), 0)::float`,
     })
     .from(followUps);
+
+  const [agg] = await (opts.sedeId
+    ? baseAgg
+        .innerJoin(
+          conversaciones,
+          eq(conversaciones.id, followUps.conversacionId),
+        )
+        .where(eq(conversaciones.sedeId, opts.sedeId))
+    : baseAgg);
   return agg ?? null;
 }
 
