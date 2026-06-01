@@ -85,6 +85,39 @@ try {
   } else {
     console.log("❌ NO ROSTER URL in sede.roster_config");
   }
+  console.log();
+
+  // 5) behavior_config check (Miguel's 4 confirmed knobs)
+  const [bcRow] = await sql`SELECT behavior_config FROM sedes WHERE id = ${sede.id}`;
+  const bc = bcRow?.behavior_config ?? {};
+  const expected = {
+    follow_up_hours: [6, 12],
+    post_purchase_grace_minutes: 120,
+    post_purchase_start_delay_seconds: 90,
+    grace_closing_message: { es: "expected", en: "expected" },
+  };
+  const got = {
+    follow_up_hours: bc.follow_up_hours,
+    post_purchase_grace_minutes: bc.post_purchase_grace_minutes,
+    post_purchase_start_delay_seconds: bc.post_purchase_start_delay_seconds,
+    grace_closing_message: {
+      es: typeof bc.grace_closing_message?.es === "string" ? "set" : "missing",
+      en: typeof bc.grace_closing_message?.en === "string" ? "set" : "missing",
+    },
+  };
+  const cadenceOk = JSON.stringify(bc.follow_up_hours) === JSON.stringify([6, 12]);
+  const graceOk = bc.post_purchase_grace_minutes === 120;
+  const delayOk = bc.post_purchase_start_delay_seconds === 90;
+  const closingOk =
+    typeof bc.grace_closing_message?.es === "string" &&
+    typeof bc.grace_closing_message?.en === "string";
+  const allOk = cadenceOk && graceOk && delayOk && closingOk;
+  console.log(allOk ? "✓ behavior_config (Miguel's 4 ajustes):" : "❌ behavior_config MISSING / DRIFT:");
+  console.log("  follow_up_hours          :", JSON.stringify(bc.follow_up_hours), cadenceOk ? "✓" : `✗ expected [6,12]`);
+  console.log("  grace_minutes            :", bc.post_purchase_grace_minutes, graceOk ? "✓" : "✗ expected 120");
+  console.log("  start_delay_seconds      :", bc.post_purchase_start_delay_seconds, delayOk ? "✓" : "✗ expected 90");
+  console.log("  closing_message.es       :", got.grace_closing_message.es, closingOk ? "✓" : "✗");
+  console.log("  closing_message.en       :", got.grace_closing_message.en, closingOk ? "✓" : "✗");
 } finally {
   await sql.end();
 }

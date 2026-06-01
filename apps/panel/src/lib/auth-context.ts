@@ -81,6 +81,17 @@ export const getCurrentUserContext = cache(async (): Promise<UserContext | null>
 });
 
 /**
+ * Sentinel UUID for "no sede assigned." Used when an office user's
+ * metadata.sede did not resolve to a real `sedes` row — we still need a
+ * syntactically-valid UUID for the WHERE clauses on `sede_id` columns
+ * (Postgres rejects free-form strings like "__no_sede__" with a UUID
+ * cast error). This value cannot match any real row because it's the
+ * RFC 4122 nil UUID; the query simply returns zero rows, which is the
+ * intended "show nothing until ops fixes the assignment" behavior.
+ */
+export const NIL_SEDE_ID = "00000000-0000-0000-0000-000000000000";
+
+/**
  * Same as getCurrentUserContext() but redirects to /login if the user
  * isn't signed in. Use this in page components instead of letting the
  * middleware handle redirects when you need a typed context object.

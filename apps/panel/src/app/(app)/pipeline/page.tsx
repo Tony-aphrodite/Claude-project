@@ -9,7 +9,7 @@ import {
   elapsedHours,
   formatElapsed,
 } from "~/app/_components/stage";
-import { requireUserContext } from "~/lib/auth-context";
+import { NIL_SEDE_ID, requireUserContext } from "~/lib/auth-context";
 import {
   listConversationsForPipeline,
   listSedes,
@@ -44,7 +44,7 @@ export default async function PipelinePage({
   // filter freely with `?sede=…` or get all sedes if no param.
   const effectiveSedeId =
     user.role === "office"
-      ? user.sedeId ?? "__no_sede__"
+      ? user.sedeId ?? NIL_SEDE_ID
       : params.sede ?? undefined;
 
   const [sedes, rows] = await Promise.all([

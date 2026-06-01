@@ -1,5 +1,5 @@
 import { PageHeader } from "~/app/_components/page-header";
-import { requireUserContext } from "~/lib/auth-context";
+import { NIL_SEDE_ID, requireUserContext } from "~/lib/auth-context";
 import { getFollowUpMetrics, listFollowUps } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
@@ -54,11 +54,12 @@ export default async function FollowUpsPage({
   const searchQuery = (params.q ?? "").trim();
 
   // Office users see only follow-ups for their assigned sede. Admins see
-  // everything (no sedeId filter). Sentinel `__no_sede__` keeps office
-  // users with a missing sede assignment from accidentally seeing the
-  // global queue while they get reassigned.
+  // everything (no sedeId filter). NIL_SEDE_ID keeps office users with a
+  // missing sede assignment from accidentally seeing the global queue
+  // while ops fixes the assignment (returns zero rows, valid UUID
+  // syntax — `"__no_sede__"` would crash with a UUID cast error).
   const sedeIdScope =
-    user.role === "office" ? user.sedeId ?? "__no_sede__" : undefined;
+    user.role === "office" ? user.sedeId ?? NIL_SEDE_ID : undefined;
 
   const [metrics, { rows, total, page, pageSize }] = await Promise.all([
     getFollowUpMetrics({ ...(sedeIdScope ? { sedeId: sedeIdScope } : {}) }),

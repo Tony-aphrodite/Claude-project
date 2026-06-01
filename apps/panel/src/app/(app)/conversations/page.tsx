@@ -4,7 +4,7 @@ import { type LeadStage } from "@dpm/shared";
 
 import { PageHeader } from "~/app/_components/page-header";
 import { StageChip } from "~/app/_components/stage";
-import { requireUserContext } from "~/lib/auth-context";
+import { NIL_SEDE_ID, requireUserContext } from "~/lib/auth-context";
 import {
   LIST_PAGE_SIZE_OPTIONS,
   LIST_PAGE_SIZE_DEFAULT,
@@ -32,7 +32,7 @@ export default async function ConversationsPage({
   // widen scope. Admins see what they filter to (or all when blank).
   const effectiveSedeId =
     user.role === "office"
-      ? user.sedeId ?? "__no_sede__"
+      ? user.sedeId ?? NIL_SEDE_ID
       : params.sede || null;
 
   // Parse pagination params defensively. Page < 1 or non-numeric → 1.
