@@ -724,6 +724,14 @@ export async function processIncomingMessage(
     // a `deposit_paid` conversation, allow the AI through without even
     // running the new-topic heuristic — every customer question during
     // grace is in-scope (logistics for the just-confirmed booking).
+    //
+    // Within the grace window there's a smaller "start-delay" sub-window
+    // right after deposit_paid (sede.postPurchaseStartDelaySeconds) where
+    // the AI STAYS SILENT so that any Respond.io onboarding workflow
+    // message (e.g. the bilingual welcome that lands at ~+60s) is the
+    // first thing the customer reads after paying. Once that delay
+    // elapses the AI takes over for logistics questions until the grace
+    // window expires.
     const insideGraceWindow = await (async () => {
       if (conversation.leadStage !== "deposit_paid") return false;
       if (!conversation.sedeId) return false;
@@ -732,6 +740,10 @@ export async function processIncomingMessage(
       const startedAt = conversation.leadStageChangedAt;
       if (!startedAt) return false;
       const elapsedMs = Date.now() - startedAt.getTime();
+      const delayMs = behavior.postPurchaseStartDelaySeconds * 1000;
+      // Onboarding-protect sub-window — silence the AI so the workflow
+      // message reaches the customer first.
+      if (elapsedMs < delayMs) return false;
       return elapsedMs <= behavior.postPurchaseGraceMinutes * 60_000;
     })();
     if (insideGraceWindow) {

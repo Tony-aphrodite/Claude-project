@@ -102,14 +102,22 @@ async function expirePostPurchaseGrace(): Promise<{ expired: number }> {
   // Pull every deposit_paid conversation. Cheap — by definition there are
   // never many of these in flight at once (one per active student in the
   // grace window). For each row we read the sede's grace config to
-  // decide whether the window has expired.
+  // decide whether the window has expired. We join chat_contacts so we
+  // have the contact's language for the bilingual closing message.
   const rows = await db
     .select({
       id: conversaciones.id,
       sedeId: conversaciones.sedeId,
       leadStageChangedAt: conversaciones.leadStageChangedAt,
+      respondIoContactId: conversaciones.respondIoContactId,
+      respondIoConversationId: conversaciones.respondIoConversationId,
+      contactLanguage: chatContacts.language,
     })
     .from(conversaciones)
+    .leftJoin(
+      chatContacts,
+      eq(chatContacts.respondIoContactId, conversaciones.respondIoContactId),
+    )
     .where(eq(conversaciones.leadStage, "deposit_paid"));
 
   let expired = 0;
@@ -119,6 +127,44 @@ async function expirePostPurchaseGrace(): Promise<{ expired: number }> {
     if (behavior.postPurchaseGraceMinutes <= 0) continue;
     const elapsedMs = Date.now() - row.leadStageChangedAt.getTime();
     if (elapsedMs <= behavior.postPurchaseGraceMinutes * 60_000) continue;
+
+    // Closing message — sent BEFORE the silence transition so the
+    // customer reads a human-feeling farewell before the AI goes quiet.
+    // Resolved by detected language; falls back to EN. Skip the send if
+    // the sede didn't configure a closing message for the relevant lang.
+    const lang = (row.contactLanguage ?? "en").toLowerCase().startsWith("es")
+      ? "es"
+      : "en";
+    const closingText =
+      behavior.graceClosingMessage[lang] ??
+      behavior.graceClosingMessage.en ??
+      behavior.graceClosingMessage.es;
+    if (closingText && row.respondIoContactId) {
+      try {
+        await respondIoClient.sendMessage({
+          conversationId: row.respondIoConversationId,
+          contactId: row.respondIoContactId,
+          text: closingText,
+        });
+        // Persist the closing message in mensajes so the panel timeline
+        // reflects what the customer received and the next AI re-engage
+        // (if it ever happens via new-topic) has full context.
+        await db.insert(mensajes).values({
+          conversacionId: row.id,
+          sender: "ai",
+          content: closingText,
+          metadata: { source: "post_purchase_grace_closing", language: lang },
+        });
+      } catch (err) {
+        // Don't block the transition on a send failure — the human team
+        // taking over is more important than the farewell message.
+        log.warn(
+          { err, convId: row.id },
+          "grace closing message send failed — proceeding to handoff",
+        );
+      }
+    }
+
     const result = await leadStageService
       .forceTransition({
         conversacionId: row.id,

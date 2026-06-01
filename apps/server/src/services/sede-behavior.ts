@@ -31,6 +31,10 @@ export type ResolvedSedeBehavior = {
   followUpHours: number[];
   /** 0 = no grace (legacy behavior; silence immediately at deposit_paid). */
   postPurchaseGraceMinutes: number;
+  /** Seconds of silence right after deposit_paid so the onboarding workflow message lands first. */
+  postPurchaseStartDelaySeconds: number;
+  /** Final bilingual message sent right before the handed_off transition. */
+  graceClosingMessage: { es: string | null; en: string | null };
 };
 
 const GLOBAL_FOLLOW_UP_HOURS: number[] = [
@@ -44,19 +48,39 @@ const GLOBAL_FOLLOW_UP_HOURS: number[] = [
 export const DEFAULT_BEHAVIOR: ResolvedSedeBehavior = {
   followUpHours: GLOBAL_FOLLOW_UP_HOURS,
   postPurchaseGraceMinutes: 0,
+  postPurchaseStartDelaySeconds: 0,
+  graceClosingMessage: { es: null, en: null },
 };
+
+function nonEmpty(s: unknown): string | null {
+  return typeof s === "string" && s.trim().length > 0 ? s : null;
+}
 
 function resolve(raw: SedeBehaviorConfig | null | undefined): ResolvedSedeBehavior {
   const followUpHours =
     Array.isArray(raw?.follow_up_hours) && raw!.follow_up_hours!.length > 0
-      ? raw!.follow_up_hours!.filter((n) => Number.isFinite(n) && n > 0)
+      ? raw!.follow_up_hours!.filter((n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n > 0)
       : GLOBAL_FOLLOW_UP_HOURS;
   const postPurchaseGraceMinutes =
     typeof raw?.post_purchase_grace_minutes === "number" &&
     raw.post_purchase_grace_minutes >= 0
       ? raw.post_purchase_grace_minutes
       : 0;
-  return { followUpHours, postPurchaseGraceMinutes };
+  const postPurchaseStartDelaySeconds =
+    typeof raw?.post_purchase_start_delay_seconds === "number" &&
+    raw.post_purchase_start_delay_seconds >= 0
+      ? raw.post_purchase_start_delay_seconds
+      : 0;
+  const graceClosingMessage = {
+    es: nonEmpty(raw?.grace_closing_message?.es),
+    en: nonEmpty(raw?.grace_closing_message?.en),
+  };
+  return {
+    followUpHours,
+    postPurchaseGraceMinutes,
+    postPurchaseStartDelaySeconds,
+    graceClosingMessage,
+  };
 }
 
 /** Resolve the behavior config for a sede UUID. Hits the DB. */

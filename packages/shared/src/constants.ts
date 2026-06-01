@@ -63,6 +63,30 @@ export type SedeBehaviorConfig = {
    * `handoff_human` still escalates instantly.
    */
   post_purchase_grace_minutes?: number;
+
+  /**
+   * Seconds after `deposit_paid` during which the AI stays silent so
+   * that any Respond.io onboarding workflow message (e.g. the generic
+   * "Onboarding Cliente Confirmado" bilingual welcome that fires at
+   * ~+60s on lifecycle update) lands first. After this delay elapses
+   * AND while `post_purchase_grace_minutes` is still in effect, the AI
+   * resumes handling the conversation. `0` or absent → no delay.
+   *
+   * Only meaningful when `post_purchase_grace_minutes > 0`.
+   */
+  post_purchase_start_delay_seconds?: number;
+
+  /**
+   * Bilingual closing message sent to the customer right before the
+   * `deposit_paid → handed_off` transition at the end of the grace
+   * window. Resolved by customer language; falls back to `en` if the
+   * detected language isn't in the map. If both keys are absent the
+   * scanner transitions silently (legacy behavior).
+   */
+  grace_closing_message?: {
+    es?: string;
+    en?: string;
+  };
 };
 
 export const FOLLOW_UP_SCANNER_INTERVAL_MS = 15 * 60 * 1000; // 15 min

@@ -396,9 +396,24 @@ ALTER TABLE sedes
 -- Seed Phi Phi's per-sede config. Idempotent — runs on every deploy and
 -- overwrites the previous value with the canonical one (so if anyone tweaks
 -- this in the DB by hand to debug, the next deploy snaps it back to spec).
+--
+-- Fields:
+--   • follow_up_hours: [6, 12] — two-level cadence, stop after the 2nd
+--   • post_purchase_grace_minutes: 120 — AI keeps logistics chat for 2h
+--   • post_purchase_start_delay_seconds: 90 — wait so the generic
+--     "Onboarding Cliente Confirmado" Respond.io workflow message (fires
+--     at ~+60s on lifecycle update for non-GT sedes) lands first and
+--     Francisco doesn't talk over it
+--   • grace_closing_message: bilingual farewell sent right before the
+--     handed_off transition at minute 120
 UPDATE sedes
    SET behavior_config = '{
      "follow_up_hours": [6, 12],
-     "post_purchase_grace_minutes": 120
+     "post_purchase_grace_minutes": 120,
+     "post_purchase_start_delay_seconds": 90,
+     "grace_closing_message": {
+       "es": "¡Listo! Te paso con el equipo de Phi Phi, que va a estar atento a cualquier cosa que necesites. ¡Nos vemos en el agua! 🤿",
+       "en": "All set! I''m passing you to the Phi Phi team — they''ll take care of anything else you need. See you in the water! 🤿"
+     }
    }'::jsonb
  WHERE respond_io_tag = 'sede:phi_phi';
