@@ -158,26 +158,54 @@ export async function webhookRoutes(app: FastifyInstance) {
       return reply.send({ ok: true, ignored: "bot_outbound" });
     }
 
-    try {
-      if (dispatch.kind === "agent_outbound") {
-        const result = await processAgentMessage(parsed.data, dispatch.agentName, req.log);
-        return reply.send(result);
+    // Async dispatch (Phi Phi launch 2026-05-26 / Miguel "HTTP Request
+    // has no timeout setting" feedback): we ack with 202 BEFORE the
+    // expensive work runs, then process in the background. The
+    // customer-facing reply is delivered via the Respond.io outbound
+    // API from inside the handler, so it does NOT need to ride on this
+    // HTTP response. Returning fast lets Miguel's workflow proceed
+    // (and time-budget the human fallback) without waiting on
+    // Anthropic / Apps Script.
+    //
+    // What we LOSE by going async: a backend processing error no
+    // longer surfaces as a non-2xx status, so the Respond.io workflow
+    // can't route to the human via the "status code != 2xx → fallback"
+    // branch when the failure is mid-pipeline. The fallback still
+    // fires for the cases it was designed for — server fully down,
+    // bad auth (401 stays sync), bad payload (422 stays sync) — and
+    // backend mid-pipeline failures are caught + logged here and to
+    // the `errores` table inside process-message.
+    //
+    // What we KEEP: per-contact serialization via withConversationLock,
+    // so two rapid messages from the same customer still process in
+    // order — Miguel's 2026-05-11 stale-metadata bug stays fixed.
+    const handle = (async () => {
+      const t0 = Date.now();
+      try {
+        if (dispatch.kind === "agent_outbound") {
+          await processAgentMessage(parsed.data, dispatch.agentName, req.log);
+          return;
+        }
+        await withConversationLock(parsed.data.contact.id, () =>
+          processIncomingMessage(parsed.data, req.log),
+        );
+      } catch (err) {
+        req.log.error(
+          {
+            err,
+            elapsedMs: Date.now() - t0,
+            contactId: parsed.data.contact?.id ?? null,
+            dispatchKind: dispatch.kind,
+          },
+          "async webhook processing failed",
+        );
       }
-      // Serialize per-contact so two rapid messages from the same customer
-      // don't fire two Claude calls in parallel. Without this, the second
-      // call reads stale lead_metadata (the first call hasn't written its
-      // updates yet) and can misinterpret context — e.g. Miguel's 2026-05-11
-      // test where a bare "3" was treated as confirmation while the first
-      // call was still proposing.
-      const result = await withConversationLock(parsed.data.contact.id, () =>
-        processIncomingMessage(parsed.data, req.log),
-      );
-      return reply.send(result);
-    } catch (err) {
-      req.log.error({ err }, "process-message failed");
-      // Re-throw so the global error handler maps AppError → status code.
-      throw err;
-    }
+    })();
+    // Detach so unhandled-promise warnings don't fire on the rare cases
+    // when the async chain rejects past our try/catch.
+    handle.catch(() => {});
+
+    return reply.status(202).send({ ok: true, queued: true });
   });
 }
 
