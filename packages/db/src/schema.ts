@@ -49,6 +49,12 @@ export const sedes = pgTable(
     minAgeCertification: integer("min_age_certification").notNull().default(10),
     rosterSource: text("roster_source").notNull(), // "apps_script_url" | "supabase_table" | "api_externa"
     rosterConfig: jsonb("roster_config"),
+    // Per-sede behavior overrides (follow-up cadence, post-purchase grace
+    // window, etc). Shape defined as `SedeBehaviorConfig` in @dpm/shared.
+    // Empty/absent → fall back to global defaults.
+    behaviorConfig: jsonb("behavior_config")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
     kbDocumentId: uuid("kb_document_id"), // FK added below to break circular ref
     promptOverrideId: uuid("prompt_override_id"),
     respondIoTag: text("respond_io_tag").notNull(),

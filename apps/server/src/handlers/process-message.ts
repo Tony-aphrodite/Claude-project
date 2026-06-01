@@ -76,6 +76,7 @@ import { buildFourBlockPrompt } from "../services/prompt-builder.js";
 import { promptsService } from "../services/prompts.js";
 import { respondIoClient } from "../services/respond-io.js";
 import { sedeService } from "../services/sede.js";
+import { getSedeBehavior } from "../services/sede-behavior.js";
 import {
   generateRefCode,
   isValidRefCode,
@@ -604,13 +605,28 @@ export async function processIncomingMessage(
             log.error({ err }, "respond_io add deposit_paid tag failed");
           }
 
-          // 3. Move lead to handed_off — operator panel mirrors state.
+          // 3. Move lead to deposit_paid (or handed_off if the sede has no
+          //    post-purchase grace window). Sedes with a grace > 0 stay in
+          //    deposit_paid for `behavior.postPurchaseGraceMinutes` so the
+          //    AI keeps handling immediate logistics questions ("where do
+          //    we meet?", "what should I bring?"). The grace-expiry
+          //    scanner transitions them to handed_off when the window
+          //    ends. handoff_human escalations during the grace window
+          //    bypass this and silence the AI immediately.
+          const sedeBehavior = await getSedeBehavior(sede.id);
+          const targetAutoStage =
+            sedeBehavior.postPurchaseGraceMinutes > 0
+              ? ("deposit_paid" as const)
+              : ("handed_off" as const);
           await leadStageService
             .forceTransition({
               conversacionId: conversation.id,
-              to: "handed_off",
+              to: targetAutoStage,
               by: "system",
-              note: "ocr_auto_handoff_after_deposit",
+              note:
+                targetAutoStage === "handed_off"
+                  ? "ocr_auto_handoff_after_deposit"
+                  : "ocr_deposit_paid_grace_started",
             })
             .catch((err) =>
               log.warn({ err }, "auto handoff transition failed"),
@@ -687,6 +703,16 @@ export async function processIncomingMessage(
   // time gap). Conservative thresholds tilt toward staying silent on
   // ambiguous messages so a quick "thanks!" never wakes the AI back up
   // mid-onboarding-workflow.
+  //
+  // 2026-05-26: per-sede post-purchase grace window. Sedes with
+  // `behavior_config.post_purchase_grace_minutes > 0` (e.g. Phi Phi)
+  // intentionally KEEP `lead_stage = deposit_paid` for `grace_minutes`
+  // after the deposit lands so the AI can keep handling logistics
+  // questions (meeting point, what to bring, timing). During the grace
+  // window the guard short-circuits and processing continues normally.
+  // The grace-expiry scanner transitions to handed_off when the window
+  // ends; `handoff_human` escalations bypass the grace and silence the
+  // AI immediately.
   const POST_HANDOFF_STAGES = new Set([
     "deposit_paid",
     "handed_off",
@@ -694,34 +720,59 @@ export async function processIncomingMessage(
     "lost",
   ]);
   if (POST_HANDOFF_STAGES.has(conversation.leadStage)) {
-    const isNewTopic = isNewTopicAfterHandoff({
-      text: incomingText,
-      leadStageChangedAt: conversation.leadStageChangedAt ?? null,
-    });
-    if (!isNewTopic) {
+    // Check the post-purchase grace window first: if we're inside it for
+    // a `deposit_paid` conversation, allow the AI through without even
+    // running the new-topic heuristic — every customer question during
+    // grace is in-scope (logistics for the just-confirmed booking).
+    const insideGraceWindow = await (async () => {
+      if (conversation.leadStage !== "deposit_paid") return false;
+      if (!conversation.sedeId) return false;
+      const behavior = await getSedeBehavior(conversation.sedeId);
+      if (behavior.postPurchaseGraceMinutes <= 0) return false;
+      const startedAt = conversation.leadStageChangedAt;
+      if (!startedAt) return false;
+      const elapsedMs = Date.now() - startedAt.getTime();
+      return elapsedMs <= behavior.postPurchaseGraceMinutes * 60_000;
+    })();
+    if (insideGraceWindow) {
       log.info(
         {
           conversationId: conversation.id,
           leadStage: conversation.leadStage,
           contactId: payload.contact.id,
         },
-        "ai silenced post handoff — message persisted, no reply generated",
+        "ai active in post-purchase grace window — proceeding with reply",
       );
-      return {
-        ok: false,
-        ignored: true,
-        reason: "ai_silenced_post_handoff",
-        latencyMs: Date.now() - t0,
-      };
+    } else {
+      const isNewTopic = isNewTopicAfterHandoff({
+        text: incomingText,
+        leadStageChangedAt: conversation.leadStageChangedAt ?? null,
+      });
+      if (!isNewTopic) {
+        log.info(
+          {
+            conversationId: conversation.id,
+            leadStage: conversation.leadStage,
+            contactId: payload.contact.id,
+          },
+          "ai silenced post handoff — message persisted, no reply generated",
+        );
+        return {
+          ok: false,
+          ignored: true,
+          reason: "ai_silenced_post_handoff",
+          latencyMs: Date.now() - t0,
+        };
+      }
+      log.info(
+        {
+          conversationId: conversation.id,
+          leadStage: conversation.leadStage,
+          contactId: payload.contact.id,
+        },
+        "ai re-engaging after handoff — new-topic heuristic matched",
+      );
     }
-    log.info(
-      {
-        conversationId: conversation.id,
-        leadStage: conversation.leadStage,
-        contactId: payload.contact.id,
-      },
-      "ai re-engaging after handoff — new-topic heuristic matched",
-    );
   }
 
   const history = await conversationService.recentMessages(conversation.id);
@@ -1370,6 +1421,31 @@ export async function processIncomingMessage(
       .catch((err) =>
         log.warn({ err }, "respond_io add_tag failed (ai_escalation)"),
       );
+
+    // Grace-window escape: when an escalation lands inside the
+    // post-purchase grace window (sede opted into the AI-keeps-handling-
+    // logistics period), Miguel's requirement is that handoff_human
+    // takes priority over the grace — silence the AI immediately rather
+    // than waiting for the window to close. We do that by transitioning
+    // the conversation to handed_off now so the next inbound hits the
+    // standard post-handoff silence (instead of the grace short-circuit
+    // in the guard above). Only fires for sedes with grace enabled to
+    // keep other sedes' escalation flow exactly as before.
+    if (conversation.leadStage === "deposit_paid" && conversation.sedeId) {
+      const behaviorForEscalation = await getSedeBehavior(conversation.sedeId);
+      if (behaviorForEscalation.postPurchaseGraceMinutes > 0) {
+        void leadStageService
+          .forceTransition({
+            conversacionId: conversation.id,
+            to: "handed_off",
+            by: "system",
+            note: "grace_window_escalation_priority",
+          })
+          .catch((err) =>
+            log.warn({ err }, "grace-window escalation transition failed"),
+          );
+      }
+    }
   }
 
   // Step 9b-2 (Colomba/GA): close_reason → tag venta_incompleta and let

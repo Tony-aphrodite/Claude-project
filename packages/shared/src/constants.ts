@@ -29,6 +29,42 @@ export const FOLLOW_UP_LEVELS = {
 
 export type FollowUpLevel = keyof typeof FOLLOW_UP_LEVELS;
 
+/**
+ * Per-sede behavior config. Stored as JSONB on `sedes.behavior_config`.
+ * Every field is optional — empty/absent fields fall back to the global
+ * defaults (FOLLOW_UP_LEVELS, no post-purchase grace).
+ *
+ * Why per-sede: Miguel asked 2026-05-26 to customize Phi Phi without
+ * touching the other 4 sedes — Phi Phi gets a tighter follow-up cadence
+ * (6h / +6h, then stop) and a 2-hour grace window after the deposit is
+ * paid where Francisco still handles logistics questions before being
+ * silenced for the human team.
+ */
+export type SedeBehaviorConfig = {
+  /**
+   * Override the follow-up cadence for this sede. Each entry is the
+   * `hours` value for that level, in order. So `[6, 12]` means
+   * LEVEL_1 fires after 6h of silence and LEVEL_2 after 12h elapsed
+   * (still measured from the last activity, not from LEVEL_1). After the
+   * last level, the scanner stops scheduling new follow-ups for the
+   * conversation — but a customer who later writes back is handled
+   * normally (the reactive path is unaffected).
+   *
+   * Empty or absent → use global FOLLOW_UP_LEVELS (4h / 24h / 48h / 7d / 30d).
+   */
+  follow_up_hours?: number[];
+
+  /**
+   * Minutes after `deposit_paid` during which the AI keeps handling the
+   * conversation (logistics: meeting point, what to bring, timing).
+   * After this window the conversation transitions to `handed_off` and
+   * the AI goes silent. `0` or absent → no grace; AI is silenced
+   * immediately at deposit_paid (legacy behavior). Inside the window,
+   * `handoff_human` still escalates instantly.
+   */
+  post_purchase_grace_minutes?: number;
+};
+
 export const FOLLOW_UP_SCANNER_INTERVAL_MS = 15 * 60 * 1000; // 15 min
 
 export const CONCURRENCY = {

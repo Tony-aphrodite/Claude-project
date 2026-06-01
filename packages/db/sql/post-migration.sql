@@ -379,3 +379,26 @@ ON CONFLICT (respond_io_tag) DO NOTHING;
 -- can match the Branch value directly without a renaming map. Idempotent.
 UPDATE sedes SET nombre = 'Koh Phi Phi'
  WHERE respond_io_tag = 'sede:phi_phi' AND nombre = 'Phi Phi';
+
+-- ── sedes.behavior_config ──────────────────────────────────────────────────
+-- Per-sede behavior overrides (follow-up cadence, post-purchase grace window).
+-- Shape:
+--   {
+--     "follow_up_hours": [6, 12]         -- optional; overrides global cadence
+--     "post_purchase_grace_minutes": 120 -- optional; default 0 (no grace)
+--   }
+-- Added 2026-05-26 to honor Miguel's Phi Phi-specific request before flip:
+-- two follow-ups at 6h and +6h, then stop; 2-hour post-purchase window where
+-- Francisco still handles logistics before silencing for the human team.
+ALTER TABLE sedes
+  ADD COLUMN IF NOT EXISTS behavior_config jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+-- Seed Phi Phi's per-sede config. Idempotent — runs on every deploy and
+-- overwrites the previous value with the canonical one (so if anyone tweaks
+-- this in the DB by hand to debug, the next deploy snaps it back to spec).
+UPDATE sedes
+   SET behavior_config = '{
+     "follow_up_hours": [6, 12],
+     "post_purchase_grace_minutes": 120
+   }'::jsonb
+ WHERE respond_io_tag = 'sede:phi_phi';

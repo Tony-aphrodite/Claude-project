@@ -28,6 +28,7 @@ import {
   followUps,
   getDb,
   mensajes,
+  sedes,
   type ChatContact,
   type FollowUp,
   type Mensaje,
@@ -38,6 +39,7 @@ import {
   FOLLOW_UP_SCANNER_INTERVAL_MS,
   TIMEOUTS,
   type FollowUpLevel,
+  type SedeBehaviorConfig,
 } from "@dpm/shared";
 
 import { loadEnv } from "../env.js";
@@ -45,6 +47,12 @@ import { getLogger } from "../logger.js";
 import { leadStageService } from "./lead-stage.js";
 import { detectNegativeIntent } from "./negative-intent.js";
 import { respondIoClient } from "./respond-io.js";
+import {
+  DEFAULT_BEHAVIOR,
+  getSedeBehavior,
+  resolveSedeBehavior,
+  type ResolvedSedeBehavior,
+} from "./sede-behavior.js";
 import {
   isWithin24hWindow,
   pickTemplate,
@@ -77,6 +85,58 @@ suave (temporada, plazas), sin reproche. 2-3 oraciones. Mismo idioma.`,
   5: `Último contacto. Saludo amistoso de despedida que deje la puerta
 abierta sin sonar a venta. 1-2 oraciones. Mismo idioma.`,
 };
+
+/**
+ * Per-sede post-purchase grace: when a sede has
+ * `behavior_config.post_purchase_grace_minutes > 0`, deposit_paid
+ * conversations stay in that stage for the configured number of minutes
+ * (so the AI can answer logistics questions) and then transition to
+ * handed_off. This scanner enforces the transition for any conversation
+ * whose grace window has expired. Idempotent — already-handed-off rows
+ * are skipped by the WHERE clause.
+ */
+async function expirePostPurchaseGrace(): Promise<{ expired: number }> {
+  const db = getDb();
+  const log = getLogger();
+
+  // Pull every deposit_paid conversation. Cheap — by definition there are
+  // never many of these in flight at once (one per active student in the
+  // grace window). For each row we read the sede's grace config to
+  // decide whether the window has expired.
+  const rows = await db
+    .select({
+      id: conversaciones.id,
+      sedeId: conversaciones.sedeId,
+      leadStageChangedAt: conversaciones.leadStageChangedAt,
+    })
+    .from(conversaciones)
+    .where(eq(conversaciones.leadStage, "deposit_paid"));
+
+  let expired = 0;
+  for (const row of rows) {
+    if (!row.sedeId || !row.leadStageChangedAt) continue;
+    const behavior = await getSedeBehavior(row.sedeId);
+    if (behavior.postPurchaseGraceMinutes <= 0) continue;
+    const elapsedMs = Date.now() - row.leadStageChangedAt.getTime();
+    if (elapsedMs <= behavior.postPurchaseGraceMinutes * 60_000) continue;
+    const result = await leadStageService
+      .forceTransition({
+        conversacionId: row.id,
+        to: "handed_off",
+        by: "system",
+        note: `post_purchase_grace_expired_${behavior.postPurchaseGraceMinutes}min`,
+      })
+      .catch((err) => {
+        log.warn({ err, convId: row.id }, "grace expiry transition failed");
+        return null;
+      });
+    if (result?.ok) expired++;
+  }
+  if (expired > 0) {
+    log.info({ expired }, "post-purchase grace expired → handed_off");
+  }
+  return { expired };
+}
 
 /**
  * Owner spec INSTRUCCIONES_PAGO §1: leads sitting in `deposit_pending` for
@@ -136,6 +196,27 @@ export class FollowUpScheduler {
     await expireStaleDepositPending().catch((err) =>
       log.warn({ err }, "expireStaleDepositPending failed"),
     );
+    // Side-effect: enforce per-sede post-purchase grace window. Sedes that
+    // opt in (Phi Phi at launch) hold conversations at deposit_paid for
+    // a few minutes/hours so the AI can field logistics questions; this
+    // expiry pass transitions them to handed_off when the window ends.
+    await expirePostPurchaseGrace().catch((err) =>
+      log.warn({ err }, "expirePostPurchaseGrace failed"),
+    );
+
+    // Load per-sede behavior configs once per pass so the per-conversation
+    // decision below doesn't issue an extra query per row. 5 rows max, this
+    // is effectively free.
+    const sedeRows = await db
+      .select({ id: sedes.id, behaviorConfig: sedes.behaviorConfig })
+      .from(sedes);
+    const sedeBehaviorById = new Map<string, ResolvedSedeBehavior>();
+    for (const s of sedeRows) {
+      sedeBehaviorById.set(
+        s.id,
+        resolveSedeBehavior(s.behaviorConfig as SedeBehaviorConfig | null),
+      );
+    }
 
     // Conversations active and where last activity is at least 4h old.
     // We pull a generous window — the per-row level decision happens below.
@@ -164,7 +245,12 @@ export class FollowUpScheduler {
           ? row.lastMessageAt
           : new Date(row.lastMessageAt as unknown as string);
       const elapsedHours = (now - lastMessageAt.getTime()) / (60 * 60 * 1000);
-      const targetLevel = pickLevelByElapsed(elapsedHours);
+      // Resolve this conversation's sede behavior. Conversations without a
+      // sedeId (legacy / orphan rows) fall back to the global cadence.
+      const behavior =
+        (row.conv.sedeId && sedeBehaviorById.get(row.conv.sedeId)) ||
+        DEFAULT_BEHAVIOR;
+      const targetLevel = pickLevelByElapsed(elapsedHours, behavior.followUpHours);
       if (!targetLevel) {
         skipped++;
         continue;
@@ -202,7 +288,10 @@ export class FollowUpScheduler {
       const liveLastAt = liveLastMessage[0]?.at;
       if (liveLastAt) {
         const liveElapsedHours = (Date.now() - liveLastAt.getTime()) / (60 * 60 * 1000);
-        const liveLevel = pickLevelByElapsed(liveElapsedHours);
+        const liveLevel = pickLevelByElapsed(
+          liveElapsedHours,
+          behavior.followUpHours,
+        );
         if (liveLevel !== targetLevel) {
           // Activity has happened since the candidates query; the level
           // we picked is no longer applicable. Skip — next scanner pass
@@ -330,15 +419,28 @@ export class FollowUpProcessor {
 
     // CRITICAL re-check (2026-05-11): the scheduler may have queued this
     // follow-up off a stale snapshot. Before actually firing the message,
-    // verify the conversation has been quiet for at least LEVEL_1.hours.
-    // If activity is fresher than that, cancel rather than send — sending
-    // a "still there?" prompt minutes after an AI reply was the bug
-    // Miguel flagged during his pilot test.
+    // verify the conversation has been quiet for at least the sede's
+    // shortest follow-up gap (LEVEL_1 / followUpHours[0]). If activity is
+    // fresher than that, cancel rather than send — sending a "still
+    // there?" prompt minutes after an AI reply was the bug Miguel flagged
+    // during his pilot test.
+    const sedeBehavior = conv.sedeId
+      ? resolveSedeBehavior(
+          (
+            await db
+              .select({ behaviorConfig: sedes.behaviorConfig })
+              .from(sedes)
+              .where(eq(sedes.id, conv.sedeId))
+              .limit(1)
+          )[0]?.behaviorConfig as SedeBehaviorConfig | null,
+        )
+      : DEFAULT_BEHAVIOR;
+    const minQuietHours = sedeBehavior.followUpHours[0] ?? FOLLOW_UP_LEVELS.LEVEL_1.hours;
     const newestMsg = recent[recent.length - 1];
     if (newestMsg) {
       const elapsedHours =
         (Date.now() - newestMsg.createdAt.getTime()) / (60 * 60 * 1000);
-      if (elapsedHours < FOLLOW_UP_LEVELS.LEVEL_1.hours) {
+      if (elapsedHours < minQuietHours) {
         await db
           .update(followUps)
           .set({
@@ -503,17 +605,15 @@ async function generateFollowUpText(
     .trim();
 }
 
-function pickLevelByElapsed(elapsedHours: number): FollowUp["level"] | null {
-  // Priority: highest applicable level we haven't tried yet.
-  const order: { key: FollowUpLevel; level: number; hours: number }[] = [
-    { key: "LEVEL_5", level: 5, hours: FOLLOW_UP_LEVELS.LEVEL_5.hours },
-    { key: "LEVEL_4", level: 4, hours: FOLLOW_UP_LEVELS.LEVEL_4.hours },
-    { key: "LEVEL_3", level: 3, hours: FOLLOW_UP_LEVELS.LEVEL_3.hours },
-    { key: "LEVEL_2", level: 2, hours: FOLLOW_UP_LEVELS.LEVEL_2.hours },
-    { key: "LEVEL_1", level: 1, hours: FOLLOW_UP_LEVELS.LEVEL_1.hours },
-  ];
-  for (const o of order) {
-    if (elapsedHours >= o.hours) return o.level;
+function pickLevelByElapsed(
+  elapsedHours: number,
+  followUpHours: number[],
+): FollowUp["level"] | null {
+  // Priority: highest applicable level we haven't tried yet. We iterate
+  // from the last threshold down so a long-elapsed lead jumps straight
+  // to the deepest level without firing the shallower ones.
+  for (let i = followUpHours.length - 1; i >= 0; i--) {
+    if (elapsedHours >= followUpHours[i]!) return (i + 1) as FollowUp["level"];
   }
   return null;
 }
