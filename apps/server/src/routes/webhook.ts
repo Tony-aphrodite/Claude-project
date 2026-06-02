@@ -159,13 +159,21 @@ export async function webhookRoutes(app: FastifyInstance) {
     }
 
     // Async dispatch (Phi Phi launch 2026-05-26 / Miguel "HTTP Request
-    // has no timeout setting" feedback): we ack with 202 BEFORE the
-    // expensive work runs, then process in the background. The
-    // customer-facing reply is delivered via the Respond.io outbound
-    // API from inside the handler, so it does NOT need to ride on this
-    // HTTP response. Returning fast lets Miguel's workflow proceed
-    // (and time-budget the human fallback) without waiting on
-    // Anthropic / Apps Script.
+    // has no timeout setting" feedback): we ack BEFORE the expensive
+    // work runs, then process in the background. The customer-facing
+    // reply is delivered via the Respond.io outbound API from inside
+    // the handler, so it does NOT need to ride on this HTTP response.
+    // Returning fast lets Miguel's workflow proceed (and time-budget
+    // the human fallback) without waiting on Anthropic / Apps Script.
+    //
+    // Status code is 200, NOT 202 (root-cause fix 2026-06-02): Respond.io's
+    // auto-disable mechanism treats any non-200 (including 202 Accepted)
+    // as a delivery failure. After enough "failures" in a short window
+    // it auto-disables the webhook silently, causing the freeze symptom
+    // Miguel reported. Returning 200 means every successful ack counts
+    // as success on their side; failures only happen for the cases that
+    // SHOULD count as failures (401 / 422 / 5xx — all still return their
+    // own status codes).
     //
     // What we LOSE by going async: a backend processing error no
     // longer surfaces as a non-2xx status, so the Respond.io workflow
@@ -205,7 +213,7 @@ export async function webhookRoutes(app: FastifyInstance) {
     // when the async chain rejects past our try/catch.
     handle.catch(() => {});
 
-    return reply.status(202).send({ ok: true, queued: true });
+    return reply.status(200).send({ ok: true, queued: true });
   });
 }
 

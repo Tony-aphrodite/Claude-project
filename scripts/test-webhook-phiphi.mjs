@@ -1,5 +1,5 @@
 // Simulate Respond.io's HTTP Request node by POSTing a synthetic Phi Phi
-// inbound message to the production webhook. If this returns 202, the
+// inbound message to the production webhook. If this returns 200, the
 // server-side is fully working and any remaining issue lives in Miguel's
 // Respond.io workflow configuration. If it returns 4xx/5xx, the body is
 // captured below and we can fix it.
@@ -41,12 +41,12 @@ const body = {
   },
   message: {
     type: "text",
-    // Phrased so the AI MUST call `enviar_catalogo` per Francisco v4 prompt
-    // (customer mentions a specific course → tool fires before text reply).
-    // If the synthetic test doesn't trigger the tool, either the prompt
-    // didn't load v4, the env var for OW_EN is missing, or the AI
-    // hallucinated past the instruction.
-    text: "I want to do the Open Water Course in Koh Phi Phi, can you send me the info?",
+    // Short English greeting — verifies the language-bias fix (2026-06-02):
+    // before the fix this triggered a Spanish reply because franc requires
+    // 60 chars and the prompt's Spanish-worded fallback biased the model.
+    // After the fix the short-greeting regex catches "Hello" → english →
+    // strong langLine → Francisco replies in English.
+    text: "Hello",
     timestamp: new Date().toISOString(),
     direction: "incoming",
   },
@@ -76,10 +76,12 @@ console.log(`status: ${res.status} (${elapsed}ms)`);
 console.log(`response body: ${text}`);
 console.log();
 
-if (res.status === 202) {
+if (res.status === 200) {
   console.log("✅ Endpoint is fully working.");
   console.log("   → Async dispatch fired. Francisco's reply will land via Respond.io API in a few seconds.");
   console.log("   → If Miguel still sees 'not working', the problem is 100% in his HTTP Request node config.");
+} else if (res.status === 202) {
+  console.log("⚠ Server returned 202 — that's the OLD code. Wait for Railway redeploy to finish.");
 } else if (res.status === 401) {
   console.log("❌ Auth rejected (token mismatch).");
   console.log("   → Re-copy WEBHOOK_WORKFLOW_TOKEN from Railway and check for trailing whitespace/newline.");
