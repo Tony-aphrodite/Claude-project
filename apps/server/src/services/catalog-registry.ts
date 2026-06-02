@@ -17,9 +17,20 @@
 //
 // Naming convention for env vars:
 //
-//   RESPOND_IO_CATALOG_<SEDE>_<PROGRAM>=<json-or-string>
+//   RESPOND_IO_CATALOG_<SEDE>_<PROGRAM>[_<LANG>]=<json-or-string>
 //
-// Example for Gili Trawangan, Open Water, Meta product retailer ID:
+// The optional `<LANG>` suffix (e.g. _EN, _ES) lets a sede maintain
+// separate catalog cards per language. The lookup tries language-suffixed
+// variants in order (caller's language → EN fallback → bare key) so adding
+// language support per-sede is opt-in: sedes that only have one variant
+// can keep using the unsuffixed env var.
+//
+// Example for Phi Phi, Try Scuba, bilingual fragments (added 2026-06-02):
+//
+//   RESPOND_IO_CATALOG_KOH_PHI_PHI_TRYSCUBA_EN=xini7rpxbl
+//   RESPOND_IO_CATALOG_KOH_PHI_PHI_TRYSCUBA_ES=ysjbu87ht6
+//
+// Example for Gili Trawangan, Open Water, Meta product retailer ID (no lang):
 //
 //   RESPOND_IO_CATALOG_GILI_TRAWANGAN_OW='{"type":"product","product_retailer_id":"OW-GILI-EN"}'
 //
@@ -28,8 +39,8 @@
 //   RESPOND_IO_CATALOG_GILI_TRAWANGAN_OW=frag_OW_gili
 //
 // Either way the value is opaque to this server — we hand it off to
-// Respond.io's API. Until Miguel confirms the actual format, we accept
-// both (string for fragment, JSON for richer payloads).
+// Respond.io's API. We accept both (string for fragment, JSON for richer
+// payloads).
 // ============================================================================
 
 import type { CatalogProgram } from "@dpm/shared";
@@ -62,22 +73,61 @@ function sedeKey(sedeName: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
-function envKey(sedeName: string, program: CatalogProgram): string {
-  return `RESPOND_IO_CATALOG_${sedeKey(sedeName)}_${program.toUpperCase()}`;
+function envKey(sedeName: string, program: CatalogProgram, langSuffix?: string): string {
+  const base = `RESPOND_IO_CATALOG_${sedeKey(sedeName)}_${program.toUpperCase()}`;
+  return langSuffix ? `${base}_${langSuffix}` : base;
+}
+
+/**
+ * Normalize a customer-language code to the suffix used in env-var names.
+ * Accepts ISO codes ("en", "es", "en-US", "es-AR"), language names
+ * ("english", "español"), and our internal labels. Anything else returns
+ * undefined, which signals "no language-specific lookup, fall back to base".
+ */
+function langSuffixFor(language: string | null | undefined): "EN" | "ES" | undefined {
+  if (!language) return undefined;
+  const lower = language.toLowerCase().trim();
+  if (lower.startsWith("en") || lower === "english") return "EN";
+  if (lower.startsWith("es") || lower === "español" || lower === "espanol" || lower === "spanish") return "ES";
+  return undefined;
 }
 
 /**
  * Look up the catalog entry for a given (sede, program) pair. Returns null
  * when no entry is configured — the tool handler must degrade gracefully
  * (the AI then answers in text only).
+ *
+ * The optional `language` argument enables per-language catalog cards:
+ * we try the language-suffixed env var first
+ * (`..._EN` / `..._ES`), then fall back to `..._EN` (so Spanish customers
+ * still get a card when only EN was configured), then the bare unsuffixed
+ * key. This keeps legacy single-language sedes working unchanged while
+ * allowing sedes like Phi Phi (Miguel 2026-06-02) to ship bilingual
+ * fragments.
  */
 export function getCatalogEntry(
   sedeName: string,
   program: CatalogProgram,
+  language?: string | null,
 ): CatalogEntry | null {
-  const key = envKey(sedeName, program);
-  const raw = process.env[key];
-  if (!raw || raw.trim().length === 0) return null;
+  const suffix = langSuffixFor(language);
+
+  // Lookup order: customer-language → EN fallback → bare key.
+  // Deduplicate so we don't read the same env var twice when suffix is EN.
+  const lookups: string[] = [];
+  if (suffix) lookups.push(envKey(sedeName, program, suffix));
+  if (!suffix || suffix !== "EN") lookups.push(envKey(sedeName, program, "EN"));
+  lookups.push(envKey(sedeName, program));
+
+  let raw: string | undefined;
+  for (const key of lookups) {
+    const v = process.env[key];
+    if (v && v.trim().length > 0) {
+      raw = v;
+      break;
+    }
+  }
+  if (!raw) return null;
 
   const trimmed = raw.trim();
 

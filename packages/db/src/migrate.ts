@@ -10,7 +10,7 @@ import path from "node:path";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 
 import { closeDb, getDb, getRawClient } from "./client.js";
-import { seedKbBundle, seedSystemPrompt } from "./seed-content.js";
+import { seedAll } from "./seed-content.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const POST_MIGRATION_SQL = path.resolve(__dirname, "../sql/post-migration.sql");
@@ -29,19 +29,13 @@ async function main() {
   await client.unsafe(sqlText);
   console.log("[db:migrate] post-migration SQL applied");
 
-  console.log("[db:migrate] seeding owner content (John v1.1 + KB bundle) ...");
-  await seedSystemPrompt();
-  if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    try {
-      await seedKbBundle();
-    } catch (err) {
-      console.warn(`[db:migrate] KB bundle skipped: ${(err as Error).message}`);
-    }
-  } else {
-    console.log(
-      "[db:migrate] KB bundle skipped (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set)",
-    );
-  }
+  // Seed owner-authored content for every sede. `seedAll` is idempotent:
+  // each per-sede seed function computes a content hash and skips the
+  // insert when the active prompt/KB matches that hash. New versions
+  // (e.g. Francisco v4 — catalog instructions added 2026-06-02) are
+  // detected on the next deploy and applied automatically.
+  console.log("[db:migrate] seeding owner content for all sedes ...");
+  await seedAll();
   console.log("[db:migrate] content seed done");
 
   await closeDb();

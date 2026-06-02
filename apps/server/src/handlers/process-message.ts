@@ -1227,7 +1227,12 @@ export async function processIncomingMessage(
       );
     }
 
-    const entry = getCatalogEntry(sede.nombre, input.programa);
+    // Catalog cards can be bilingual (e.g. Phi Phi has EN + ES fragments
+    // per course). Pass the customer's language so the registry picks the
+    // right variant; falls back to EN if the language-specific variant
+    // isn't configured.
+    const catalogLanguage = detectedLanguage ?? contact.language ?? undefined;
+    const entry = getCatalogEntry(sede.nombre, input.programa, catalogLanguage);
     if (!entry) {
       const message = describeMissingCatalog(sede.nombre, input.programa);
       log.info(

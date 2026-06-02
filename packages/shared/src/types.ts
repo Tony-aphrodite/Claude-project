@@ -591,12 +591,20 @@ export type AvailabilityResponse = {
 // reason="not_configured" and the AI degrades gracefully to text.
 export const CATALOG_PROGRAMS = [
   "TryScuba",
+  "ScubaDiver", // SSI entry-level cert (limited depth, fewer dives than OW)
   "OW", // Open Water
   "OW30", // Open Water 30 (3-day intensive)
   "AOW", // Advanced Open Water
+  "Adventures", // SSI Adventure Diver (2 specialty dives, pre-AOW)
+  "OWAOWCombo", // Open Water + Advanced bundled
+  "OWDeepCombo", // Open Water + Deep Specialty bundled
+  "DeepSpecialty",
+  "NitroxSpecialty",
   "Refresh",
   "FunDive",
-  "RescueDiver",
+  "RescueDiver", // PADI / SSI Rescue Diver — keep legacy key
+  "StressRescue", // SSI's branded name for the rescue course
+  "ReactRight", // SSI first aid / EFR equivalent
   "DMT", // Divemaster Trainee
 ] as const;
 export type CatalogProgram = (typeof CATALOG_PROGRAMS)[number];
