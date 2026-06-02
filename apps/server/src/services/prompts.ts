@@ -12,7 +12,7 @@
 // before content team uploads), we return a placeholder so end-to-end tests
 // can still run.
 
-import { and, desc, eq, isNull, or } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 
 import {
   getDb,
@@ -60,6 +60,15 @@ export class PromptsService {
     }
 
     const db = getDb();
+    // Prefer sede-specific over global fallback. We sort by `sede_id IS NULL`
+    // ASC so non-null (sede-specific) rows come first; NULL (global
+    // fallback) rows only win when no sede-specific row exists.
+    //
+    // Why NOT just `ORDER BY sede_id DESC`: Postgres treats NULL as
+    // greater-than in DESC ordering ("NULLS FIRST" is the default for
+    // DESC). With both rows active that flipped the priority — the
+    // global John prompt won over the PP-specific Francisco one and
+    // every PP customer got the GT system persona (2026-06-02 incident).
     const rows = await db
       .select()
       .from(promptsVersiones)
@@ -70,7 +79,10 @@ export class PromptsService {
           or(eq(promptsVersiones.sedeId, sede.id), isNull(promptsVersiones.sedeId)),
         ),
       )
-      .orderBy(desc(promptsVersiones.sedeId), desc(promptsVersiones.versionNumber))
+      .orderBy(
+        sql`${promptsVersiones.sedeId} IS NULL`,
+        desc(promptsVersiones.versionNumber),
+      )
       .limit(1);
 
     const row = rows[0];
