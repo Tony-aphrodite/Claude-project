@@ -41,7 +41,12 @@ const body = {
   },
   message: {
     type: "text",
-    text: "hi, info about open water please",
+    // Phrased so the AI MUST call `enviar_catalogo` per Francisco v4 prompt
+    // (customer mentions a specific course → tool fires before text reply).
+    // If the synthetic test doesn't trigger the tool, either the prompt
+    // didn't load v4, the env var for OW_EN is missing, or the AI
+    // hallucinated past the instruction.
+    text: "I want to do the Open Water Course in Koh Phi Phi, can you send me the info?",
     timestamp: new Date().toISOString(),
     direction: "incoming",
   },

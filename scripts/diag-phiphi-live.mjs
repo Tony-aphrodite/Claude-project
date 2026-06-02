@@ -91,6 +91,26 @@ try {
   }
   console.log();
 
+  // 4b) toolCalls on recent AI replies — did `enviar_catalogo` fire?
+  console.log("── LATEST AI toolCalls (last 30 min) ──");
+  const lastAi = await sql`
+    SELECT m.created_at, m.metadata, LEFT(m.content, 90) AS preview
+      FROM mensajes m
+      JOIN conversaciones c ON c.id = m.conversacion_id
+     WHERE c.sede_id = ${ppId} AND m.sender = 'ai'
+       AND m.created_at > NOW() - INTERVAL '30 minutes'
+     ORDER BY m.created_at DESC
+     LIMIT 3
+  `;
+  if (lastAi.length === 0) console.log("  (no AI replies in 30 min)");
+  for (const m of lastAi) {
+    const tc = m.metadata?.toolCalls ?? [];
+    const flag = tc.length > 0 ? "✓" : "✗ NO TOOL CALL";
+    console.log(`  [${m.created_at.toISOString()}] toolCalls=${JSON.stringify(tc)} ${flag}`);
+    console.log(`    preview: ${m.preview}`);
+  }
+  console.log();
+
   // 5) PP conversations stuck in deposit_paid (grace window risk)
   console.log("── PP STUCK IN deposit_paid ──");
   const stuck = await sql`

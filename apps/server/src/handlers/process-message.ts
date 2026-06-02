@@ -820,7 +820,21 @@ export async function processIncomingMessage(
   // maintain language continuity from history instead of from a
   // pollutable external variable. See language.ts header for the
   // matching detection-side PT-grapheme guard.
-  const detectedLanguage = detectLanguage(incomingText) ?? undefined;
+  // Short-greeting bias for messages too short for franc (<60 chars
+  // threshold). Without this, a customer that writes just "Hello" gets
+  // detectedLanguage=undefined → prompt-builder falls to its generic
+  // (Spanish-worded) instruction → Claude defaults to Spanish because
+  // the rest of the prompt is mostly Spanish (Miguel test 2026-06-02).
+  // We only catch UNAMBIGUOUS single-word greetings so a longer
+  // multi-word message still goes through franc normally.
+  const SHORT_GREETING_EN = /^(hi|hello|hey|good\s+(morning|afternoon|evening|night)|yo|sup|howdy|greetings)[\s,.!?]*$/i;
+  const SHORT_GREETING_ES = /^(hola|buenas|buen[oa]s?\s+(d[ií]as|tardes|noches|noche)|qué\s+tal|que\s+tal)[\s,.!?]*$/i;
+  let detectedLanguage = detectLanguage(incomingText) ?? undefined;
+  if (!detectedLanguage) {
+    const trimmed = incomingText.trim();
+    if (SHORT_GREETING_EN.test(trimmed)) detectedLanguage = "english";
+    else if (SHORT_GREETING_ES.test(trimmed)) detectedLanguage = "español";
+  }
   // ISO-639-1 code (e.g. "es", "en") for Respond.io's contact.language
   // field. Pushed through updateContactCustomFields so Miguel's
   // "DPM GT - Onboarding Piloto" workflow routes Spanish-speaking

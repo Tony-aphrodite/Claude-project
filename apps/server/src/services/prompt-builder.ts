@@ -170,7 +170,21 @@ export function formatDynamicBlock(input: {
   // failure mode in DPM traffic.
   const langLine = input.detectedLanguage
     ? `IDIOMA OBLIGATORIO DE TU RESPUESTA: ${input.detectedLanguage}. NO cambies de idioma bajo ninguna circunstancia. Si tu razonamiento interno empieza a fluir en otro idioma (común con español↔portugués porque son cognados), DESCARTÁ ese razonamiento y regenerá tu respuesta en ${input.detectedLanguage}. Tanto el contenido de "respuesta" como las palabras claves del JSON DEBEN estar en ${input.detectedLanguage}.`
-    : "IDIOMA: detectá del mensaje y respondé en el MISMO idioma. NO mezclés idiomas dentro de una misma respuesta — verificá cada frase antes de emitir.";
+    : // Ambiguous-signal fallback (Miguel test 2026-06-02): when the
+      // detector returned no verdict, the prior generic line ("detect
+      // and reply in same") was itself in Spanish, which combined with
+      // the mostly-Spanish prompt pushed Claude to default to Spanish
+      // even for English customers writing short greetings like "Hello".
+      // This rewrite is explicit: scan THIS message for English markers,
+      // then for Spanish, then default ENGLISH (not Spanish) because
+      // DPM's incoming international tourist traffic is predominantly
+      // English. Conservative: any clear Spanish word still wins.
+      `IDIOMA — señal débil del detector. Reglas en orden:
+  1) Mensaje contiene saludo/palabra inglesa clara (hi, hello, hey, want, need, please, thanks, how, what, when, where) → INGLÉS.
+  2) Mensaje contiene saludo/palabra española clara (hola, buenas, gracias, quiero, necesito, por favor, cuánto, cómo, qué, dónde, cuándo) → ESPAÑOL.
+  3) Botón con nombre de sede ("Koh Phi Phi", "Gili Trawangan", "Koh Tao", "Gili Air", "Nusa Penida") — no es señal de idioma, ignorar como pista de language.
+  4) Si NINGUNA de las anteriores aplica (mensaje ambiguo, emoji solo, sticker) → DEFAULT INGLÉS. Los clientes internacionales de DPM son mayoritariamente angloparlantes; ante duda, inglés gana, NUNCA español.
+NO mezclés idiomas dentro de una misma respuesta — verificá cada frase antes de emitir.`;
 
   // Currency hint resolved server-side from phone prefix (INSTRUCCIONES_PAGO §3).
   // 2026-05-11 owner feedback (Miguel from +62 number objected to the AI

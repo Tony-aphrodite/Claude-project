@@ -11,6 +11,104 @@ the entries link out to dedicated files.
 
 ---
 
+## Entry #17 — 2026-06-02 — Phi Phi launch debugging session (end-to-end verified)
+
+**Topic:** Marathon debugging session that took the Phi Phi AI from "Miguel reports it doesn't work, conversations go straight to human" → "synthetic test passes end-to-end, Francisco persona + roster + catalog all firing correctly". Six layered root causes discovered and fixed in sequence. End state: PP server-side fully working, awaiting Miguel's real-customer test for the final confirmation.
+
+### Symptoms reported by Miguel during the session
+
+1. "It still went to a human" — test message at contact 460198630 didn't reach Francisco
+2. "The AI is sending the same message multiple times" — 3 AI replies per single button click
+3. "The AI says 'I'm John'" — wrong persona for PP (John is Gili Trawangan's)
+4. "What about catalogs and roster — this is the main point?" — neither tool was firing
+
+### Root causes found + fixes applied (in order of discovery)
+
+| # | Root cause | Fix |
+|---|---|---|
+| 1 | **`PILOT_REQUIRE_TAG=ai-test`** silently dropped every PP inbound (Miguel's customers had tag `"Koh Phi Phi"`, not `"ai-test"`). Returned 202 async but processed nothing. | Changed env var on Railway to `PILOT_REQUIRE_TAG=Koh Phi Phi` — every PP customer's sede tag now passes the gate. Other sedes' tags don't, so they stay routed to humans. |
+| 2 | **`Developer Webhook 1` inactive** in Respond.io — auto-disabled by their safety net after timeouts in the OLD sync-webhook era. With it inactive, ZERO message events reached our server (only sync events for lifecycle/tags). | Tony re-enabled the toggle in Respond.io. Combined with the async refactor (#3), the historical auto-disable trigger is now removed. |
+| 3 | **Sync webhook would auto-disable again** if any single Anthropic call took longer than Respond.io's implicit timeout (8-30s). | Refactored `apps/server/src/routes/webhook.ts` to ack with `202 queued` in ~500ms BEFORE the AI pipeline runs. Processing continues async. Trade-off: mid-pipeline errors no longer surface as non-2xx, but the auth (401) + payload (422) sync paths still trigger Miguel's "fallback to human" branch. |
+| 4 | **NULL ordering bug in prompt loader** ([apps/server/src/services/prompts.ts:73](apps/server/src/services/prompts.ts#L73)). `ORDER BY sede_id DESC` put the global John (NULL sede_id) BEFORE the PP-specific Francisco row. Every PP message used John's prompt despite Francisco v3 being marked active in DB. | Replaced with `ORDER BY (sede_id IS NULL), version_number DESC` — sede-specific rows now come first, global fallback only when no sede match. |
+| 5 | **Catalog feature never wired in any sede's prompt.** Code-path existed (`catalog-registry.ts`, `enviar_catalogo` tool), but no prompt instructed the AI to call it, and no env vars held the fragment IDs. Francisco's v3 prompt had ZERO catalog mentions — same for John's v13 global. | Added `CATÁLOGO — enviar_catalogo` section to Francisco's source markdown ([information/17-information-phi-phi/system_prompt_phi_phi.md](information/17-information-phi-phi/system_prompt_phi_phi.md)) — produced v4 on next seed run. Extended `CATALOG_PROGRAMS` enum with 8 new SSI keys. Made `catalog-registry.ts` language-aware (`_EN`/`_ES` suffix lookup with EN fallback). |
+| 6 | **PP fragment IDs not in Railway env.** Even after v4 instructed catalog usage, the registry returned `not_configured` for every program. | Miguel sent the 26 fragment IDs (14 courses × 2 languages, minus EN-only for Stress&Rescue + ReactRight). Tony set them in Railway Variables. Documented in [information/respondio_catalogs_phi_phi.md](information/respondio_catalogs_phi_phi.md) with copy-paste-ready env-var block. |
+
+### Plus: behavior_config (the OTHER track from earlier in the session)
+
+Before the persona/catalog bugs surfaced, the same session also delivered **per-sede behavior config** for Phi Phi (Miguel's 4 specific asks from his pre-flip message):
+
+- **`follow_up_hours: [6, 12]`** — two follow-ups at 6h + 12h elapsed since customer last activity, then stop initiating
+- **`post_purchase_grace_minutes: 120`** — Francisco keeps answering logistics for 2h after deposit_paid before silencing for human team
+- **`post_purchase_start_delay_seconds: 90`** — AI stays quiet for the first 90s post-deposit so Miguel's onboarding workflow message (fires at +60s) lands first
+- **Bilingual closing message** — sent before grace→handed_off transition, in customer's language
+
+These are stored in `sedes.behavior_config` JSONB column and resolved at runtime via [apps/server/src/services/sede-behavior.ts](apps/server/src/services/sede-behavior.ts). Other sedes that haven't opted in fall back to the global cadence (5-level 4h/24h/48h/7d/30d, immediate handoff).
+
+### Plus: `seedAll()` wired into deploy
+
+[packages/db/src/migrate.ts](packages/db/src/migrate.ts) now calls `seedAll()` instead of only `seedSystemPrompt()` (GT) + `seedKbBundle()` (GT). Every deploy detects content-hash changes in the source markdowns and creates a new version with the active flag flipped automatically — so future prompt edits ship without manual DB intervention.
+
+### End-to-end verification on production
+
+Synthetic POST to `/webhook/respond-io` with PP payload (contact `999999999-test-1780413482`, language `en`, text `"I want to do the Open Water Course in Koh Phi Phi"`, tag `"Koh Phi Phi"`, token from Railway `WEBHOOK_WORKFLOW_TOKEN`):
+
+```
+status: 202 (493ms)
+[mensajes] AI reply persisted: "Hi! I'm Francisco Emilio from DPM Diving Koh Phi Phi 🤿 Great choice! The Open Water course is..."
+[mensajes].metadata.toolCalls: ["enviar_catalogo"] ✓
+[llamadas_api]: 1 row, status=success, latency=8667ms, cost=$0.022
+[errores]: 1 expected row — respond_io send_message_failed (400) because synthetic contact doesn't exist in Respond.io
+```
+
+Every layer verified working. The only "error" is the outbound send to a fake contact, which is the deliberate failure mode of synthetic tests — for a real Respond.io contact the catalog card lands in WhatsApp.
+
+### What blocks the flip right now
+
+Nothing on our side. The remaining gap is **Miguel's real-customer test**: he needs to send a message from a real number through the Phi Phi branch and confirm:
+
+1. He sees the WhatsApp catalog card arrive (proving Respond.io accepts our `enviar_catalogo` payload for the real fragment ID)
+2. The card matches his language (EN or ES — registry resolves per-customer)
+3. Francisco's short follow-up text arrives after the card
+
+If those three land, PP is operationally live. If the card doesn't render, the likely cause is one of: a typo in the env var I set vs the fragment ID Miguel uses, a missing fragment on his Respond.io side, or the workflow intercepting before reaching the customer.
+
+### Pending separately (not blocking the flip)
+
+- **Stress & Rescue + React Right ES fragments** — Miguel sent EN only for these two. Server falls back to EN with an EN catalog card going to Spanish customers. Ask Miguel if he wants ES versions made.
+- **Webhook auto-disable alerting (Capa 2 monitoring)** — parked from earlier in the session. With async refactor the trigger should rarely fire, but Tony asked to "keep in mind" so we have a heartbeat / alert if it ever drops out overnight.
+- **`regression_suite_passed = false`** on Francisco v4. Same as v3 — promoted without regression. 2 weeks of real-traffic testing serves as evidence in practice, but a formal regression pass would close the audit gap.
+- **Duplicate AI replies symptom** — investigation deferred. Looking at the DB, the 3 replies in the original screenshot were actually responses to 3 distinct customer inbound events fired in quick succession by Respond.io (the menu button text + later text events). NOT a server-side duplication bug. Will revisit if it recurs with the new prompt + catalog flow.
+
+**Files changed this session:**
+
+- `packages/shared/src/constants.ts` (SedeBehaviorConfig extended with delay + closing-message fields)
+- `packages/shared/src/types.ts` (CATALOG_PROGRAMS enum extended with 8 SSI keys)
+- `packages/db/src/schema.ts` (sedes.behavior_config JSONB column)
+- `packages/db/sql/post-migration.sql` (ALTER TABLE + PP behavior_config seed)
+- `packages/db/src/migrate.ts` (seedAll on every deploy)
+- `apps/server/src/services/prompts.ts` (NULL ordering fix)
+- `apps/server/src/services/catalog-registry.ts` (language-aware lookup)
+- `apps/server/src/services/sede-behavior.ts` (NEW — resolver with defaults)
+- `apps/server/src/services/follow-up.ts` (per-sede cadence + grace expiry scanner + closing-message send)
+- `apps/server/src/handlers/process-message.ts` (grace-window guard + escalation priority + catalog language wiring)
+- `apps/server/src/routes/webhook.ts` (async dispatch with 202 ack)
+- `apps/panel/src/lib/auth-context.ts` (NIL_SEDE_ID constant for null-sede UUID safety)
+- `apps/panel/src/app/(app)/{pipeline,conversations,follow-ups}/page.tsx` (use NIL_SEDE_ID instead of "__no_sede__")
+- `information/17-information-phi-phi/system_prompt_phi_phi.md` (catalog section added → seeded as v4)
+- `information/respondio_catalogs_phi_phi.md` (NEW — 26 fragment IDs reference + Railway env block)
+- `scripts/test-webhook-phiphi.mjs` (NEW — synthetic webhook test using production token)
+- `scripts/diag-phiphi-live.mjs` (NEW — live DB diagnostic for PP)
+- `scripts/inspect-respondio-contact.mjs` (NEW — Respond.io API inspector for a single contact)
+- `scripts/preflight-phiphi.mjs` (extended — now also verifies behavior_config + checks `_EN`/`_ES` catalog vars implicitly via the new diag)
+
+**Railway production env changes this session:**
+
+- `PILOT_REQUIRE_TAG`: `ai-test` → `Koh Phi Phi`
+- `WEBHOOK_WORKFLOW_TOKEN`: confirmed present (sensitive — value rotated mid-session after a leak to chat)
+- 26 new vars added: `RESPOND_IO_CATALOG_KOH_PHI_PHI_*_{EN,ES}` (full list in respondio_catalogs_phi_phi.md)
+
+---
+
 ## Entry #16 — 2026-05-23 — Four corrections to my draft reply (scope/architecture alignment)
 
 **Topic:** Tony drafted a unified Spanish reply to Miguel's v1 brief that included a milestones section. Miguel responded with **four explicit corrections** before approving the go-ahead. The draft was never sent — the corrections need to land in the actual reply (English, per Tony's instruction).
