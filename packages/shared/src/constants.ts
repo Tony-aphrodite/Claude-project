@@ -97,7 +97,14 @@ export const CONCURRENCY = {
 } as const;
 
 export const TIMEOUTS = {
-  APPS_SCRIPT_MS: 2000,
+  // Bumped from 2000ms to 8000ms 2026-06-03 — Miguel reported the Apps
+  // Script roster (consultar_disponibilidad) timing out on every cold
+  // start during a real customer test, degrading the AI to "el sistema
+  // no me responde". Google Apps Script cold-start is documented at
+  // 5-10s; 2s was too aggressive. 8s gives cold-start enough room while
+  // staying well inside the 60s Anthropic timeout. Conversation lock is
+  // 60s so backpressure is bounded.
+  APPS_SCRIPT_MS: 8000,
   // Bumped from 30s 2026-05-11 evening — Tony test (conv a8f24502) showed
   // the solicitar_deposito path can chain 2 tool round-trips plus a
   // 3-bubble final response, easily exceeding 30s. The first message

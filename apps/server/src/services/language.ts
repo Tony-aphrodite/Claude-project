@@ -83,6 +83,18 @@ function scrubNonConversational(text: string): string {
       .replace(/(?:^|\s)\/(?:home|var|tmp|Users|usr|etc|opt|root)\/\S+/g, " ")
       // Bare filenames with common attachment extensions
       .replace(/\b\S+\.(?:pdf|jpe?g|png|gif|webp|mp4|mov|mp3|docx?|xlsx?|csv|zip)\b/gi, " ")
+      // Respond.io menu button labels (sede names, course names). These
+      // are UI tokens, not natural language — when the customer taps a
+      // button their message arrives as the literal button label. Without
+      // this, "Koh Phi Phi" would be passed to franc and the short
+      // greeting was wrongly biased to English fallback (2026-06-03
+      // Miguel report). After scrubbing, a pure button-text message
+      // becomes empty → cleaned.length < 60 → detectLanguage returns
+      // undefined → prompt-builder's language fallback rules apply.
+      .replace(
+        /\b(?:Gili Trawangan|Gili Air|Nusa Penida|Koh Tao|Koh Phi Phi|Phi Phi|Try Scuba(?: Diving)?|Open Water(?:\s+30)?|OW30?|AOW|Advanced(?:\s+Open\s+Water)?|Rescue|Divemaster|Fun Dives?|Refresh|Deep Adventure|Adventures|Scuba Diver|Nitrox|Stress\s*&\s*Rescue|React Right)\b/gi,
+        " ",
+      )
       // Collapse the whitespace we just inserted
       .replace(/\s{2,}/g, " ")
       .trim()

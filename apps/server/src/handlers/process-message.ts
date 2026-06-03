@@ -206,7 +206,19 @@ export async function processIncomingMessage(
   // V2 webhook payloads omit `tags` on the contact; when the env requires
   // a tag and we got an empty tags array, we look the contact up via the
   // Respond.io REST API to make a confident decision.
+  //
+  // 2026-06-03 fix (C2 — persist-before-gate): the original gate returned
+  // here without persisting the customer message. Miguel's June-3 test
+  // surfaced the consequence: a brand-new lead's first "Hola" arrives
+  // BEFORE Respond.io's workflow has applied the sede tag, so the gate
+  // rejected it. The next message ("Koh Phi Phi" button click) passed
+  // the gate (tag now applied) but Francisco had no Spanish context in
+  // history → replied in English. Fix: even when gated, persist the
+  // contact + conversation + message so the next turn's history carries
+  // the original language signal. We still suppress the AI reply for
+  // gated messages — that's the gate's job.
   const requiredTag = loadEnv().PILOT_REQUIRE_TAG;
+  let gateRejected = false;
   if (requiredTag) {
     // Reuse tags from the pre-resolution fetch when possible. fetchedFresh
     // was populated a few lines above (used for sede Branch lookup); it
@@ -224,14 +236,50 @@ export async function processIncomingMessage(
       tags = fetched?.tags ?? [];
     }
     if (!tags.includes(requiredTag)) {
+      gateRejected = true;
       log.info(
         {
           contactId: payload.contact.id,
           requiredTag,
           contactTags: tags,
         },
-        "test gate rejected — contact lacks required tag",
+        "test gate rejected — contact lacks required tag (persisting for history)",
       );
+    }
+  }
+
+  // Step 2b: contact upsert. This is the canonical store for per-person data;
+  // the conversation row only carries a foreign key. Runs whether the gate
+  // passed or not, so history is preserved for the next-message correction.
+  // Wrapped in try/catch (C2 safety per adversarial review) so a transient
+  // DB failure here doesn't crash the gate-rejection path.
+  let contact;
+  let conversation;
+  try {
+    contact = await chatContactsService.upsertFromWebhook({
+      respondIoContactId: payload.contact.id,
+      phone: payload.contact.phone,
+      name: payload.contact.name,
+      language: payload.contact.language,
+      tags: payload.contact.tags,
+      sedeId: sede.id,
+    });
+
+    // Step 3: conversation upsert + history
+    conversation = await conversationService.upsertOnInbound({
+      respondIoConversationId: payload.conversation?.id ?? `tmp_${contact.respondIoContactId}`,
+      respondIoContactId: contact.respondIoContactId,
+      sedeId: sede.id,
+    });
+  } catch (err) {
+    log.error(
+      { err, contactId: payload.contact.id, gateRejected },
+      "contact/conversation upsert failed — falling through",
+    );
+    // If the upsert failed AND we were going to reject anyway, return now.
+    // If the upsert failed but the gate would have passed, we can't proceed
+    // safely (no conversation row), so rethrow.
+    if (gateRejected) {
       return {
         ok: false,
         ignored: true,
@@ -240,25 +288,35 @@ export async function processIncomingMessage(
         latencyMs: Date.now() - t0,
       };
     }
+    throw err;
   }
 
-  // Step 2b: contact upsert. This is the canonical store for per-person data;
-  // the conversation row only carries a foreign key.
-  const contact = await chatContactsService.upsertFromWebhook({
-    respondIoContactId: payload.contact.id,
-    phone: payload.contact.phone,
-    name: payload.contact.name,
-    language: payload.contact.language,
-    tags: payload.contact.tags,
-    sedeId: sede.id,
-  });
-
-  // Step 3: conversation upsert + history
-  const conversation = await conversationService.upsertOnInbound({
-    respondIoConversationId: payload.conversation?.id ?? `tmp_${contact.respondIoContactId}`,
-    respondIoContactId: contact.respondIoContactId,
-    sedeId: sede.id,
-  });
+  // If the gate rejected, persist the customer's message as conversation
+  // history (so the language signal survives for the next turn) and exit
+  // without invoking the AI. The dedup gate downstream uses messageId, so
+  // a duplicate "Hola" delivery is correctly skipped on retry.
+  if (gateRejected) {
+    // appendInboundMessage takes a flat metadata object — all keys at the
+    // top level. Mark gated so panel/diags can filter, but keep the
+    // message text in history so the next non-gated turn has the
+    // language signal.
+    await conversationService
+      .appendInboundMessage(conversation.id, incomingText, {
+        respondIoMessageId: payload.message.messageId,
+        gated: true,
+        gateReason: "test_tag_missing",
+      })
+      .catch((err) =>
+        log.warn({ err, conversationId: conversation.id }, "gated inbound persist failed"),
+      );
+    return {
+      ok: false,
+      ignored: true,
+      reason: "test_tag_missing",
+      branch: resolution.via === "branch" ? sede.nombre : null,
+      latencyMs: Date.now() - t0,
+    };
+  }
 
   // Idempotency gate for both text AND attachment paths. Respond.io
   // re-delivers the same `messageId` (wamid) on its own retry policy when
