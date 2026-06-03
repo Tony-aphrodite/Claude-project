@@ -457,6 +457,26 @@ export const rosterCache = pgTable(
   }),
 );
 
+// ── webhook_debug_log ──────────────────────────────────────────────────────
+// Forensic capture of every inbound webhook payload. Added 2026-06-03 to
+// root-cause "first customer message for a new lead doesn't reach the
+// message-processing path even though the webhook is Active". Pino logs
+// would have the answer but require Railway Deploy Logs access; this
+// captures to DB so the data is queryable from outside Railway.
+export const webhookDebugLog = pgTable("webhook_debug_log", {
+  id: integer("id").primaryKey(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).defaultNow().notNull(),
+  eventField: text("event_field"),
+  eventType: text("event_type"),
+  contactId: text("contact_id"),
+  textLen: integer("text_len"),
+  hasAttachment: boolean("has_attachment"),
+  direction: text("direction"),
+  senderType: text("sender_type"),
+  classifiedAs: text("classified_as"),
+  body: jsonb("body"),
+});
+
 // ── Type exports ────────────────────────────────────────────────────────────
 export type Brand = typeof brands.$inferSelect;
 export type NewBrand = typeof brands.$inferInsert;

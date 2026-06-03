@@ -17,6 +17,9 @@ import {
   respondIoIncomingMessageSchema,
 } from "@dpm/shared";
 
+import { getDb } from "@dpm/db";
+import { sql as drizzleSql } from "drizzle-orm";
+
 import { loadEnv } from "../env.js";
 import { processAgentMessage } from "../handlers/process-agent-message.js";
 import { processIncomingMessage } from "../handlers/process-message.js";
@@ -27,6 +30,64 @@ import {
   pickSignatureHeader,
   pickWorkflowTokenHeader,
 } from "../lib/hmac.js";
+
+// Forensic debug capture (2026-06-03): writes a row to webhook_debug_log
+// for every inbound webhook with the classification verdict, so we can
+// see EXACTLY what event types Respond.io is sending and how our code
+// routed them. Fire-and-forget — does NOT block the response. Bounded
+// by the table-pruning logic in post-migration.sql.
+function captureWebhookDebug(args: {
+  body: unknown;
+  classifiedAs: string;
+}): void {
+  try {
+    const b = (args.body ?? {}) as Record<string, unknown>;
+    const contact = (b.contact ?? {}) as Record<string, unknown>;
+    const message = (b.message ?? {}) as Record<string, unknown>;
+    const inner = (message.message ?? {}) as Record<string, unknown>;
+    const sender =
+      (b.sender as Record<string, unknown> | undefined) ??
+      (message.sender as Record<string, unknown> | undefined) ??
+      (message.sentBy as Record<string, unknown> | undefined);
+    const textLen = (() => {
+      const t = message.text ?? inner.text;
+      return typeof t === "string" ? t.length : 0;
+    })();
+    const hasAttachment =
+      !!message.attachment ||
+      !!inner.attachment ||
+      (Array.isArray(message.attachments) && message.attachments.length > 0);
+    const direction =
+      (b.direction as string | undefined) ??
+      (message.direction as string | undefined) ??
+      (typeof message.traffic === "string" ? (message.traffic as string) : undefined) ??
+      null;
+    const senderType =
+      (sender?.type as string | undefined) ??
+      (sender?.source as string | undefined) ??
+      null;
+
+    void getDb()
+      .execute(
+        drizzleSql`INSERT INTO webhook_debug_log
+          (event_field, event_type, contact_id, text_len, has_attachment, direction, sender_type, classified_as, body)
+          VALUES (
+            ${(b.event as string | undefined) ?? null},
+            ${(b.event_type as string | undefined) ?? null},
+            ${(contact.id as string | number | undefined) !== undefined ? String(contact.id) : null},
+            ${textLen},
+            ${hasAttachment},
+            ${direction},
+            ${senderType},
+            ${args.classifiedAs},
+            ${JSON.stringify(b)}::jsonb
+          )`,
+      )
+      .catch(() => {});
+  } catch {
+    // never fail the webhook because of debug logging
+  }
+}
 
 export async function webhookRoutes(app: FastifyInstance) {
   const env = loadEnv();
@@ -96,9 +157,17 @@ export async function webhookRoutes(app: FastifyInstance) {
           peekedEvent,
           req.log,
         );
+        captureWebhookDebug({
+          body: normalized,
+          classifiedAs: `contact_state:${peekedEvent}`,
+        });
         return reply.send(result);
       } catch (err) {
         req.log.error({ err, event: peekedEvent }, "contact-state event failed");
+        captureWebhookDebug({
+          body: normalized,
+          classifiedAs: `contact_state_error:${peekedEvent}`,
+        });
         // Respond with 200 so Respond.io doesn't count it as a failure
         // and disable the webhook. The error is captured in logs for ops.
         return reply.send({ ok: true, ignored: "contact_state_error" });
@@ -109,6 +178,10 @@ export async function webhookRoutes(app: FastifyInstance) {
     const parsed = respondIoIncomingMessageSchema.safeParse(normalized);
     if (!parsed.success) {
       req.log.warn({ issues: parsed.error.issues }, "webhook payload invalid");
+      captureWebhookDebug({
+        body: normalized,
+        classifiedAs: "payload_invalid_422",
+      });
       return reply.status(422).send({
         error: { code: "payload_invalid", issues: parsed.error.issues },
       });
@@ -141,22 +214,28 @@ export async function webhookRoutes(app: FastifyInstance) {
       "webhook payload received",
     );
     if (!event) {
+      captureWebhookDebug({ body: normalized, classifiedAs: "ignored:missing_event" });
       return reply.send({ ok: true, ignored: "missing_event" });
     }
     if (!isMessageEvent(event)) {
+      captureWebhookDebug({ body: normalized, classifiedAs: `ignored:not_message_event:${event}` });
       return reply.send({ ok: true, ignored: event });
     }
 
     const dispatch = classifyWebhook(parsed.data);
 
     if (dispatch.kind === "ignored") {
+      captureWebhookDebug({ body: normalized, classifiedAs: `ignored:${dispatch.reason}` });
       return reply.send({ ok: true, ignored: dispatch.reason });
     }
     if (dispatch.kind === "bot_outbound") {
       // Our own AI reply being echoed back. We already wrote the row in
       // process-message; do not double-store.
+      captureWebhookDebug({ body: normalized, classifiedAs: "bot_outbound" });
       return reply.send({ ok: true, ignored: "bot_outbound" });
     }
+    // Reached here: client_inbound OR agent_outbound — will be processed async
+    captureWebhookDebug({ body: normalized, classifiedAs: `processing:${dispatch.kind}` });
 
     // Async dispatch (Phi Phi launch 2026-05-26 / Miguel "HTTP Request
     // has no timeout setting" feedback): we ack BEFORE the expensive

@@ -417,3 +417,29 @@ UPDATE sedes
      }
    }'::jsonb
  WHERE respond_io_tag = 'sede:phi_phi';
+
+-- ── webhook_debug_log ──────────────────────────────────────────────────────
+-- Capture EVERY inbound webhook payload for forensic analysis. Added
+-- 2026-06-03 to root-cause why some customer text messages (especially
+-- the first one for a new lead) don't reach our message-processing path
+-- even though the Respond.io webhook is marked Active and the HTTP Logs
+-- show POSTs arriving. Pino logs would have the answer but require
+-- Railway Deploy Logs access; capturing to DB makes it queryable.
+--
+-- Idempotent: CREATE TABLE IF NOT EXISTS. Self-pruning: drop rows older
+-- than 24h on each insert via a trigger keeps the table tiny.
+CREATE TABLE IF NOT EXISTS webhook_debug_log (
+  id            bigserial PRIMARY KEY,
+  received_at   timestamptz NOT NULL DEFAULT NOW(),
+  event_field   text,
+  event_type    text,         -- payload.event_type (v2) if present
+  contact_id    text,
+  text_len      int,
+  has_attachment boolean,
+  direction     text,
+  sender_type   text,
+  classified_as text,         -- "contact_state" | "ignored:reason" | "client_inbound" | "bot_outbound" | "agent_outbound"
+  body          jsonb         -- full normalized payload for inspection
+);
+CREATE INDEX IF NOT EXISTS webhook_debug_log_received_at_idx ON webhook_debug_log (received_at DESC);
+CREATE INDEX IF NOT EXISTS webhook_debug_log_contact_idx ON webhook_debug_log (contact_id);
