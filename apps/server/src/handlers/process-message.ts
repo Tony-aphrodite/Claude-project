@@ -1319,15 +1319,39 @@ export async function processIncomingMessage(
     if (!catalogLanguage) {
       try {
         const recent = await conversationService.recentMessages(conversation.id);
-        const combinedCustomerText = recent
-          .filter((m) => m.sender === "cliente")
-          .slice(-10)
+        // Include AI mensajes too — when the customer's recent inputs are
+        // all short (e.g. "Hola" + "Sí claro" + "Primera vez", all <30 chars),
+        // the franc 60-char threshold rejects the combined customer-only
+        // text. The AI's prior responses are the most reliable signal of
+        // conversation language at that point (they're already several
+        // sentences long and franc detects them deterministically). We
+        // exclude `agente_humano` to avoid picking up operator interjections
+        // in a different language (e.g. Miguel writes in English to test).
+        const combinedText = recent
+          .filter((m) => m.sender === "cliente" || m.sender === "ai")
+          .slice(-12)
           .map((m) => m.content)
           .join(" ")
           .trim();
-        if (combinedCustomerText.length > 0) {
-          const detected = detectLanguage(combinedCustomerText);
-          if (detected) catalogLanguage = detected;
+        if (combinedText.length > 0) {
+          const detected = detectLanguage(combinedText);
+          if (detected) {
+            catalogLanguage = detected;
+          } else {
+            // Last-resort: scan recent mensajes for SHORT_GREETING regex
+            // matches. Useful when the entire conversation is sub-60-char
+            // turns ("Hola" / "Sí" / "Ok") — franc never fires but the
+            // short-greeting bias still pins us to ES.
+            const lastFew = recent.slice(-6).map((m) => m.content);
+            const hasEsGreeting = lastFew.some((t) =>
+              SHORT_GREETING_ES.test(t.trim()),
+            );
+            const hasEnGreeting = lastFew.some((t) =>
+              SHORT_GREETING_EN.test(t.trim()),
+            );
+            if (hasEsGreeting && !hasEnGreeting) catalogLanguage = "español";
+            else if (hasEnGreeting && !hasEsGreeting) catalogLanguage = "english";
+          }
         }
       } catch (langErr) {
         log.warn(
