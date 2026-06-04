@@ -227,7 +227,18 @@ export class RespondIoClient {
           input.conversationId,
         )}/message`;
 
-    const messageBody = buildCatalogMessageBody(input.payload);
+    const messageBody = buildCatalogMessageBody(input.payload) as Record<
+      string,
+      unknown
+    >;
+    // 2026-05-10 finding (see sendMessage ~L157): /contact/id:{id}/message
+    // REJECTS channelId as an invalid field. The channel is inferred from
+    // the contact's primary WhatsApp identity. /conversation/{id}/message
+    // requires channelId for custom_payload (probe 2026-06-03 round 2).
+    // Strip on /contact route; keep on /conversation route.
+    if (useContactFallback && "channelId" in messageBody) {
+      delete messageBody.channelId;
+    }
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
@@ -246,7 +257,7 @@ export class RespondIoClient {
 
       if (!res.ok) {
         const bodyText = await res.text().catch(() => "");
-        log.warn(
+        log.error(
           {
             status: res.status,
             body: bodyText.slice(0, 500),
