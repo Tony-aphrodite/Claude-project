@@ -43,6 +43,11 @@ export type SendCatalogInput = {
         language: string;
         components?: unknown[];
       }
+    | {
+        type: "image";
+        url: string;
+        mimeType?: string;
+      }
     | { type: "raw"; payload: Record<string, unknown> };
 };
 
@@ -1030,6 +1035,25 @@ function buildCatalogMessageBody(
             name: payload.name,
             language: { code: payload.language },
             ...(payload.components ? { components: payload.components } : {}),
+          },
+        },
+      };
+    case "image":
+      // 2026-06-04 (Miguel's fix to the catalog-card dead-end). Respond.io's
+      // Attachment message type renders the URL as a native inline image in
+      // WhatsApp — no click-out, no link preview. Mirrors the AttachmentMessage
+      // schema in @respond-io/typescript-sdk (AttachmentType ∈ {image,
+      // video, audio, file}). mimeType is optional per the public schema but
+      // we forward it when present so WhatsApp picks the right renderer for
+      // edge formats. No channelId at the body level on /contact endpoint
+      // (channel is inferred from the contact's primary WhatsApp identity).
+      return {
+        message: {
+          type: "attachment",
+          attachment: {
+            type: "image",
+            url: payload.url,
+            ...(payload.mimeType ? { mimeType: payload.mimeType } : {}),
           },
         },
       };

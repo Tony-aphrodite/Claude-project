@@ -1,114 +1,142 @@
-# Respond.io Catalog Fragment IDs — Koh Phi Phi
+# Catálogo de cursos PP — mapeo definitivo de imágenes Cloudinary
 
-Source: Miguel Villar, 2026-06-02 (PP launch). Each Respond.io fragment renders a
-WhatsApp catalog product card with the course's photo, price, and "Reserve"
-CTA. The AI calls `enviar_catalogo` with `programa` → server resolves to the
-fragment ID below → Respond.io sends the card to the customer.
-
-**Bilingual:** each course has a separate fragment per language. The server
-picks EN or ES from the conversation's detected language at call time.
+**Estado: ACTIVO 2026-06-04.** Source: Miguel Villar (URLs originales en KB-05) + verificación operacional con cards renderizadas inline en WhatsApp via Respond.io Attachment API.
 
 ---
 
-## Mapping table — canonical CatalogProgram → fragment IDs
+## Contexto técnico — por qué imágenes y no Meta catalog cards
 
-| CatalogProgram (code) | Course (label) | EN fragment | ES fragment |
+**Probado y descartado** durante 2026-06-04 (ver memoria `respondio_catalog_send_limitation`):
+
+- ❌ `message.type = "custom_payload"` con `interactive.type = "product"` → Respond.io devuelve **HTTP 403** *"Sorry Channel trying to send to not supporting custom payload!"*. El API público no expone catalog product sends para WhatsApp channels.
+- ❌ Templates con botón `catalog` / `mpm` → DPM no tiene ninguno registrado en Meta (verificado vía `GET /v2/space/channel/{id}/template` en los 4 channels WhatsApp del workspace 216239, total 28 templates, 0 con catalog/mpm button).
+- ❌ Endpoint interno `/messaging/ajax/message/send` (el que usa el botón UI *"Catálogo de productos Meta"*) → requiere session-cookie auth, Bearer token devuelve 401.
+
+**Path que sí funciona** (Miguel 2026-06-04, sugerencia que destrabó el problema): cada curso tiene una imagen Cloudinary con el branding + precio + inclusiones **baked-in en la imagen misma**. La mandamos como `message.type = "attachment"` con `attachment.type = "image"`. WhatsApp la renderiza como foto nativa inline en el chat — el cliente ve foto + precio + lista de incluidos sin clicks, sin links, sin salir de WhatsApp. Funcionalmente equivalente a la catalog card excepto por el botón "Reserve" (el AI maneja el closing en texto: *"¿lo armamos para [fecha]?"*).
+
+---
+
+## Mapping definitivo — programa → URL Cloudinary
+
+Las 18 URLs (9 cursos × 2 idiomas, EN + ES) están en KB-05 como fuente documental. Esta tabla es la versión op-friendly:
+
+| CatalogProgram | Course (label) | URL EN | URL ES |
 |---|---|---|---|
-| `TryScuba` | Try Scuba Diving / Bautizo de Buceo | `xini7rpxbl` | `ysjbu87ht6` |
-| `ScubaDiver` | Scuba Diver (entry-level cert) | `6vg4o7zs5s` | `dlktjmvret` |
-| `OW` | Open Water Course / Curso Open Water | `ttselz0g8v` | `z41eyixkoi` |
-| `OW30` | Open Water 30 (3-day intensive) | `ooq52j5fzn` | `jei93wl11i` |
-| `AOW` | Advanced Course / Curso Avanzado | `sqzfvmz0si` | `wfvtyjotgq` |
-| `Adventures` | Adventures / Aventuras (SSI Adventure Diver) | `6z7uro2we0` | `tkckxja7tc` |
-| `OWAOWCombo` | Open Water + Advanced / Open Water + Avanzado | `0lwjj4eit2` | `k13xkqd39c` |
-| `OWDeepCombo` | Open Water + Deep / Open Water + Av. Profunda | `gqayqfkayy` | `32i97ilzjw` |
-| `DeepSpecialty` | Deep Specialty / Especialidad Profunda | `g2lbo94dld` | `0xax7rh0kt` |
-| `NitroxSpecialty` | Nitrox Specialty / Especialidad Nitrox | `qmg83wfmqu` | `atabmcyyab` |
-| `StressRescue` | Stress & Rescue (SSI Rescue Diver) | `ap4inly8uw` | *(none provided)* |
-| `ReactRight` | React Right (SSI first aid / EFR) | `gvbz80sebg` | *(none provided)* |
-| `FunDive` | Fun Dives / Fun Dives 2 inmersiones | `4cpnzcmpjw` | `lvyj0v2t6s` |
-| `Refresh` | Refresh + FD / Refresh + FD | `gacgdg5y2q` | `oslk9dechr` |
+| `TryScuba` | Try Scuba Diving / Bautizo | [try_scuba_en_uxzq8z](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_try_scuba_en_uxzq8z.jpg) | [try_scuba_es_wrxmna](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_try_scuba_es_wrxmna.jpg) |
+| `ScubaDiver` | Scuba Diver (1-day cert) | [scuba_diver_en_v7bndp](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_scuba_diver_en_v7bndp.jpg) | [scuba_diver_es_ivutxa](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_scuba_diver_es_ivutxa.jpg) |
+| *(alt. label)* | Basic Diver — Scuba Diver upgrade path | [basic_diver_en_srtufj](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_basic_diver_en_srtufj.jpg) | [basic_diver_es_qg1rqs](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_basic_diver_es_qg1rqs.jpg) |
+| `FunDive` | Fun Dives | [fun_dives_en_ej5vy4](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_fun_dives_en_ej5vy4.jpg) | [fun_dives_es_cinwd7](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_fun_dives_es_cinwd7.jpg) |
+| `Adventures` | Adventure Dives / SSI Adventure | [adventure_en_edtiye](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_adventure_en_edtiye.jpg) | [adventure_es_ie7z18](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_adventure_es_ie7z18.jpg) |
+| `Refresh` | Refresh + 2 Fun Dives | [refresh_en_azdith](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_refresh_en_azdith.jpg) | [refresh_es_ydgtsd](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_refresh_es_ydgtsd.jpg) |
+| `OW` | Open Water Course | [open_water_en_kgpsta](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_en_kgpsta.jpg) | [open_water_es_rkyeno](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_es_rkyeno.jpg) |
+| `OW30` | Open Water 30 (intensivo 3 días) | [open_water_30_en_alu5fx](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_30_en_alu5fx.jpg) | [open_water_30_es_s23xaw](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_30_es_s23xaw.jpg) |
+| `AOW` | Advanced / Curso Avanzado | [advanced_en_ks3ugc](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_advanced_en_ks3ugc.jpg) | [advanced_es_og7z6b](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854326/dpm_phi_phi_advanced_es_og7z6b.jpg) |
 
-**Total: 14 courses · 28 fragment IDs (some EN-only).**
+**Cobertura del funnel principal: 9/9 cursos esenciales.**
 
----
+### Cursos SIN imagen Cloudinary (no en este set)
 
-## Railway env vars to set (Variables tab of `@dpm/server`)
+`OWAOWCombo`, `OWDeepCombo`, `DeepSpecialty`, `NitroxSpecialty`, `StressRescue`, `ReactRight`. Cuando un cliente pregunta por uno de estos, el AI degrada a descripción en texto desde KB-01 (precios + duración + inclusiones). Si Miguel quiere imágenes para esos, hay que generarlas en Cloudinary y agregar las env vars correspondientes.
 
-Add ONE env var per (sede, course, language) combination. Format:
+### `Basic Diver` (etiqueta alternativa)
 
-```
-RESPOND_IO_CATALOG_KOH_PHI_PHI_<PROGRAM>_<LANG>=<fragment_id>
-```
-
-Copy-paste-ready list:
-
-```
-RESPOND_IO_CATALOG_KOH_PHI_PHI_TRYSCUBA_EN=xini7rpxbl
-RESPOND_IO_CATALOG_KOH_PHI_PHI_TRYSCUBA_ES=ysjbu87ht6
-RESPOND_IO_CATALOG_KOH_PHI_PHI_SCUBADIVER_EN=6vg4o7zs5s
-RESPOND_IO_CATALOG_KOH_PHI_PHI_SCUBADIVER_ES=dlktjmvret
-RESPOND_IO_CATALOG_KOH_PHI_PHI_OW_EN=ttselz0g8v
-RESPOND_IO_CATALOG_KOH_PHI_PHI_OW_ES=z41eyixkoi
-RESPOND_IO_CATALOG_KOH_PHI_PHI_OW30_EN=ooq52j5fzn
-RESPOND_IO_CATALOG_KOH_PHI_PHI_OW30_ES=jei93wl11i
-RESPOND_IO_CATALOG_KOH_PHI_PHI_AOW_EN=sqzfvmz0si
-RESPOND_IO_CATALOG_KOH_PHI_PHI_AOW_ES=wfvtyjotgq
-RESPOND_IO_CATALOG_KOH_PHI_PHI_ADVENTURES_EN=6z7uro2we0
-RESPOND_IO_CATALOG_KOH_PHI_PHI_ADVENTURES_ES=tkckxja7tc
-RESPOND_IO_CATALOG_KOH_PHI_PHI_OWAOWCOMBO_EN=0lwjj4eit2
-RESPOND_IO_CATALOG_KOH_PHI_PHI_OWAOWCOMBO_ES=k13xkqd39c
-RESPOND_IO_CATALOG_KOH_PHI_PHI_OWDEEPCOMBO_EN=gqayqfkayy
-RESPOND_IO_CATALOG_KOH_PHI_PHI_OWDEEPCOMBO_ES=32i97ilzjw
-RESPOND_IO_CATALOG_KOH_PHI_PHI_DEEPSPECIALTY_EN=g2lbo94dld
-RESPOND_IO_CATALOG_KOH_PHI_PHI_DEEPSPECIALTY_ES=0xax7rh0kt
-RESPOND_IO_CATALOG_KOH_PHI_PHI_NITROXSPECIALTY_EN=qmg83wfmqu
-RESPOND_IO_CATALOG_KOH_PHI_PHI_NITROXSPECIALTY_ES=atabmcyyab
-RESPOND_IO_CATALOG_KOH_PHI_PHI_STRESSRESCUE_EN=ap4inly8uw
-RESPOND_IO_CATALOG_KOH_PHI_PHI_REACTRIGHT_EN=gvbz80sebg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_FUNDIVE_EN=4cpnzcmpjw
-RESPOND_IO_CATALOG_KOH_PHI_PHI_FUNDIVE_ES=lvyj0v2t6s
-RESPOND_IO_CATALOG_KOH_PHI_PHI_REFRESH_EN=gacgdg5y2q
-RESPOND_IO_CATALOG_KOH_PHI_PHI_REFRESH_ES=oslk9dechr
-```
-
-**Stress & Rescue / React Right:** EN-only. If a Spanish-speaking customer
-asks about either, the server falls back to the EN fragment (better than
-nothing) and the AI announces in Spanish that the card is in English. Ask
-Miguel later if he wants to add ES versions.
+KB-05 lista una imagen separada de "Basic Diver" como upgrade path desde Scuba Diver. Operacionalmente sirve si el cliente pregunta por upgrade tras un Try Scuba o Scuba Diver. **No tiene un `CatalogProgram` enum propio** — Miguel debe decidir si lo mapeamos como variante de `ScubaDiver` o si extendemos el enum. Por ahora queda como referencia documental (no se setea env var).
 
 ---
 
-## What was added to the code
+## Railway env vars (copy/paste-ready)
 
-1. **`packages/shared/src/types.ts`** — extended `CATALOG_PROGRAMS` enum with
-   the 6 new SSI program keys: `ScubaDiver`, `Adventures`, `OWAOWCombo`,
-   `OWDeepCombo`, `DeepSpecialty`, `NitroxSpecialty`, `StressRescue`,
-   `ReactRight`.
+Setear bajo Variables del servicio `@dpm/server`. Cada línea es una env var separada. Si la key ya existe con un fragment ID viejo (e.g. `xini7rpxbl`), **reemplazá el valor con la URL** — el código nuevo en `catalog-registry.ts` auto-detecta URL vs fragment ID por el prefijo `http(s)://`.
 
-2. **`apps/server/src/services/catalog-registry.ts`** — `getCatalogEntry`
-   now accepts a `language` argument and reads the language-suffixed env
-   var (`..._EN` or `..._ES`), falling back to EN when an ES isn't set.
+```
+RESPOND_IO_CATALOG_KOH_PHI_PHI_TRYSCUBA_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_try_scuba_en_uxzq8z.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_TRYSCUBA_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_try_scuba_es_wrxmna.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_SCUBADIVER_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_scuba_diver_en_v7bndp.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_SCUBADIVER_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_scuba_diver_es_ivutxa.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_FUNDIVE_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_fun_dives_en_ej5vy4.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_FUNDIVE_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_fun_dives_es_cinwd7.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_ADVENTURES_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_adventure_en_edtiye.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_ADVENTURES_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_adventure_es_ie7z18.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_REFRESH_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_refresh_en_azdith.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_REFRESH_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_refresh_es_ydgtsd.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_OW_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_en_kgpsta.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_OW_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_es_rkyeno.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_OW30_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_30_en_alu5fx.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_OW30_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_30_es_s23xaw.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_AOW_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_advanced_en_ks3ugc.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_AOW_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854326/dpm_phi_phi_advanced_es_og7z6b.jpg
+```
 
-3. **`Francisco prompt v4`** — added the "CATÁLOGO — cuándo enviar" section
-   instructing the AI to call `enviar_catalogo` with the matching `programa`
-   key when the customer asks about a specific course, BEFORE describing
-   it in text.
+**Total: 16 env vars (8 cursos del funnel × 2 idiomas).**
+
+Notas operativas:
+- Cloudinary devuelve `content-type: image/jpeg`, sin auth, ~150–210 KB por imagen → Respond.io / Meta lo descargan y entregan inline a WhatsApp.
+- El código en `catalog-registry.ts` setea `mimeType: "image/jpeg"` automáticamente cuando detecta URL (no hace falta especificar en la env var).
+- Si Miguel sube nuevas versiones de las cards a Cloudinary, **basta con actualizar la env var en Railway** — sin redeploy de código, sin re-seed de prompts. Cache de imagen en WhatsApp/CDN se invalida solo cuando cambia el `version` en la URL (`v1774854327` → nueva).
 
 ---
 
-## Verification after Tony sets the env vars
+## Verificación post-deploy
 
-1. Push the code changes
-2. Set the 26 env vars on Railway (copy-paste list above) → Save
-3. Wait for Railway redeploy
-4. Synthetic test:
+1. **Push código + setear env vars + re-seed prompts**:
+   ```bash
+   git push origin main
+   # Railway redeploy automático
+   pnpm --filter @dpm/db seed-content
+   # KB-05 actualizado llega a DB
    ```
-   node --env-file=.env scripts/test-webhook-phiphi.mjs
+
+2. **Reset del contact tester**:
+   ```bash
+   node --env-file=.env scripts/reset-pp-contact.mjs 461474747
    ```
-   But first edit the test script's `message.text` to ask about a specific
-   course (e.g. "I want to do Open Water"). The AI should now call
-   `enviar_catalogo` with `programa: "OW"` → Respond.io sends fragment
-   `ttselz0g8v` → customer would see the OW product card.
-5. Verify in `mensajes` table: the AI message metadata should contain
-   `toolCalls: [{name: "enviar_catalogo", ...}]` instead of `[]`.
+
+3. **Test e2e en WhatsApp** (desde +1 659-281-4080):
+   - "Hola" → Francisco saluda
+   - "Quiero bucear por primera vez"
+   - "Primera vez"
+   - "Sí claro" → **debe aparecer la imagen TryScuba ES inline en el chat** (la card con foto + ฿3,600 + inclusiones)
+
+4. **Si la imagen no aparece** → Railway Deploy Logs → buscar `send_catalog`. El log nuevo dice `payloadType: image`. Si hay error, body de Respond.io es verbatim en el log.
+
+5. **Confirmar en DB**:
+   ```bash
+   node --env-file=.env scripts/diag-recent-pp-calls.mjs
+   ```
+   La última `llamadas_api` para conv del test debería tener `tool_use_called: [enviar_catalogo]` y `status: success`. Y `errores` table para esa conv debería estar vacía.
+
+---
+
+## Apéndice — fragment IDs de Meta originales (DEPRECATED 2026-06-04)
+
+Miguel originalmente envió 28 IDs alfanuméricos (e.g. `xini7rpxbl`, `k13xkqd39c`) que él identificó como "Respond.io fragments". Después de verificación contra Meta Business Manager, **resultaron ser Meta `product_retailer_id` values** de productos en el catálogo conectado (catalog_id `843708400728480`, 109 productos total). El plan original era usarlos en `message.type="custom_payload"` con shape `interactive.type="product"` para mandar cards nativas de Meta. **No funcionó** — ver "Contexto técnico" arriba.
+
+**Estos IDs se preservan acá por si en el futuro DPM registra Meta-approved templates con catalog/mpm buttons, en cuyo caso este path se puede reactivar:**
+
+| Program | EN id | ES id |
+|---|---|---|
+| TryScuba | `xini7rpxbl` | `ysjbu87ht6` |
+| ScubaDiver | `6vg4o7zs5s` | `dlktjmvret` |
+| OW | `ttselz0g8v` | `z41eyixkoi` |
+| OW30 | `ooq52j5fzn` | `jei93wl11i` |
+| AOW | `sqzfvmz0si` | `wfvtyjotgq` |
+| Adventures | `6z7uro2we0` | `tkckxja7tc` |
+| OWAOWCombo | `0lwjj4eit2` | `k13xkqd39c` |
+| OWDeepCombo | `gqayqfkayy` | `32i97ilzjw` |
+| DeepSpecialty | `g2lbo94dld` | `0xax7rh0kt` |
+| NitroxSpecialty | `qmg83wfmqu` | `atabmcyyab` |
+| StressRescue | `ap4inly8uw` | *(none)* |
+| ReactRight | `gvbz80sebg` | *(none)* |
+| FunDive | `4cpnzcmpjw` | `lvyj0v2t6s` |
+| Refresh | `gacgdg5y2q` | `oslk9dechr` |
+
+Channel context: workspace `216239`, channel `274637` "WAP EN (main)", catalog connection at `app.respond.io/space/216239/settings/channels/274637/whatsapp-catalog`. 109 Meta products total in the connected catalog (see Miguel's screenshots 2026-06-03/04). 5 product sets within: All Products (109), Koh Tao ENG (15), Koh Tao ES (8), Koh Tao Marine Ecology (6), Phi Phi ENG (10), Phi Phi ES (9).
+
+---
+
+## Cambios al código asociados (resumen)
+
+1. **`apps/server/src/services/catalog-registry.ts`** — `getCatalogEntry` ahora detecta env vars que empiezan con `http(s)://` y devuelve `{type: "image", url, mimeType: "image/jpeg"}` en vez del fragment-id path antiguo.
+2. **`apps/server/src/services/respond-io.ts`** — `SendCatalogInput.payload` extendido con variante `image`. `buildCatalogMessageBody` formatea esa variante como `{message: {type: "attachment", attachment: {type: "image", url, mimeType}}}` — el shape oficial de Respond.io v2 confirmado por SDK (`@respond-io/typescript-sdk` `AttachmentMessage` type).
+3. **`information/17-information-phi-phi/kb_05_snippets_quick_replies.md`** — sección "IMÁGENES DEL CATÁLOGO" reescrita: prohibe al AI pegar URL en texto, ordena invocar siempre la tool `enviar_catalogo` (que el server resuelve a image-attachment).
+4. **Sin cambios al AI tool** (`enviar_catalogo`) — sigue tomando `sede_id` + `programa`. El cambio es server-side internal (catalog-registry resuelve diferente).

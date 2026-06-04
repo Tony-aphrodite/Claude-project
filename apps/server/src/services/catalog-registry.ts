@@ -54,6 +54,11 @@ export type CatalogPayload =
       language: string;
       components?: unknown[];
     }
+  | {
+      type: "image";
+      url: string;
+      mimeType?: string;
+    }
   | { type: "raw"; payload: Record<string, unknown> };
 
 export type CatalogEntry = {
@@ -178,6 +183,20 @@ export function getCatalogEntry(
       // which trips test contexts that don't load env first).
       return null;
     }
+  }
+
+  // Bare URL → treat as Respond.io image attachment (2026-06-04 Miguel fix).
+  // Native WhatsApp catalog product cards aren't reachable via Respond.io
+  // public API (see memory: respondio_catalog_send_limitation). Instead,
+  // each program env var holds a Cloudinary image URL (the catalog image
+  // with price + inclusions baked in). The send path posts it as an
+  // attachment type=image so WhatsApp renders it inline — no click-out,
+  // no link rendering, no Meta template approval needed.
+  if (/^https?:\/\//i.test(trimmed)) {
+    return {
+      label: trimmed,
+      payload: { type: "image", url: trimmed, mimeType: "image/jpeg" },
+    };
   }
 
   // Bare string → treat as Respond.io fragment id.

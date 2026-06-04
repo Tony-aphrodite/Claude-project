@@ -244,13 +244,18 @@ Ver `kb_03_pagos_y_reservas.md` para bloques bancarios completos. Resumen:
 
 ## IMÁGENES DEL CATÁLOGO (Cloudinary URLs)
 
-**Reglas:**
-- Versión según idioma del cliente (ES → URL ES, EN/otro → URL EN)
-- ANTES de enviar la URL, mandar mensaje separado: EN "🤿 Here's everything included:" | ES "🤿 Acá tenés todo lo que incluye:"
-- Las imágenes ya muestran precio e incluidos — **no repetir esa info en texto**
+**CÓMO MANDAR LA IMAGEN — CRÍTICO 2026-06-04:**
+
+- ❌ **NUNCA pegar la URL en el texto de la respuesta.** WhatsApp la renderiza como link clickable y saca al cliente del chat — eso es bug, no feature.
+- ✅ **Siempre invocar la tool `enviar_catalogo(sede_id, programa)`.** El server resuelve la URL por idioma/sede y la manda como attachment nativo de WhatsApp (la imagen se ve inline en el chat, sin clicks, sin salir de la app).
+- Las imágenes ya muestran precio + incluidos — **no repetir esa info en texto** después de mandarla.
+- Texto MUY corto (≤2 líneas) después del attachment: "Acá la info del [curso] 👆 — ¿lo armamos para [fecha]?"
 - Enviar en dos momentos:
-  - **Momento 1:** después de explicar brevemente un programa
-  - **Momento 2:** intención de reserva → enviar imagen + pasar directo a depósito
+  - **Momento 1:** después de explicar brevemente un programa (cliente confirmó interés)
+  - **Momento 2:** intención de reserva → mandar imagen via tool + pasar directo a depósito
+
+Las URLs abajo son **referencia documental para el operador** — el AI NO debe leerlas ni pegarlas en mensajes. El mapping vive en env vars de Railway:
+`RESPOND_IO_CATALOG_KOH_PHI_PHI_<PROGRAMA>_<EN|ES>=<cloudinary URL>`.
 
 ### Try Scuba
 - ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_try_scuba_es_wrxmna.jpg
