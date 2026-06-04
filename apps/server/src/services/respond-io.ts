@@ -218,52 +218,34 @@ export class RespondIoClient {
     const env = loadEnv();
     const log = getLogger();
 
-    // 2026-06-04 finding: Respond.io v2 /contact/id:{id}/message does NOT
-    // accept `message.type="custom_payload"` (it only takes type="text"
-    // — see sendMessage:~L157 comment from 2026-05-10). Catalog sends
-    // MUST go to /conversation/{id}/message. If our conversationId is
-    // the `tmp_<contactId>` placeholder (because Miguel's webhook
-    // workflow can't pass conversation.id as a variable), look up the
-    // contact's currently-open conversation via the Respond.io API and
-    // use that id instead.
-    let conversationIdForSend = input.conversationId;
-    let resolvedVia: "payload" | "api_lookup" | "tmp_unresolved" = "payload";
-    if (isUnresolvedTemplate(input.conversationId) && input.contactId) {
-      const fetched = await this.getActiveConversationId(input.contactId);
-      if (fetched) {
-        conversationIdForSend = fetched;
-        resolvedVia = "api_lookup";
-      } else {
-        resolvedVia = "tmp_unresolved";
-      }
+    // 2026-06-04 RESOLUTION (per @respond-io/typescript-sdk@1.4.0
+    // dist/index.d.ts:363): the canonical send shape is
+    //   POST /v2/contact/{identifier}/message
+    //   body { channelId?: number | null, message: Message }
+    //
+    // channelId MUST be a NUMBER, not a string. Sending the env var
+    // as a string ("274637") returned 400 "Invalid field(s) :
+    // channelId = 274637"; omitting it returned 400 "Missing field(s)
+    // : channelId" for custom_payload messages. The previous (text)
+    // sendMessage path strips channelId because /contact infers the
+    // primary text channel implicitly — that comment was correct FOR
+    // text only and led us astray for custom_payload, where the API
+    // requires explicit channelId of type number.
+    const useContactFallback =
+      isUnresolvedTemplate(input.conversationId) && !!input.contactId;
+    const url = useContactFallback
+      ? `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId!)}/message`
+      : `${env.RESPOND_IO_API_BASE_URL}/conversation/${encodeURIComponent(input.conversationId)}/message`;
+
+    const messageBody = buildCatalogMessageBody(input.payload) as Record<
+      string,
+      unknown
+    >;
+    // Coerce channelId to NUMBER per the official SDK type signature.
+    if ("channelId" in messageBody && typeof messageBody.channelId === "string") {
+      const n = Number(messageBody.channelId);
+      messageBody.channelId = Number.isFinite(n) ? n : messageBody.channelId;
     }
-
-    if (isUnresolvedTemplate(conversationIdForSend)) {
-      log.error(
-        { contactId: input.contactId, payloadType: input.payload.type },
-        "respond_io send_catalog: no real conversation id resolved — cannot send custom_payload to /contact endpoint",
-      );
-      throw new UpstreamError(
-        "respond_io",
-        "Catalog send requires a real conversation id; contact has no open conversation per Respond.io API",
-        { contactId: input.contactId ?? null, payloadType: input.payload.type },
-      );
-    }
-
-    const url = `${env.RESPOND_IO_API_BASE_URL}/conversation/${encodeURIComponent(
-      conversationIdForSend,
-    )}/message`;
-
-    const messageBody = buildCatalogMessageBody(input.payload);
-    // 2026-06-04 evidence (Railway log id req_uesmx1nrmpyw3rng): Respond.io
-    // v2 /contact/id:{id}/message REQUIRES channelId for
-    // message.type="custom_payload" — strip-on-contact previously sent
-    // here returned 400 "Missing field(s) : channelId". This is different
-    // from `message.type="text"` on the same endpoint (which REJECTS
-    // channelId — see sendMessage ~L157). Rules are per-message-type:
-    //   • text          → channelId forbidden on /contact
-    //   • custom_payload→ channelId required on /contact AND /conversation
-    // Always keep channelId for catalog sends regardless of route.
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
@@ -287,8 +269,8 @@ export class RespondIoClient {
             status: res.status,
             body: bodyText.slice(0, 500),
             payloadType: input.payload.type,
-            resolvedConversationId: conversationIdForSend,
-            resolvedVia,
+            via: useContactFallback ? "contact" : "conversation",
+            channelIdType: typeof (messageBody as { channelId?: unknown }).channelId,
           },
           "respond_io send_catalog non-2xx",
         );
@@ -298,17 +280,16 @@ export class RespondIoClient {
           {
             status: res.status,
             payloadType: input.payload.type,
-            conversationId: conversationIdForSend,
+            conversationId: input.conversationId,
             contactId: input.contactId ?? null,
-            resolvedVia,
+            via: useContactFallback ? "contact" : "conversation",
           },
         );
       }
       log.info(
         {
           payloadType: input.payload.type,
-          resolvedConversationId: conversationIdForSend,
-          resolvedVia,
+          via: useContactFallback ? "contact" : "conversation",
         },
         "respond_io send_catalog ok",
       );
