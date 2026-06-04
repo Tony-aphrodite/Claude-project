@@ -54,6 +54,12 @@ import {
 } from "../handlers/simulator.js";
 import { leadStageService } from "../services/lead-stage.js";
 import { respondIoClient } from "../services/respond-io.js";
+import {
+  isValidTurno,
+  rosterDbService,
+  VALID_TURNOS,
+  type Turno,
+} from "../services/roster-db.js";
 
 export async function adminRoutes(app: FastifyInstance) {
   const env = loadEnv();
@@ -264,6 +270,188 @@ export async function adminRoutes(app: FastifyInstance) {
       from: result.from,
       to: result.to,
     });
+  });
+
+  // ── /admin/roster/block ────────────────────────────────────────────────
+  //
+  // Mark one or more turnos of a sede × date as BLOCKED (capacity=0). Used
+  // by the office to mark days as weather-off, maintenance, festivo, etc.
+  // Upserts `roster_capacity_overrides` rows.
+  //
+  // Body shape:
+  //   { sedeId: "<uuid>", fecha: "YYYY-MM-DD", turnos?: ["AM"|"PM"|"Nocturno"], reason?: string }
+  //
+  // Omitting `turnos` blocks the whole day (all 3). Idempotent — running
+  // again with the same input is a no-op (just refreshes updatedAt).
+  //
+  // Auth: shared Bearer with /admin/reset-conversation (env ADMIN_RESET_TOKEN).
+  app.post("/admin/roster/block", async (req, reply) => {
+    const expected = env.ADMIN_RESET_TOKEN;
+    if (!expected) {
+      return reply.status(503).send({
+        error: { code: "admin_disabled", message: "ADMIN_RESET_TOKEN not configured" },
+      });
+    }
+    const auth = req.headers.authorization;
+    if (auth !== `Bearer ${expected}`) {
+      req.log.warn("admin roster/block auth rejected");
+      return reply.status(401).send({ error: { code: "unauthorized" } });
+    }
+
+    const body = (req.body ?? {}) as {
+      sedeId?: string;
+      fecha?: string;
+      turnos?: string[];
+      reason?: string;
+      by?: string;
+    };
+    if (!body.sedeId || !body.fecha) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "Provide sedeId (uuid) and fecha (YYYY-MM-DD) in the JSON body.",
+        },
+      });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(body.fecha)) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "fecha must be YYYY-MM-DD" },
+      });
+    }
+    let turnosValidated: Turno[] | undefined;
+    if (Array.isArray(body.turnos) && body.turnos.length > 0) {
+      const invalid = body.turnos.filter((t): t is string => !isValidTurno(t));
+      if (invalid.length > 0) {
+        return reply.status(400).send({
+          error: {
+            code: "bad_request",
+            message: `Invalid turno(s): ${invalid.join(", ")}. Expected: ${VALID_TURNOS.join(", ")}`,
+          },
+        });
+      }
+      turnosValidated = body.turnos as Turno[];
+    }
+
+    const result = await rosterDbService.blockDay({
+      sedeId: body.sedeId,
+      fecha: body.fecha,
+      ...(turnosValidated ? { turnos: turnosValidated } : {}),
+      ...(body.reason ? { reason: body.reason } : {}),
+      by: body.by ?? "admin_api",
+    });
+    req.log.info(
+      { sedeId: body.sedeId, fecha: body.fecha, turnos: result.blocked, reason: body.reason },
+      "admin roster/block ok",
+    );
+    return reply.send({ ok: true, blocked: result.blocked });
+  });
+
+  // ── /admin/roster/set-capacity ─────────────────────────────────────────
+  //
+  // Set explicit capacity for a single (sede, fecha, turno). 0 == blocked.
+  // Useful for "reduce capacity to 18 because fewer tanks today" rather
+  // than the full-block case (which has its own endpoint above).
+  //
+  // Body: { sedeId, fecha, turno, capacity, reason?, by? }
+  app.post("/admin/roster/set-capacity", async (req, reply) => {
+    const expected = env.ADMIN_RESET_TOKEN;
+    if (!expected) {
+      return reply.status(503).send({
+        error: { code: "admin_disabled", message: "ADMIN_RESET_TOKEN not configured" },
+      });
+    }
+    const auth = req.headers.authorization;
+    if (auth !== `Bearer ${expected}`) {
+      req.log.warn("admin roster/set-capacity auth rejected");
+      return reply.status(401).send({ error: { code: "unauthorized" } });
+    }
+    const body = (req.body ?? {}) as {
+      sedeId?: string;
+      fecha?: string;
+      turno?: string;
+      capacity?: number;
+      reason?: string;
+      by?: string;
+    };
+    if (!body.sedeId || !body.fecha || !body.turno || body.capacity === undefined) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "Provide sedeId, fecha (YYYY-MM-DD), turno, capacity in JSON body.",
+        },
+      });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(body.fecha)) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "fecha must be YYYY-MM-DD" },
+      });
+    }
+    if (!isValidTurno(body.turno)) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: `Invalid turno: ${body.turno}. Expected: ${VALID_TURNOS.join(", ")}`,
+        },
+      });
+    }
+    if (!Number.isInteger(body.capacity) || body.capacity < 0) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "capacity must be a non-negative integer",
+        },
+      });
+    }
+    await rosterDbService.setCapacity({
+      sedeId: body.sedeId,
+      fecha: body.fecha,
+      turno: body.turno,
+      capacity: body.capacity,
+      reason: body.reason,
+      by: body.by ?? "admin_api",
+    });
+    req.log.info(
+      { sedeId: body.sedeId, fecha: body.fecha, turno: body.turno, capacity: body.capacity },
+      "admin roster/set-capacity ok",
+    );
+    return reply.send({ ok: true });
+  });
+
+  // ── /admin/roster/availability ─────────────────────────────────────────
+  //
+  // Read-only diagnostic: show capacity/reserved/available for a (sede, fecha).
+  // Used by the panel and by ops debugging. No write side-effects.
+  //
+  // Body: { sedeId, fecha, turno? }
+  app.post("/admin/roster/availability", async (req, reply) => {
+    const expected = env.ADMIN_RESET_TOKEN;
+    if (!expected) {
+      return reply.status(503).send({
+        error: { code: "admin_disabled", message: "ADMIN_RESET_TOKEN not configured" },
+      });
+    }
+    const auth = req.headers.authorization;
+    if (auth !== `Bearer ${expected}`) {
+      return reply.status(401).send({ error: { code: "unauthorized" } });
+    }
+    const body = (req.body ?? {}) as {
+      sedeId?: string;
+      fecha?: string;
+      turno?: string;
+    };
+    if (!body.sedeId || !body.fecha) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "Provide sedeId and fecha" },
+      });
+    }
+    const turno =
+      body.turno && isValidTurno(body.turno) ? (body.turno as Turno) : undefined;
+    const slots = await rosterDbService.getAvailability(
+      body.sedeId,
+      body.fecha,
+      turno,
+    );
+    return reply.send({ ok: true, slots });
   });
 
   // ── /admin/apply-tag ────────────────────────────────────────────────────

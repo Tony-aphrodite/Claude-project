@@ -71,6 +71,7 @@ import {
 } from "../services/deposit-instructions.js";
 import { followUpProcessor } from "../services/follow-up.js";
 import { sendMetaProductCard } from "../services/meta-whatsapp.js";
+import { rosterDbService } from "../services/roster-db.js";
 import { detectLanguage, languageLabelToIso2 } from "../services/language.js";
 import { isNewTopicAfterHandoff } from "../services/new-topic-detector.js";
 import { leadStageService } from "../services/lead-stage.js";
@@ -545,6 +546,126 @@ export async function processIncomingMessage(
           .catch((err) =>
             log.warn({ err }, "ocr_result metadata patch failed"),
           );
+
+        // ── Phase 2 roster — atomic booking write on auto-confirm ──────
+        //
+        // When the OCR validates the deposit, write one roster_bookings row
+        // per (fecha = start_date + dayOffset, turno = slot) from the
+        // required_slots stamped by consultar_disponibilidad earlier.
+        // Idempotent: if lead_metadata.roster_booking_ids is already
+        // populated (re-OCR / re-validation case), skip the write.
+        //
+        // Race-safe: confirmBooking uses SERIALIZABLE transaction + recomputes
+        // capacity − reserved inside the txn. If overbooked (concurrent
+        // confirmation collided), we log a warning but still let the lead
+        // sit at deposit_paid — Patrick/operator reviews from the panel
+        // and decides whether to refund or accommodate.
+        //
+        // 2026-06-04 (Phase 2 of "el roster vive dentro del AI", Miguel
+        // architectural pivot).
+        if (autoConfirmed) {
+          const freshMeta =
+            (conversation.leadMetadata as LeadMetadata | null) ?? {};
+          const alreadyWritten =
+            Array.isArray(freshMeta.roster_booking_ids) &&
+            freshMeta.roster_booking_ids.length > 0;
+          const startDate = freshMeta.start_date;
+          const programa = freshMeta.programa;
+          const pax = freshMeta.pax;
+          const requiredSlots = freshMeta.required_slots;
+
+          if (alreadyWritten) {
+            log.info(
+              {
+                convId: conversation.id,
+                existingBookingIds: freshMeta.roster_booking_ids,
+              },
+              "roster_db: skip — bookings already confirmed for this conversation",
+            );
+          } else if (
+            !startDate ||
+            !programa ||
+            !pax ||
+            !Array.isArray(requiredSlots) ||
+            requiredSlots.length === 0
+          ) {
+            log.warn(
+              {
+                convId: conversation.id,
+                hasStartDate: !!startDate,
+                hasPrograma: !!programa,
+                hasPax: !!pax,
+                requiredSlotCount: Array.isArray(requiredSlots)
+                  ? requiredSlots.length
+                  : 0,
+              },
+              "roster_db: skip — booking metadata incomplete (AI never finalized programa/start_date via consultar_disponibilidad)",
+            );
+          } else {
+            const insertedIds: string[] = [];
+            for (const slot of requiredSlots) {
+              const fecha = addDays(startDate, slot.dayOffset);
+              const result = await rosterDbService.confirmBooking({
+                sedeId: sede.id,
+                fecha,
+                turno: slot.slot,
+                programa,
+                pax,
+                conversacionId: conversation.id,
+                contactId: payload.contact.id,
+              });
+              if (result.ok) {
+                insertedIds.push(result.booking.id);
+                log.info(
+                  {
+                    convId: conversation.id,
+                    bookingId: result.booking.id,
+                    fecha,
+                    turno: slot.slot,
+                    programa,
+                    pax,
+                  },
+                  "roster_db: booking written on OCR auto-confirm",
+                );
+              } else {
+                log.warn(
+                  {
+                    convId: conversation.id,
+                    fecha,
+                    turno: slot.slot,
+                    programa,
+                    pax,
+                    reason: result.reason,
+                    ...(result.reason === "overbooked"
+                      ? {
+                          available: result.available,
+                          capacity: result.capacity,
+                          reserved: result.reserved,
+                        }
+                      : {}),
+                  },
+                  "roster_db: booking refused — operator review needed",
+                );
+              }
+            }
+            if (insertedIds.length > 0) {
+              await leadStageService
+                .transition({
+                  conversacionId: conversation.id,
+                  to: "deposit_paid",
+                  by: "system",
+                  note: `roster_bookings written: ${insertedIds.length}`,
+                  metadataPatch: { roster_booking_ids: insertedIds },
+                })
+                .catch((err) =>
+                  log.warn(
+                    { err },
+                    "roster_booking_ids metadata patch failed (non-blocking)",
+                  ),
+                );
+            }
+          }
+        }
 
         // OCR rejection auto-message for clear cases (5-12-feedback follow-up).
         // When the verdict is validated=false AND the mismatch is unambiguous
@@ -1115,10 +1236,12 @@ export async function processIncomingMessage(
     }
 
     // Move pipeline forward — the AI is actively proposing dates.
-    // Stamp programa + start_date onto lead_metadata so when the operator
-    // later confirms the deposit, the panel handoff message can fill the
-    // [PROGRAMA] / [FECHA] placeholders from the latest proposal
-    // (INSTRUCCIONES_PAGO §7).
+    // Stamp programa + start_date + required_slots onto lead_metadata so
+    // when the OCR-validation path later confirms the deposit, the
+    // process-message hook has the data needed to write atomic
+    // roster_bookings rows (Phase 2 roster, 2026-06-04). Also used by the
+    // panel handoff message to fill [PROGRAMA] / [FECHA] in the spec
+    // template (INSTRUCCIONES_PAGO §7).
     void leadStageService
       .transition({
         conversacionId: conversation.id,
@@ -1129,6 +1252,10 @@ export async function processIncomingMessage(
           programa: input.programa,
           start_date: input.start_date,
           pax: input.pax,
+          required_slots: required.map((r) => ({
+            dayOffset: r.dayOffset,
+            slot: r.slot,
+          })),
         },
       })
       .catch(() => {});

@@ -457,6 +457,110 @@ export const rosterCache = pgTable(
   }),
 );
 
+// ── roster_capacity_overrides ──────────────────────────────────────────────
+// Per-day per-turno capacity override. When no row exists for a (sede, fecha,
+// turno), the system applies the default capacity (DEFAULT_CAPACITY_PER_TURNO
+// in services/roster-db.ts; today: 22). A row with capacity=0 marks the slot
+// as BLOCKED (weather, maintenance, festivo). A row with capacity=N reduces
+// or extends the slot.
+//
+// Added 2026-06-04 — Phase 2 of the "roster lives in the AI" architecture
+// (Miguel feedback). The legacy Apps Script → Google Sheet path is read
+// only and remains live in `consultar-disponibilidad` until cutover; this
+// table is for the new DB-backed source of truth.
+export const rosterCapacityOverrides = pgTable(
+  "roster_capacity_overrides",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    sedeId: uuid("sede_id")
+      .notNull()
+      .references(() => sedes.id, { onDelete: "cascade" }),
+    // YYYY-MM-DD; stored as text to match the rest of the codebase (avoids
+    // pgdate timezone surprises — Apps Script returns ISO strings too).
+    fecha: text("fecha").notNull(),
+    // "AM" | "PM" | "Nocturno" — same enum the AI tool uses.
+    turno: text("turno").notNull(),
+    // 0 = blocked; positive = explicit capacity for that slot.
+    capacity: integer("capacity").notNull(),
+    // Free-form text — "weather", "maintenance", "festivo", custom.
+    reason: text("reason"),
+    // Operator email or "api" / "ai" when programmatic.
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    // One override per (sede, fecha, turno). Upserts use this.
+    uniqueSedeFechaTurno: uniqueIndex("roster_cap_overrides_sede_fecha_turno_idx").on(
+      t.sedeId,
+      t.fecha,
+      t.turno,
+    ),
+  }),
+);
+
+// ── roster_bookings ────────────────────────────────────────────────────────
+// Atomic source of truth for confirmed bookings. One row per (lead, turno).
+// pax is denormalized so AI availability checks are a single SUM query:
+//   capacity - SUM(pax WHERE status='confirmed')  =  available spaces
+//
+// Status lifecycle:
+//   confirmed  — booked + deposit OCR-validated (default after insert)
+//   cancelled  — Patrick/Tony cancelled (frees the space)
+//   no_show    — customer didn't show up; tracked for ops analytics but
+//                does NOT auto-free the space (it was held that day)
+//
+// Inserted atomically by services/roster-db.ts confirmBooking() inside a
+// SERIALIZABLE transaction that re-checks capacity. Prevents the race-condition
+// overbooking scenario that the read-only Apps Script integration couldn't.
+//
+// Added 2026-06-04 — Phase 2 roster. See companion rosterCapacityOverrides.
+export const rosterBookings = pgTable(
+  "roster_bookings",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    sedeId: uuid("sede_id")
+      .notNull()
+      .references(() => sedes.id, { onDelete: "cascade" }),
+    fecha: text("fecha").notNull(),
+    turno: text("turno").notNull(),
+    // CatalogProgram key (TryScuba / OW / AOW / ...). Not FK-constrained
+    // because the enum lives in TS and rarely changes; storing as text is
+    // the same approach as conversaciones.leadStage.
+    programa: text("programa").notNull(),
+    pax: integer("pax").notNull().default(1),
+    // Conversation that produced this booking. NULL after conversation
+    // deletion (set on cascade); the booking still counts toward capacity.
+    conversacionId: uuid("conversacion_id").references(() => conversaciones.id, {
+      onDelete: "set null",
+    }),
+    // Respond.io contact id (not FK; the chat_contacts table is keyed on
+    // respond_io_contact_id but the relationship is informational only).
+    contactId: text("contact_id"),
+    // Lifecycle status — "confirmed" | "cancelled" | "no_show". Default
+    // confirmed since the only insert path is post-OCR-validation today.
+    status: text("status").notNull().default("confirmed"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelledBy: text("cancelled_by"),
+    cancelReason: text("cancel_reason"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    // Primary lookup pattern: "how many pax confirmed for this (sede, fecha, turno)?"
+    sedeFechaTurnoIdx: index("roster_bookings_sede_fecha_turno_idx").on(
+      t.sedeId,
+      t.fecha,
+      t.turno,
+    ),
+    // For panel views filtered by status (e.g. "show only confirmed").
+    statusIdx: index("roster_bookings_status_idx").on(t.status),
+    // For "which booking did THIS conversation produce" lookups.
+    conversacionIdx: index("roster_bookings_conv_idx").on(t.conversacionId),
+  }),
+);
+
 // ── webhook_debug_log ──────────────────────────────────────────────────────
 // Forensic capture of every inbound webhook payload. Added 2026-06-03 to
 // root-cause "first customer message for a new lead doesn't reach the
@@ -497,6 +601,10 @@ export type Error_ = typeof errores.$inferSelect;
 export type FollowUp = typeof followUps.$inferSelect;
 export type NewFollowUp = typeof followUps.$inferInsert;
 export type RosterCacheRow = typeof rosterCache.$inferSelect;
+export type RosterCapacityOverride = typeof rosterCapacityOverrides.$inferSelect;
+export type NewRosterCapacityOverride = typeof rosterCapacityOverrides.$inferInsert;
+export type RosterBooking = typeof rosterBookings.$inferSelect;
+export type NewRosterBooking = typeof rosterBookings.$inferInsert;
 export type SimulatorSession = typeof simulatorSessions.$inferSelect;
 export type NewSimulatorSession = typeof simulatorSessions.$inferInsert;
 export type ReplayRun = typeof replayRuns.$inferSelect;

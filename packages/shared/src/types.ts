@@ -831,6 +831,26 @@ export type LeadMetadata = {
     reason?: string;
     attachmentMime?: string | null;
   };
+  /**
+   * The boat-capacity slots this program needs, relative to `start_date`.
+   * Stamped by the consultar_disponibilidad handler when it commits to a
+   * specific (programa, start_date) so the deposit-OCR-success path can
+   * write the corresponding roster_bookings rows without re-deriving from
+   * the program schedule. dayOffset 0 = start_date, 1 = next day, …
+   *
+   * Added 2026-06-04 (Phase 2 roster) — see services/roster-db.ts.
+   */
+  required_slots?: Array<{ dayOffset: number; slot: "AM" | "PM" }>;
+  /**
+   * UUIDs of the roster_bookings rows inserted by the OCR-validation path.
+   * Used as an idempotency key: if this array is non-empty, the OCR hook
+   * has already written bookings for this conversation and re-runs become
+   * no-ops. (Re-OCR happens on legitimate operator re-validation flows and
+   * we don't want duplicate roster rows consuming double capacity.)
+   *
+   * Added 2026-06-04 (Phase 2 roster).
+   */
+  roster_booking_ids?: string[];
   // Free-form audit trail of the last 10 transitions: { from, to, at, by }.
   history?: Array<{
     from: LeadStage;
