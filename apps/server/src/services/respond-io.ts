@@ -227,18 +227,16 @@ export class RespondIoClient {
           input.conversationId,
         )}/message`;
 
-    const messageBody = buildCatalogMessageBody(input.payload) as Record<
-      string,
-      unknown
-    >;
-    // 2026-05-10 finding (see sendMessage ~L157): /contact/id:{id}/message
-    // REJECTS channelId as an invalid field. The channel is inferred from
-    // the contact's primary WhatsApp identity. /conversation/{id}/message
-    // requires channelId for custom_payload (probe 2026-06-03 round 2).
-    // Strip on /contact route; keep on /conversation route.
-    if (useContactFallback && "channelId" in messageBody) {
-      delete messageBody.channelId;
-    }
+    const messageBody = buildCatalogMessageBody(input.payload);
+    // 2026-06-04 evidence (Railway log id req_uesmx1nrmpyw3rng): Respond.io
+    // v2 /contact/id:{id}/message REQUIRES channelId for
+    // message.type="custom_payload" — strip-on-contact previously sent
+    // here returned 400 "Missing field(s) : channelId". This is different
+    // from `message.type="text"` on the same endpoint (which REJECTS
+    // channelId — see sendMessage ~L157). Rules are per-message-type:
+    //   • text          → channelId forbidden on /contact
+    //   • custom_payload→ channelId required on /contact AND /conversation
+    // Always keep channelId for catalog sends regardless of route.
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
