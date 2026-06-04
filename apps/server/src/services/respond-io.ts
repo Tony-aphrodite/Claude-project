@@ -435,65 +435,86 @@ export class RespondIoClient {
   async getActiveConversationId(contactId: string): Promise<string | null> {
     const env = loadEnv();
     const log = getLogger();
-    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(contactId)}/conversation`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
-    try {
-      const res = await undiciFetch(url, {
-        method: "GET",
-        signal: controller.signal,
-        dispatcher: keepAliveAgent,
-        headers: { authorization: `Bearer ${env.RESPOND_IO_API_KEY}` },
-      } as RequestInit);
-      if (res.status === 404) return null;
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        log.warn(
-          { contactId, status: res.status, body: body.slice(0, 300) },
-          "respond_io get_active_conversation non-2xx",
+    const base = env.RESPOND_IO_API_BASE_URL;
+    const cId = encodeURIComponent(contactId);
+
+    // Try a sequence of plausible Respond.io v2 endpoints. The official
+    // docs/SDK aren't accessible here, so we probe several patterns and
+    // log every attempt so the operator can see exactly which path
+    // worked. First 2xx with a usable id wins.
+    const attempts: Array<{ name: string; method: "GET" | "POST"; url: string }> = [
+      { name: "GET_contact_conversation", method: "GET", url: `${base}/contact/id:${cId}/conversation` },
+      { name: "GET_contact_conversations", method: "GET", url: `${base}/contact/id:${cId}/conversations` },
+      { name: "POST_contact_conversation_open", method: "POST", url: `${base}/contact/id:${cId}/conversation/open` },
+      { name: "GET_contact", method: "GET", url: `${base}/contact/id:${cId}` },
+    ];
+
+    for (const a of attempts) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+      try {
+        const res = await undiciFetch(a.url, {
+          method: a.method,
+          signal: controller.signal,
+          dispatcher: keepAliveAgent,
+          headers: {
+            authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+            ...(a.method === "POST" ? { "content-type": "application/json" } : {}),
+          },
+          ...(a.method === "POST" ? { body: "{}" } : {}),
+        } as RequestInit);
+        const status = res.status;
+        const text = await res.text().catch(() => "");
+        if (!res.ok) {
+          log.warn(
+            { contactId, attempt: a.name, status, bodyPreview: text.slice(0, 200) },
+            "respond_io get_active_conversation attempt non-2xx",
+          );
+          continue;
+        }
+        let json: Record<string, unknown> = {};
+        try {
+          json = JSON.parse(text) as Record<string, unknown>;
+        } catch {
+          log.warn(
+            { contactId, attempt: a.name, bodyPreview: text.slice(0, 200) },
+            "respond_io get_active_conversation attempt 2xx but body not JSON",
+          );
+          continue;
+        }
+        const convId = extractConversationId(json);
+        log.info(
+          {
+            contactId,
+            attempt: a.name,
+            status,
+            convId,
+            bodyKeys: Object.keys(json).slice(0, 20),
+          },
+          convId
+            ? "respond_io get_active_conversation attempt 2xx with id"
+            : "respond_io get_active_conversation attempt 2xx but no id in response",
         );
-        return null;
+        if (convId) return convId;
+      } catch (err) {
+        if ((err as { name?: string }).name === "AbortError") {
+          log.warn({ contactId, attempt: a.name }, "respond_io get_active_conversation attempt timed out");
+        } else {
+          log.warn(
+            { contactId, attempt: a.name, err: (err as Error).message },
+            "respond_io get_active_conversation attempt threw",
+          );
+        }
+      } finally {
+        clearTimeout(timer);
       }
-      const json = (await res.json()) as Record<string, unknown>;
-      // Respond.io wraps responses as either {data: {...}} or flat.
-      const root = (
-        typeof json.data === "object" && json.data !== null ? json.data : json
-      ) as Record<string, unknown>;
-      // Either the root itself is the conversation, or there's an array
-      // of conversations and we want the first OPEN one.
-      let convId: string | null = null;
-      if (typeof root.id === "string" || typeof root.id === "number") {
-        convId = String(root.id);
-      } else if (Array.isArray(root.conversations)) {
-        const open = root.conversations.find(
-          (c): c is { id: string | number; status?: string } =>
-            typeof c === "object" &&
-            c !== null &&
-            "id" in c &&
-            (("status" in c && c.status === "open") || !("status" in c)),
-        );
-        if (open) convId = String(open.id);
-      }
-      log.info(
-        { contactId, convId },
-        convId
-          ? "respond_io get_active_conversation ok"
-          : "respond_io get_active_conversation: no id in response",
-      );
-      return convId;
-    } catch (err) {
-      if ((err as { name?: string }).name === "AbortError") {
-        log.warn({ contactId }, "respond_io get_active_conversation timed out");
-        return null;
-      }
-      log.warn(
-        { contactId, err: (err as Error).message },
-        "respond_io get_active_conversation threw",
-      );
-      return null;
-    } finally {
-      clearTimeout(timer);
     }
+
+    log.error(
+      { contactId, attemptsTried: attempts.map((a) => a.name) },
+      "respond_io get_active_conversation: ALL attempts failed",
+    );
+    return null;
   }
 
   /**
@@ -1080,6 +1101,74 @@ function isUnresolvedTemplate(value: string | null | undefined): boolean {
   if (value.startsWith("{{") || value.startsWith("{$")) return true;
   if (value.startsWith("tmp_")) return true;
   return false;
+}
+
+/**
+ * Walk a Respond.io API response and extract whatever looks like a
+ * conversation id. Different endpoints return different shapes so this
+ * tries a handful of paths in priority order:
+ *   • root.conversation.id              (e.g. /contact response embedding)
+ *   • root.data.id                       (single-resource wrapper)
+ *   • root.id (when root looks like a conversation, not a contact)
+ *   • root.conversations[].id (first OPEN one, or first overall)
+ *   • root.data[].id (array of conversations)
+ *   • root.activeConversation.id
+ *   • root.currentConversation.id
+ */
+function extractConversationId(root: Record<string, unknown>): string | null {
+  if (!root || typeof root !== "object") return null;
+
+  const tryGetId = (v: unknown): string | null => {
+    if (v && typeof v === "object" && "id" in v) {
+      const id = (v as { id: unknown }).id;
+      if (typeof id === "string" || typeof id === "number") return String(id);
+    }
+    return null;
+  };
+
+  const pickFromArray = (arr: unknown[]): string | null => {
+    const open = arr.find(
+      (c) =>
+        c && typeof c === "object" && "status" in c && (c as { status: unknown }).status === "open",
+    );
+    if (open) return tryGetId(open);
+    const any = arr.find((c) => tryGetId(c) !== null);
+    return any ? tryGetId(any) : null;
+  };
+
+  for (const key of ["conversation", "activeConversation", "currentConversation"]) {
+    const id = tryGetId(root[key]);
+    if (id) return id;
+  }
+
+  const data = root.data;
+  if (data && typeof data === "object") {
+    const dataId = tryGetId(data);
+    if (dataId) {
+      // Heuristic: if the wrapper has a `contact` or `firstName` field
+      // it's a contact resource; otherwise the id at the root of `data`
+      // is plausibly a conversation id. Either way it's better than
+      // nothing, so return it.
+      return dataId;
+    }
+    if (Array.isArray(data)) {
+      const id = pickFromArray(data);
+      if (id) return id;
+    }
+  }
+
+  if (Array.isArray(root.conversations)) {
+    const id = pickFromArray(root.conversations);
+    if (id) return id;
+  }
+
+  if (typeof root.id === "string" || typeof root.id === "number") {
+    // Last resort. Only useful for endpoints that already return the
+    // conversation as the top-level object.
+    return String(root.id);
+  }
+
+  return null;
 }
 
 export const respondIoClient = new RespondIoClient();
