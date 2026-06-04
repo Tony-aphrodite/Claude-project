@@ -11,6 +11,47 @@ the entries link out to dedicated files.
 
 ---
 
+## Entry #18 — 2026-06-04 — Catalog UX: foto + descripción completa, no foto sola
+
+**Mensaje verbatim de Miguel** (después del e2e exitoso del día):
+
+> *"esta bien pero aparte de la foto tiene que estar toda la descripcion completa de cada programa escrita y la foto.*
+> *por que la foto vende y es un pequeno resumen pero la explicacoon de cada programa es muy importante"*
+
+**Contexto.** Durante el día 2026-06-04, después de ~8h de debugging del envío del catálogo via Meta WhatsApp Catalog API (que terminó siendo imposible vía API público de Respond.io — ver memoria `respondio_catalog_send_limitation`), Miguel propuso pivotar a **imagen Cloudinary como attachment nativo** en vez de catalog product card. El e2e test funcionó — la imagen llegó inline al WhatsApp del cliente. Pero el AI estaba escribiendo solo "Este es el indicado para vos 👆 ¿Tenés fechas?" (≤2 líneas) después de la imagen — lo cual era la regla de prompt vigente.
+
+**Miguel pide:** aparte de la foto, el AI **siempre** debe escribir la descripción completa del programa en texto. La foto es resumen visual (gancho), la descripción es la explicación profunda que vende.
+
+**Cambio aplicado al prompt de Francisco** (`information/17-information-phi-phi/system_prompt_phi_phi.md`, sección "CATÁLOGO — CRÍTICO"):
+
+- Reemplazada la regla *"DESPUÉS, texto MUY corto (≤2 líneas)"* por *"texto con la DESCRIPCIÓN COMPLETA del programa (~5–10 líneas)"*.
+- Estructura del texto post-imagen: (a) frase introductoria conversacional, (b) duración + qué pasa cada día, (c) qué incluye, (d) qué NO incluye, (e) requisitos, (f) 1 detalle vendedor único de Phi Phi, (g) pregunta de cierre.
+- Quitado de las prohibiciones duras: *"Describir foto, precio, duración en texto cuando la tarjeta los muestra"*.
+- Reemplazado por: *"Repetir el PRECIO en texto cuando la imagen ya lo muestra destacado (precio = en imagen / detalle vendedor = en texto)"* — sigue evitando duplicar el precio, pero permite duplicar (de hecho exige) la descripción.
+
+**Cambio NO aplicado** (esto sigue igual):
+- La imagen sigue saliendo primero via `enviar_catalogo` (no se inviertió el orden).
+- El dedup `alreadySent:true` sigue activo — si se pide la misma card 2x, solo texto la 2da vez (referenciando la imagen previa).
+- Las prohibiciones de "no invocar texto sin tool" + "no 2 cards en mismo turno" siguen activas.
+
+**Por qué este pivote tiene sentido (perspectiva de Miguel):**
+- Su corpus empírico (5,772 contactos / 241k mensajes en KB-06) muestra que cierra leads mejor cuando hay tanto la imagen vendedora como la explicación verbal — el cliente percibe "trato profesional con contexto" en lugar de "solo te tiré una imagen y te apuro a pagar".
+- La imagen sola es eficiente pero impersonal. La descripción complementaria genera el momento de calibración (el cliente lee, procesa, tiene preguntas concretas — vs solo mirar imagen y decidir frío).
+
+**Estado:**
+- ✅ Prompt editado
+- ⏳ Tony re-run `pnpm --filter @dpm/db seed-content` → DB tiene el prompt v8 + KB-05 v5
+- ⏳ Tony re-test e2e en su WhatsApp → confirma que después de la imagen llega ~5-10 líneas con descripción completa
+- ⏳ Si funciona como Miguel quiere, replicar el patrón en futuras sedes (KT, NP, GT, GA) cuando lleguen a launch
+
+**Files touched in this entry:**
+
+- `information/17-information-phi-phi/system_prompt_phi_phi.md` (sección CATÁLOGO—CRÍTICO reescrita)
+
+**Memoria asociada:** `respondio_catalog_send_limitation` documenta por qué se pivotó a imágenes Cloudinary attachment en vez de Meta product cards. Este Entry #18 captura el siguiente refinement de UX una vez que el approach técnico fue confirmado funcional.
+
+---
+
 ## Entry #17 — 2026-06-02 — Phi Phi launch debugging session (end-to-end verified)
 
 **Topic:** Marathon debugging session that took the Phi Phi AI from "Miguel reports it doesn't work, conversations go straight to human" → "synthetic test passes end-to-end, Francisco persona + roster + catalog all firing correctly". Six layered root causes discovered and fixed in sequence. End state: PP server-side fully working, awaiting Miguel's real-customer test for the final confirmation.

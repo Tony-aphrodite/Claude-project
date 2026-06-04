@@ -41,7 +41,8 @@ import type {
 } from "@dpm/shared";
 import { depositAmountFor } from "@dpm/shared";
 
-import { errores, getDb, mensajes } from "@dpm/db";
+import { eq } from "drizzle-orm";
+import { conversaciones, errores, getDb, mensajes } from "@dpm/db";
 
 import { loadEnv, resolveHandoffEmail } from "../env.js";
 import { callClaude } from "../services/anthropic.js";
@@ -1300,11 +1301,41 @@ export async function processIncomingMessage(
       );
     }
 
-    // Catalog cards can be bilingual (e.g. Phi Phi has EN + ES fragments
-    // per course). Pass the customer's language so the registry picks the
-    // right variant; falls back to EN if the language-specific variant
-    // isn't configured.
-    const catalogLanguage = detectedLanguage ?? contact.language ?? undefined;
+    // Catalog cards can be bilingual (e.g. Phi Phi has EN + ES image
+    // variants per course). The per-inbound `detectLanguage()` requires
+    // ≥60 chars and short turns (e.g. "Sí claro" = 8 chars) return
+    // undefined — which used to fall through to EN as a default. That
+    // produced an English catalog card to Spanish-speaking customers
+    // (e2e test 2026-06-04: customer wrote 4 messages all <30 chars in
+    // Spanish, AI replied in Spanish, but card came in English).
+    //
+    // Fallback when detectedLanguage is undefined: concatenate the recent
+    // customer messages (sender='cliente') and re-run detectLanguage on
+    // the combined text. Aggregated history typically exceeds the 60-char
+    // threshold and surfaces a definitive Spanish/English verdict from
+    // franc. Only fires when the per-inbound detection failed — avoids
+    // extra DB work on the common path.
+    let catalogLanguage: string | undefined = detectedLanguage ?? undefined;
+    if (!catalogLanguage) {
+      try {
+        const recent = await conversationService.recentMessages(conversation.id);
+        const combinedCustomerText = recent
+          .filter((m) => m.sender === "cliente")
+          .slice(-10)
+          .map((m) => m.content)
+          .join(" ")
+          .trim();
+        if (combinedCustomerText.length > 0) {
+          const detected = detectLanguage(combinedCustomerText);
+          if (detected) catalogLanguage = detected;
+        }
+      } catch (langErr) {
+        log.warn(
+          { err: (langErr as Error).message },
+          "enviar_catalogo: language history-fallback lookup failed — using undefined (EN default)",
+        );
+      }
+    }
     const entry = getCatalogEntry(sede.nombre, input.programa, catalogLanguage);
     if (!entry) {
       const message = describeMissingCatalog(sede.nombre, input.programa);
@@ -1317,6 +1348,40 @@ export async function processIncomingMessage(
         reason: "not_configured",
         message,
         programa: input.programa,
+      };
+    }
+
+    // Dedup guard (2026-06-04 e2e regression). Without this, the AI was
+    // calling enviar_catalogo on 3 consecutive turns with the same
+    // `programa` (each short customer confirmation — "Primera vez",
+    // "Sí claro" — was reinterpreted as a fresh request for the card).
+    // Track which programas were already sent in this conversation via
+    // `lead_metadata.catalogsSent` and short-circuit with alreadySent:true
+    // when the AI re-asks. The prompt CATÁLOGO rule reads this signal and
+    // generates a text-only reply referencing the prior card instead of
+    // re-invoking the tool.
+    const conversationMeta =
+      (conversation.leadMetadata as LeadMetadata | null) ?? {};
+    const catalogsSentSoFar = Array.isArray(
+      (conversationMeta as { catalogsSent?: unknown }).catalogsSent,
+    )
+      ? ((conversationMeta as { catalogsSent?: string[] }).catalogsSent ?? [])
+      : [];
+    if (catalogsSentSoFar.includes(input.programa)) {
+      log.info(
+        {
+          sede: sede.nombre,
+          programa: input.programa,
+          catalogsSentSoFar,
+        },
+        "enviar_catalogo: dedup — programa already sent in this conversation, returning alreadySent:true without resending",
+      );
+      return {
+        ok: true,
+        sent: false,
+        alreadySent: true,
+        programa: input.programa,
+        catalogRef: entry.label,
       };
     }
 
@@ -1397,6 +1462,30 @@ export async function processIncomingMessage(
     }
 
     if (sentVia) {
+      // Persist that this programa was sent so the dedup guard on the next
+      // turn returns alreadySent:true. We update lead_metadata directly
+      // (fire-and-forget; failure logged but not blocking — worst case is
+      // a duplicate card next turn, which is the regression we already
+      // accept while degraded).
+      void getDb()
+        .update(conversaciones)
+        .set({
+          leadMetadata: {
+            ...conversationMeta,
+            catalogsSent: Array.from(
+              new Set([...catalogsSentSoFar, input.programa]),
+            ),
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(conversaciones.id, conversation.id))
+        .catch((err) =>
+          log.warn(
+            { err: (err as Error).message, programa: input.programa },
+            "enviar_catalogo: failed to persist catalogsSent (non-blocking)",
+          ),
+        );
+
       // Mark the lead as proposed once the AI sends a specific program
       // card — this is the same intent signal as consultar_disponibilidad.
       void leadStageService

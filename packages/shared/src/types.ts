@@ -626,6 +626,20 @@ export type EnviarCatalogoResult =
       catalogRef: string;
     }
   | {
+      // 2026-06-04: dedup variant. Returned when the same `programa` was
+      // already sent in this conversation (tracked in lead_metadata.
+      // catalogsSent). The AI must use this signal to AVOID re-asserting
+      // "te paso la info 👆" in the next reply — it should reference the
+      // earlier card with text only ("ya te pasé la info del Try Scuba
+      // 👆, ¿avanzamos con [fecha/deposit]?"). Prevents the 3x-same-card
+      // regression observed 2026-06-04 e2e test.
+      ok: true;
+      sent: false;
+      alreadySent: true;
+      programa: CatalogProgram;
+      catalogRef: string;
+    }
+  | {
       ok: false;
       reason: "not_configured" | "send_failed" | "sede_unknown";
       message: string;
