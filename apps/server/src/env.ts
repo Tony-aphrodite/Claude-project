@@ -66,7 +66,7 @@ const envSchema = z.object({
   // the call with 400 if catalogId is missing from the message body). Same
   // catalog is shared across DPM sedes — the per-sede surface is the
   // product_retailer_id allowlist, not the catalog itself.
-  META_CATALOG_ID: z.string().optional().or(z.literal("")),
+  META_CATALOG_ID: z.string().min(8, "META_CATALOG_ID looks empty/short"),
   // WhatsApp Business channel id in Respond.io. v2 product-card sends
   // require this in the body so Respond.io knows which connected number
   // to use as origin. Defaults to 274637 (WAP EN main, workspace 216239).

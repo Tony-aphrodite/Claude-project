@@ -41,12 +41,10 @@ const body = {
   },
   message: {
     type: "text",
-    // Short English greeting — verifies the language-bias fix (2026-06-02):
-    // before the fix this triggered a Spanish reply because franc requires
-    // 60 chars and the prompt's Spanish-worded fallback biased the model.
-    // After the fix the short-greeting regex catches "Hello" → english →
-    // strong langLine → Francisco replies in English.
-    text: "Hello",
+    // Course-mention — verifies Francisco v5 CRÍTICO catalog rules fire
+    // enviar_catalogo BEFORE any text description (2026-06-03 fix). Customer
+    // explicitly asks about a course → tool MUST fire on round 0 per prompt.
+    text: "Hi, can you tell me about the Open Water course in Koh Phi Phi?",
     timestamp: new Date().toISOString(),
     direction: "incoming",
   },

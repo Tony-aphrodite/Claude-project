@@ -867,25 +867,35 @@ function buildCatalogMessageBody(
   switch (payload.type) {
     case "fragment":
       return {
-        message: { type: "fragment", fragmentId: payload.fragmentId },
+        channelId: env.RESPOND_IO_CHANNEL_ID,
+        message: {
+          type: "custom_payload",
+          payload: {
+            type: "interactive",
+            interactive: {
+              type: "product",
+              action: {
+                catalog_id: env.META_CATALOG_ID,
+                product_retailer_id: payload.fragmentId,
+              },
+            },
+          },
+        },
       };
     case "product":
-      // Respond.io v2 native shape for Meta WhatsApp Business interactive
-      // catalog items (verbatim per Miguel's SPEC_send_product_card.md
-      // §Flujo end-to-end + verified against a real 400 response that
-      // complained about missing catalogId). The fields are:
-      //   channelId      — which connected WhatsApp number to send from
-      //   message.type   — literal "interactive_catalog_item"
-      //   message.content.catalogId        — Meta catalog id (per workspace)
-      //   message.content.productRetailerId — the SKU from the allowlist
-      const catalogId = payload.catalog_id ?? env.META_CATALOG_ID;
       return {
         channelId: env.RESPOND_IO_CHANNEL_ID,
         message: {
-          type: "interactive_catalog_item",
-          content: {
-            ...(catalogId ? { catalogId } : {}),
-            productRetailerId: payload.product_retailer_id,
+          type: "custom_payload",
+          payload: {
+            type: "interactive",
+            interactive: {
+              type: "product",
+              action: {
+                catalog_id: env.META_CATALOG_ID,
+                product_retailer_id: payload.product_retailer_id,
+              },
+            },
           },
         },
       };
