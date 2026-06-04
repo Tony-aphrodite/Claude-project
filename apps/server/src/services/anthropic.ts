@@ -256,6 +256,22 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         incomingMessage: input.incomingMessage,
       });
 
+      // Availability-hallucination guard (2026-06-04 incident "22 de junio
+      // hay lugar" sin tool call). If the model claims availability but did
+      // NOT call consultar_disponibilidad in the CURRENT turn, replace the
+      // reply with the safe verification fallback. Prompt rule
+      // DISPONIBILIDAD—NUNCA-CAVE-A-PRESIÓN is the primary defense; this is
+      // belt-and-suspenders for caving-under-customer-pressure regressions.
+      let finalText = text;
+      let availabilityHallucination = false;
+      if (
+        claimsAvailability(finalText) &&
+        !toolCalls.includes("consultar_disponibilidad")
+      ) {
+        availabilityHallucination = true;
+        finalText = availabilityFallback(input.expectedLanguage);
+      }
+
       // Append tool_use to fuentes if Claude actually invoked any. The panel
       // surfaces these so a human can audit which tool the AI relied on.
       for (const toolName of new Set(toolCalls)) {
@@ -291,6 +307,18 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         );
       }
 
+      if (availabilityHallucination) {
+        log.warn(
+          {
+            sede: input.sedeId,
+            conversacionId: input.conversacionId,
+            originalTextPreview: text.slice(0, 200),
+            toolCalls,
+          },
+          "claude claimed availability without consultar_disponibilidad in current turn; replaced with safe fallback",
+        );
+      }
+
       log.info(
         {
           sede: input.sedeId,
@@ -311,7 +339,7 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
       );
 
       return {
-        text,
+        text: finalText,
         fuentes,
         escalationReason,
         descuento,
@@ -521,6 +549,56 @@ const REASONING_LEAK_PATTERNS: RegExp[] = [
 
 function looksLikeLeakedReasoning(text: string): boolean {
   return REASONING_LEAK_PATTERNS.some((p) => p.test(text));
+}
+
+// Availability-claim patterns. The model is supposed to ONLY claim a
+// concrete slot (date confirmed / "hay lugar" / "AM disponible") when
+// `consultar_disponibilidad` was called in the current turn AND returned
+// real slots. Under customer pressure ("¿tenés o no?", "confirmá ya"),
+// the model occasionally caves and fabricates a "yes, there's space"
+// without re-calling the tool. This guard pairs with the
+// DISPONIBILIDAD—NUNCA-CAVE-A-PRESIÓN prompt rule.
+//
+// 2026-06-04 incident: turn 5, Francisco said "Ya verifiqué disponibilidad
+// para el 22 de junio y hay lugar" without invoking the tool that turn.
+//
+// False-positive avoidance:
+//   - "Necesito verificar" / "Te confirmo en cuanto tenga" — future-tense
+//     promises do NOT match (patterns target past/perfect-tense claims).
+//   - "Voy a verificar" / "verificaré" — do NOT match; only "ya verifiqué"
+//     and "verifiqué disponibilidad" hit.
+const AVAILABILITY_CLAIM_PATTERNS: RegExp[] = [
+  /\bya\s+verifiqu[eé]\b/i,
+  /\bverifiqu[eé]\s+(?:la\s+)?disponibilidad\b/i,
+  /\b(?:ya\s+)?confirm[eé]\s+(?:la\s+)?disponibilidad\b/i,
+  /\bhay\s+(?:lugar|espacio|cupo|disponibilidad)\b/i,
+  /\btu\s+(?:fecha|d[íi]a|reserva|cupo)\s+(?:est[áa]\s+(?:libre|disponible)|qued[oó]\s+confirmad[ao])\b/i,
+  /\b(?:AM|PM|nocturn[oa])\s+(?:est[áa]\s+)?disponible\b/i,
+  /\bte\s+(?:lo|la)\s+agendo\b/i,
+  /\bqued(?:a|ó)\s+confirmad[ao]\s+(?:el\s+cupo|tu?\s+(?:lugar|fecha))\b/i,
+  /\balready\s+(?:verified|confirmed)\s+(?:availability|your)\b/i,
+  /\byour\s+(?:date|spot|booking)\s+is\s+confirmed\b/i,
+  /\bwe\s+have\s+(?:space|availability|a\s+spot)\b/i,
+  /\bgot\s+you\s+a\s+spot\b/i,
+];
+
+function claimsAvailability(text: string): boolean {
+  return AVAILABILITY_CLAIM_PATTERNS.some((p) => p.test(text));
+}
+
+const AVAILABILITY_FALLBACK_TEXT: Record<string, string> = {
+  es: "Sigo verificando con el equipo — apenas tenga la confirmación te aviso 🙏. Mientras tanto, ¿te paso la info del curso o arrancamos con la seña?",
+  en: "Still confirming with the team — I'll write the moment I have it 🙏. Want me to send the course info or start the deposit meanwhile?",
+  pt: "Estou confirmando com a equipa — aviso assim que tiver 🙏. Quer que eu envie a info do curso enquanto isso?",
+};
+
+function availabilityFallback(expectedLanguage?: string): string {
+  const lang = expectedLanguage?.toLowerCase() ?? "";
+  if (lang === "english" || lang === "en") return AVAILABILITY_FALLBACK_TEXT.en!;
+  if (lang === "português" || lang === "portugues" || lang === "pt") {
+    return AVAILABILITY_FALLBACK_TEXT.pt!;
+  }
+  return AVAILABILITY_FALLBACK_TEXT.es!;
 }
 
 // Portuguese-only orthography + function-word patterns are imported from
