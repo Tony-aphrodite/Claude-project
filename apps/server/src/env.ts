@@ -67,6 +67,25 @@ const envSchema = z.object({
   // catalog is shared across DPM sedes — the per-sede surface is the
   // product_retailer_id allowlist, not the catalog itself.
   META_CATALOG_ID: z.string().min(8, "META_CATALOG_ID looks empty/short"),
+  // Direct Meta WhatsApp Cloud API credentials (2026-06-04). Used by
+  // services/meta-whatsapp.ts to bypass Respond.io for catalog product
+  // sends, since Respond.io public REST API does not expose the
+  // whatsapp_interactive message type that catalog cards require.
+  //
+  // Where to find these in Meta Business Manager:
+  //   • META_WHATSAPP_PHONE_NUMBER_ID — WhatsApp Manager → API Setup →
+  //     "Phone number ID" (15-16 digit numeric id; not the +16592814080
+  //     phone number string).
+  //   • META_WHATSAPP_ACCESS_TOKEN — Business Settings → System Users →
+  //     generate token with whatsapp_business_messaging scope. The
+  //     temporary 24h token under WhatsApp → API Setup works for a first
+  //     test but rotates daily; use a permanent system-user token for prod.
+  //
+  // Both optional: if missing, the Meta-direct fallback is disabled and
+  // the AI continues to degrade to text when Respond.io catalog sends
+  // fail (the previous behavior).
+  META_WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  META_WHATSAPP_ACCESS_TOKEN: z.string().optional(),
   // WhatsApp Business channel id in Respond.io. v2 product-card sends
   // require this in the body so Respond.io knows which connected number
   // to use as origin. Defaults to 274637 (WAP EN main, workspace 216239).

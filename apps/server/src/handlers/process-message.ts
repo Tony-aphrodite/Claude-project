@@ -69,6 +69,7 @@ import {
   type SedeKey,
 } from "../services/deposit-instructions.js";
 import { followUpProcessor } from "../services/follow-up.js";
+import { sendMetaProductCard } from "../services/meta-whatsapp.js";
 import { detectLanguage, languageLabelToIso2 } from "../services/language.js";
 import { isNewTopicAfterHandoff } from "../services/new-topic-detector.js";
 import { leadStageService } from "../services/lead-stage.js";
@@ -1319,6 +1320,13 @@ export async function processIncomingMessage(
       };
     }
 
+    // Try Respond.io first (preserves operator visibility in their Inbox).
+    // On failure — and only when META_WHATSAPP_* credentials are configured
+    // — fall back to direct Meta WhatsApp Cloud API. The Meta path
+    // bypasses Respond.io entirely; outbound visibility in Respond.io may
+    // be partial depending on their Cloud API echo subscription.
+    let sentVia: "respond_io" | "meta_direct" | null = null;
+    let lastErr: Error | null = null;
     try {
       await respondIoClient.sendCatalogMessage({
         conversationId:
@@ -1326,7 +1334,69 @@ export async function processIncomingMessage(
         contactId: payload.contact.id,
         payload: entry.payload,
       });
+      sentVia = "respond_io";
+    } catch (err) {
+      lastErr = err as Error;
+      log.warn(
+        { err: lastErr.message, sede: sede.nombre, programa: input.programa },
+        "enviar_catalogo: Respond.io send failed — attempting Meta-direct fallback",
+      );
 
+      // Meta-direct fallback. Only attempt when the entry has a real
+      // product_retailer_id (the new schema) AND the env credentials
+      // are present AND the contact has a known phone.
+      const fallbackEnv = loadEnv();
+      const metaConfigured =
+        !!fallbackEnv.META_WHATSAPP_PHONE_NUMBER_ID &&
+        !!fallbackEnv.META_WHATSAPP_ACCESS_TOKEN;
+      const productRetailerId =
+        entry.payload.type === "fragment"
+          ? entry.payload.fragmentId
+          : entry.payload.type === "product"
+            ? entry.payload.product_retailer_id
+            : null;
+      const toPhone = payload.contact.phone ?? contact.phone ?? null;
+
+      if (metaConfigured && productRetailerId && toPhone) {
+        try {
+          await sendMetaProductCard({
+            toPhone,
+            catalogId: fallbackEnv.META_CATALOG_ID,
+            productRetailerId,
+          });
+          sentVia = "meta_direct";
+          log.info(
+            {
+              sede: sede.nombre,
+              programa: input.programa,
+              productRetailerId,
+            },
+            "enviar_catalogo: Meta-direct fallback succeeded",
+          );
+        } catch (metaErr) {
+          log.error(
+            {
+              err: (metaErr as Error).message,
+              sede: sede.nombre,
+              programa: input.programa,
+            },
+            "enviar_catalogo: Meta-direct fallback also failed — AI will degrade to text",
+          );
+          lastErr = metaErr as Error;
+        }
+      } else {
+        log.info(
+          {
+            metaConfigured,
+            hasProductRetailerId: !!productRetailerId,
+            hasPhone: !!toPhone,
+          },
+          "enviar_catalogo: Meta-direct fallback skipped (missing config/phone/id)",
+        );
+      }
+    }
+
+    if (sentVia) {
       // Mark the lead as proposed once the AI sends a specific program
       // card — this is the same intent signal as consultar_disponibilidad.
       void leadStageService
@@ -1334,7 +1404,7 @@ export async function processIncomingMessage(
           conversacionId: conversation.id,
           to: "proposed",
           by: "ai",
-          note: `enviar_catalogo ${input.programa}`,
+          note: `enviar_catalogo ${input.programa} via ${sentVia}`,
         })
         .catch(() => {});
 
@@ -1344,22 +1414,14 @@ export async function processIncomingMessage(
         programa: input.programa,
         catalogRef: entry.label,
       };
-    } catch (err) {
-      log.warn(
-        {
-          err: (err as Error).message,
-          sede: sede.nombre,
-          programa: input.programa,
-        },
-        "enviar_catalogo: send failed — AI will degrade to text",
-      );
-      return {
-        ok: false,
-        reason: "send_failed",
-        message: (err as Error).message,
-        programa: input.programa,
-      };
     }
+
+    return {
+      ok: false,
+      reason: "send_failed",
+      message: lastErr?.message ?? "unknown",
+      programa: input.programa,
+    };
   };
 
   // send_product_card — Colomba (Gili Air) only. Different surface area
