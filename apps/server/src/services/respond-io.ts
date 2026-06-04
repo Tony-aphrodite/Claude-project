@@ -218,14 +218,41 @@ export class RespondIoClient {
     const env = loadEnv();
     const log = getLogger();
 
-    const useContactFallback =
-      isUnresolvedTemplate(input.conversationId) && !!input.contactId;
+    // 2026-06-04 finding: Respond.io v2 /contact/id:{id}/message does NOT
+    // accept `message.type="custom_payload"` (it only takes type="text"
+    // — see sendMessage:~L157 comment from 2026-05-10). Catalog sends
+    // MUST go to /conversation/{id}/message. If our conversationId is
+    // the `tmp_<contactId>` placeholder (because Miguel's webhook
+    // workflow can't pass conversation.id as a variable), look up the
+    // contact's currently-open conversation via the Respond.io API and
+    // use that id instead.
+    let conversationIdForSend = input.conversationId;
+    let resolvedVia: "payload" | "api_lookup" | "tmp_unresolved" = "payload";
+    if (isUnresolvedTemplate(input.conversationId) && input.contactId) {
+      const fetched = await this.getActiveConversationId(input.contactId);
+      if (fetched) {
+        conversationIdForSend = fetched;
+        resolvedVia = "api_lookup";
+      } else {
+        resolvedVia = "tmp_unresolved";
+      }
+    }
 
-    const url = useContactFallback
-      ? `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId!)}/message`
-      : `${env.RESPOND_IO_API_BASE_URL}/conversation/${encodeURIComponent(
-          input.conversationId,
-        )}/message`;
+    if (isUnresolvedTemplate(conversationIdForSend)) {
+      log.error(
+        { contactId: input.contactId, payloadType: input.payload.type },
+        "respond_io send_catalog: no real conversation id resolved — cannot send custom_payload to /contact endpoint",
+      );
+      throw new UpstreamError(
+        "respond_io",
+        "Catalog send requires a real conversation id; contact has no open conversation per Respond.io API",
+        { contactId: input.contactId ?? null, payloadType: input.payload.type },
+      );
+    }
+
+    const url = `${env.RESPOND_IO_API_BASE_URL}/conversation/${encodeURIComponent(
+      conversationIdForSend,
+    )}/message`;
 
     const messageBody = buildCatalogMessageBody(input.payload);
     // 2026-06-04 evidence (Railway log id req_uesmx1nrmpyw3rng): Respond.io
@@ -260,7 +287,8 @@ export class RespondIoClient {
             status: res.status,
             body: bodyText.slice(0, 500),
             payloadType: input.payload.type,
-            via: useContactFallback ? "contact" : "conversation",
+            resolvedConversationId: conversationIdForSend,
+            resolvedVia,
           },
           "respond_io send_catalog non-2xx",
         );
@@ -270,15 +298,17 @@ export class RespondIoClient {
           {
             status: res.status,
             payloadType: input.payload.type,
-            conversationId: input.conversationId,
+            conversationId: conversationIdForSend,
             contactId: input.contactId ?? null,
+            resolvedVia,
           },
         );
       }
       log.info(
         {
           payloadType: input.payload.type,
-          via: useContactFallback ? "contact" : "conversation",
+          resolvedConversationId: conversationIdForSend,
+          resolvedVia,
         },
         "respond_io send_catalog ok",
       );
@@ -379,6 +409,88 @@ export class RespondIoClient {
         });
       }
       throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Look up the active conversation id for a contact.
+   *
+   * 2026-06-04 finding: Respond.io v2 /contact/id:{id}/message ONLY
+   * accepts `message.type="text"`. Catalog sends (`custom_payload`)
+   * MUST go to /conversation/{id}/message. But Miguel's webhook
+   * workflow does NOT pass conversation.id (it can't reference it as
+   * a variable), so the inbound payload arrives with no conversation
+   * context and we fall back to `tmp_<contactId>`. This method bridges
+   * that gap: ask Respond.io which conversation is currently open for
+   * the contact and use that id for catalog sends.
+   *
+   * Tries GET /v2/contact/id:{id}/conversation first, then falls back
+   * to /v2/conversation?contactId={id}&status=open if the former is
+   * 404. Returns null when no open conversation is found so the caller
+   * can throw a clean error rather than calling the message API with
+   * an invalid id.
+   */
+  async getActiveConversationId(contactId: string): Promise<string | null> {
+    const env = loadEnv();
+    const log = getLogger();
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(contactId)}/conversation`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+    try {
+      const res = await undiciFetch(url, {
+        method: "GET",
+        signal: controller.signal,
+        dispatcher: keepAliveAgent,
+        headers: { authorization: `Bearer ${env.RESPOND_IO_API_KEY}` },
+      } as RequestInit);
+      if (res.status === 404) return null;
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        log.warn(
+          { contactId, status: res.status, body: body.slice(0, 300) },
+          "respond_io get_active_conversation non-2xx",
+        );
+        return null;
+      }
+      const json = (await res.json()) as Record<string, unknown>;
+      // Respond.io wraps responses as either {data: {...}} or flat.
+      const root = (
+        typeof json.data === "object" && json.data !== null ? json.data : json
+      ) as Record<string, unknown>;
+      // Either the root itself is the conversation, or there's an array
+      // of conversations and we want the first OPEN one.
+      let convId: string | null = null;
+      if (typeof root.id === "string" || typeof root.id === "number") {
+        convId = String(root.id);
+      } else if (Array.isArray(root.conversations)) {
+        const open = root.conversations.find(
+          (c): c is { id: string | number; status?: string } =>
+            typeof c === "object" &&
+            c !== null &&
+            "id" in c &&
+            (("status" in c && c.status === "open") || !("status" in c)),
+        );
+        if (open) convId = String(open.id);
+      }
+      log.info(
+        { contactId, convId },
+        convId
+          ? "respond_io get_active_conversation ok"
+          : "respond_io get_active_conversation: no id in response",
+      );
+      return convId;
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        log.warn({ contactId }, "respond_io get_active_conversation timed out");
+        return null;
+      }
+      log.warn(
+        { contactId, err: (err as Error).message },
+        "respond_io get_active_conversation threw",
+      );
+      return null;
     } finally {
       clearTimeout(timer);
     }
