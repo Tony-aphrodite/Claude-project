@@ -15,6 +15,7 @@ import {
   getDb,
   rosterBookings,
   rosterCapacityOverrides,
+  sedes,
 } from "@dpm/db";
 
 import { requireAdminContext } from "~/lib/auth-context";
@@ -128,6 +129,72 @@ export async function setRosterCapacity(formData: FormData): Promise<void> {
         updatedAt: new Date(),
       },
     });
+
+  revalidatePath("/roster");
+}
+
+/**
+ * Update the per-sede default capacity (Miguel feedback 2026-06-05). The form
+ * sends either a single `capacity` number (flat — applies to all turnos when
+ * no per-turno override) or empty `am`/`pm`/`nocturno` fields to set the
+ * per-turno granular defaults. Empty values are ignored so the user can
+ * update just one field at a time.
+ *
+ * Existing per-day overrides in rosterCapacityOverrides are NOT touched.
+ * To "reset" a day to use the new default, the office can hit `Set cap`
+ * with the new number on that day's slot.
+ */
+export async function setSedeDefaultCapacity(formData: FormData): Promise<void> {
+  await requireAdminContext();
+  const sedeId = String(formData.get("sedeId") ?? "");
+  if (!sedeId) throw new Error("sedeId requerido");
+
+  const parseOptionalNum = (v: FormDataEntryValue | null): number | undefined => {
+    if (v === null || v === "") return undefined;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0) {
+      throw new Error("La capacidad debe ser un entero >= 0");
+    }
+    return n;
+  };
+
+  const flat = parseOptionalNum(formData.get("capacity"));
+  const am = parseOptionalNum(formData.get("am"));
+  const pm = parseOptionalNum(formData.get("pm"));
+  const nocturno = parseOptionalNum(formData.get("nocturno"));
+
+  if (flat === undefined && am === undefined && pm === undefined && nocturno === undefined) {
+    throw new Error("Ingresá al menos un valor de capacidad");
+  }
+
+  const db = getDb();
+  const [row] = await db
+    .select({ rosterConfig: sedes.rosterConfig })
+    .from(sedes)
+    .where(eq(sedes.id, sedeId))
+    .limit(1);
+  if (!row) throw new Error("Sede no encontrada");
+
+  const existing = (row.rosterConfig as Record<string, unknown> | null) ?? {};
+  const newConfig: Record<string, unknown> = { ...existing };
+
+  if (flat !== undefined) newConfig.default_capacity = flat;
+
+  if (am !== undefined || pm !== undefined || nocturno !== undefined) {
+    const existingPerTurno = (existing.default_capacities as
+      | Record<string, number>
+      | undefined) ?? {};
+    const merged = { ...existingPerTurno };
+    if (am !== undefined) merged.AM = am;
+    if (pm !== undefined) merged.PM = pm;
+    if (nocturno !== undefined) merged.Nocturno = nocturno;
+    newConfig.default_capacities = merged;
+  }
+
+  await db
+    .update(sedes)
+    .set({ rosterConfig: newConfig, updatedAt: new Date() })
+    .where(eq(sedes.id, sedeId));
 
   revalidatePath("/roster");
 }

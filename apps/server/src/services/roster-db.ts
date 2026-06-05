@@ -41,6 +41,7 @@ import {
   getDb,
   rosterBookings,
   rosterCapacityOverrides,
+  sedes,
   type NewRosterBooking,
   type RosterBooking,
   type RosterCapacityOverride,
@@ -63,15 +64,38 @@ function daysBetween(from: string, to: string): number {
 }
 
 /**
- * Default capacity per turno when no per-(sede, fecha, turno) override exists.
- * Matches the historical "22 espacios por barco" used in Miguel's Apps Script
- * roster summary view (PHI PHI ROSTER 06 JUN26 screenshot from feedback).
+ * Last-resort default capacity per turno when no per-sede default and no
+ * per-(sede, fecha, turno) override exists. Matches the historical "22
+ * espacios por barco" used in Miguel's Apps Script roster summary view
+ * (PHI PHI ROSTER 06 JUN26 screenshot from feedback).
  *
- * If Miguel later asks for per-sede or per-day-of-week defaults, this becomes
- * a function of (sedeId, fecha) rather than a constant — no caller changes
- * because getAvailability already delegates to getCapacity.
+ * Lookup order for effective capacity (Miguel feedback 2026-06-05):
+ *   1. rosterCapacityOverrides row for exact (sede, fecha, turno) — wins
+ *   2. sede.rosterConfig.default_capacities.{AM|PM|Nocturno} — per-turno
+ *   3. sede.rosterConfig.default_capacity — flat number, applies to all turnos
+ *   4. GLOBAL_DEFAULT_CAPACITY — this constant
  */
-const DEFAULT_CAPACITY_PER_TURNO = 22;
+const GLOBAL_DEFAULT_CAPACITY = 22;
+
+/**
+ * Resolve the default capacity for a (sede, turno) from sede.roster_config.
+ * Returns the per-turno value if set, then the flat number if set, then the
+ * global default. Caller passes the sede row directly so the lookup is
+ * sync and doesn't add DB roundtrips.
+ */
+function defaultCapacityFor(
+  rosterConfig: Record<string, unknown> | null | undefined,
+  turno: Turno,
+): number {
+  if (!rosterConfig) return GLOBAL_DEFAULT_CAPACITY;
+  const perTurno = rosterConfig.default_capacities as
+    | { AM?: number; PM?: number; Nocturno?: number }
+    | undefined;
+  if (perTurno && typeof perTurno[turno] === "number") return perTurno[turno]!;
+  const flat = rosterConfig.default_capacity;
+  if (typeof flat === "number" && flat >= 0) return flat;
+  return GLOBAL_DEFAULT_CAPACITY;
+}
 
 export type Turno = "AM" | "PM" | "Nocturno";
 
@@ -149,10 +173,12 @@ export class RosterDbService {
     turno?: Turno,
   ): Promise<AvailabilitySlot[]> {
     const turnos = turno ? [turno] : ([...VALID_TURNOS] as Turno[]);
+    const sedeConfig = await this.getSedeRosterConfig(sedeId);
     const result: AvailabilitySlot[] = [];
     for (const t of turnos) {
       const override = await this.getOverride(sedeId, fecha, t);
-      const capacity = override?.capacity ?? DEFAULT_CAPACITY_PER_TURNO;
+      const capacity =
+        override?.capacity ?? defaultCapacityFor(sedeConfig, t);
       const blocked = override?.blocked === true;
       const reserved = await this.getReserved(sedeId, fecha, t);
       const full = reserved >= capacity;
@@ -208,6 +234,7 @@ export class RosterDbService {
     }
 
     const db = getDb();
+    const sedeConfig = await this.getSedeRosterConfig(input.sedeId);
     return await db.transaction(
       async (tx) => {
         // Re-read capacity + reserved inside the transaction. SERIALIZABLE
@@ -223,7 +250,8 @@ export class RosterDbService {
             ),
           )
           .limit(1);
-        const capacity = overrideRow?.capacity ?? DEFAULT_CAPACITY_PER_TURNO;
+        const capacity =
+          overrideRow?.capacity ?? defaultCapacityFor(sedeConfig, input.turno);
         if (overrideRow?.blocked === true) {
           return {
             ok: false as const,
@@ -309,6 +337,7 @@ export class RosterDbService {
     const turnos = input.turnos && input.turnos.length > 0 ? input.turnos : [...VALID_TURNOS];
     const db = getDb();
     const log = getLogger();
+    const sedeConfig = await this.getSedeRosterConfig(input.sedeId);
     for (const turno of turnos) {
       await db
         .insert(rosterCapacityOverrides)
@@ -316,9 +345,10 @@ export class RosterDbService {
           sedeId: input.sedeId,
           fecha: input.fecha,
           turno,
-          // Insert path: no prior row → seed with default capacity so the
-          // value is preserved through the block/unblock toggle.
-          capacity: DEFAULT_CAPACITY_PER_TURNO,
+          // Insert path: no prior row → seed with the sede's effective
+          // default capacity (per-turno > flat > global) so the value is
+          // preserved through the block/unblock toggle.
+          capacity: defaultCapacityFor(sedeConfig, turno),
           blocked: true,
           blockReason: input.reason ?? null,
           createdBy: input.by ?? "api",
@@ -633,9 +663,80 @@ export class RosterDbService {
     };
   }
 
+  /**
+   * Update the per-sede default capacity (Miguel feedback 2026-06-05).
+   * Two modes:
+   *   • flat: { capacity: 50 } → all turnos default to 50
+   *   • perTurno: { perTurno: { AM: 22, PM: 25, Nocturno: 15 } } → fine-grained
+   *
+   * Existing rosterCapacityOverrides rows are NOT touched — the new default
+   * only applies to (sede, fecha, turno) combinations that have no explicit
+   * override row. To reset a day to use the new default, delete the override
+   * row OR call setCapacity with the new value.
+   */
+  async setSedeDefaultCapacity(input: {
+    sedeId: string;
+    capacity?: number;
+    perTurno?: { AM?: number; PM?: number; Nocturno?: number };
+  }): Promise<{ effective: Record<string, number> }> {
+    if (input.capacity === undefined && !input.perTurno) {
+      throw new Error("setSedeDefaultCapacity: provide capacity or perTurno");
+    }
+    const db = getDb();
+    const log = getLogger();
+
+    const [sedeRow] = await db
+      .select({ rosterConfig: sedes.rosterConfig })
+      .from(sedes)
+      .where(eq(sedes.id, input.sedeId))
+      .limit(1);
+    if (!sedeRow) throw new Error(`Sede not found: ${input.sedeId}`);
+
+    const existing =
+      (sedeRow.rosterConfig as Record<string, unknown> | null) ?? {};
+    const newConfig: Record<string, unknown> = { ...existing };
+    if (input.capacity !== undefined) {
+      newConfig.default_capacity = input.capacity;
+    }
+    if (input.perTurno) {
+      const perTurnoExisting = (existing.default_capacities as
+        | Record<string, number>
+        | undefined) ?? {};
+      newConfig.default_capacities = { ...perTurnoExisting, ...input.perTurno };
+    }
+
+    await db
+      .update(sedes)
+      .set({ rosterConfig: newConfig, updatedAt: new Date() })
+      .where(eq(sedes.id, input.sedeId));
+
+    const effective: Record<string, number> = {
+      AM: defaultCapacityFor(newConfig, "AM"),
+      PM: defaultCapacityFor(newConfig, "PM"),
+      Nocturno: defaultCapacityFor(newConfig, "Nocturno"),
+    };
+    log.info(
+      { sedeId: input.sedeId, newConfig: { default_capacity: newConfig.default_capacity, default_capacities: newConfig.default_capacities }, effective },
+      "roster_db sede default capacity updated",
+    );
+    return { effective };
+  }
+
   // ────────────────────────────────────────────────────────────────────────
   // Internals
   // ────────────────────────────────────────────────────────────────────────
+
+  private async getSedeRosterConfig(
+    sedeId: string,
+  ): Promise<Record<string, unknown> | null> {
+    const db = getDb();
+    const [row] = await db
+      .select({ rosterConfig: sedes.rosterConfig })
+      .from(sedes)
+      .where(eq(sedes.id, sedeId))
+      .limit(1);
+    return (row?.rosterConfig as Record<string, unknown> | null) ?? null;
+  }
 
   private async getOverride(
     sedeId: string,

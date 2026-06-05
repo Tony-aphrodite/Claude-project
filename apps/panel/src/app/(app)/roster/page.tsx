@@ -13,13 +13,16 @@ import {
   blockRosterSlot,
   seedRosterBooking,
   setRosterCapacity,
+  setSedeDefaultCapacity,
   unblockRosterSlot,
 } from "~/app/actions/roster";
 import {
   getRosterView,
+  getSedeDefaultCapacity,
   listAllSedes,
   listRecentBookings,
   type RosterSlotData,
+  type SedeDefaultCapacity,
 } from "~/lib/roster-queries";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +49,7 @@ type PageData = {
   startDate: string;
   view: Awaited<ReturnType<typeof getRosterView>>;
   recentBookings: Awaited<ReturnType<typeof listRecentBookings>>;
+  sedeDefault: SedeDefaultCapacity;
 } | {
   ok: false;
   error: string;
@@ -61,11 +65,12 @@ async function loadData(params: Search): Promise<PageData> {
     const selectedSedeId = params.sede ?? allSedes[0]!.id;
     const selectedSede = allSedes.find((s) => s.id === selectedSedeId) ?? allSedes[0]!;
     const startDate = params.start ?? todayYmd();
-    const [view, recentBookings] = await Promise.all([
+    const [view, recentBookings, sedeDefault] = await Promise.all([
       getRosterView({ sedeId: selectedSede.id, startDate, days: VIEW_DAYS }),
       listRecentBookings({ sedeId: selectedSede.id, fechaFrom: startDate, limit: 30 }),
+      getSedeDefaultCapacity(selectedSede.id),
     ]);
-    return { ok: true, allSedes, selectedSede, startDate, view, recentBookings };
+    return { ok: true, allSedes, selectedSede, startDate, view, recentBookings, sedeDefault };
   } catch (err) {
     return {
       ok: false,
@@ -109,7 +114,7 @@ export default async function RosterPage({
     );
   }
 
-  const { allSedes, selectedSede, startDate, view, recentBookings } = data;
+  const { allSedes, selectedSede, startDate, view, recentBookings, sedeDefault } = data;
 
   return (
     <>
@@ -147,6 +152,82 @@ export default async function RosterPage({
           Aplicar
         </button>
       </form>
+
+      <div className="card mb-4">
+        <h3 className="mb-2 text-sm font-semibold text-ink-900">
+          Capacidad por defecto — {selectedSede.nombre}
+        </h3>
+        <p className="mb-3 text-xs text-ink-600">
+          Aplica a todos los días sin override individual. Si querés que esta
+          sede tenga 50 en vez de 22 todos los días, cambiá el flat. Los AM/PM/
+          Nocturno overridean al flat para ese turno. Vacío = sin cambio.
+        </p>
+        <div className="mb-3 text-xs text-ink-700">
+          Actual efectivo →{" "}
+          <span className="font-mono">
+            AM {sedeDefault.effective.AM} · PM {sedeDefault.effective.PM} ·
+            Noc {sedeDefault.effective.Nocturno}
+          </span>
+          {sedeDefault.flat !== null ? (
+            <span className="ml-2 text-ink-500">
+              (flat configurado: {sedeDefault.flat})
+            </span>
+          ) : null}
+        </div>
+        <form
+          action={setSedeDefaultCapacity}
+          className="flex flex-wrap items-end gap-3"
+        >
+          <input type="hidden" name="sedeId" value={selectedSede.id} />
+          <label className="text-xs text-ink-700">
+            Flat (todos los turnos)
+            <input
+              type="number"
+              name="capacity"
+              min={0}
+              defaultValue={sedeDefault.flat ?? ""}
+              placeholder="ej: 50"
+              className="block w-24 rounded border border-ink-200 px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="text-xs text-ink-700">
+            AM
+            <input
+              type="number"
+              name="am"
+              min={0}
+              defaultValue={sedeDefault.perTurno.AM ?? ""}
+              placeholder="—"
+              className="block w-20 rounded border border-ink-200 px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="text-xs text-ink-700">
+            PM
+            <input
+              type="number"
+              name="pm"
+              min={0}
+              defaultValue={sedeDefault.perTurno.PM ?? ""}
+              placeholder="—"
+              className="block w-20 rounded border border-ink-200 px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="text-xs text-ink-700">
+            Nocturno
+            <input
+              type="number"
+              name="nocturno"
+              min={0}
+              defaultValue={sedeDefault.perTurno.Nocturno ?? ""}
+              placeholder="—"
+              className="block w-20 rounded border border-ink-200 px-2 py-1 text-sm"
+            />
+          </label>
+          <button type="submit" className="btn-secondary text-sm">
+            Guardar default
+          </button>
+        </form>
+      </div>
 
       <div className="card !p-0 overflow-x-auto">
         <table className="tbl">

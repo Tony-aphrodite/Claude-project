@@ -13,7 +13,26 @@ import {
   sedes,
 } from "@dpm/db";
 
-const DEFAULT_CAPACITY_PER_TURNO = 22;
+const GLOBAL_DEFAULT_CAPACITY = 22;
+
+/**
+ * Resolve effective default capacity from sede.rosterConfig (Miguel feedback
+ * 2026-06-05). Lookup order: default_capacities.{turno} → default_capacity →
+ * GLOBAL. Kept in sync with apps/server/src/services/roster-db.ts.
+ */
+function defaultCapacityFor(
+  rosterConfig: Record<string, unknown> | null | undefined,
+  turno: "AM" | "PM" | "Nocturno",
+): number {
+  if (!rosterConfig) return GLOBAL_DEFAULT_CAPACITY;
+  const perTurno = rosterConfig.default_capacities as
+    | { AM?: number; PM?: number; Nocturno?: number }
+    | undefined;
+  if (perTurno && typeof perTurno[turno] === "number") return perTurno[turno]!;
+  const flat = rosterConfig.default_capacity;
+  if (typeof flat === "number" && flat >= 0) return flat;
+  return GLOBAL_DEFAULT_CAPACITY;
+}
 
 export type RosterSlotData = {
   capacity: number;
@@ -21,6 +40,12 @@ export type RosterSlotData = {
   available: number;
   blocked: boolean;
   blockReason: string | null;
+};
+
+export type SedeDefaultCapacity = {
+  flat: number | null;
+  perTurno: { AM: number | null; PM: number | null; Nocturno: number | null };
+  effective: { AM: number; PM: number; Nocturno: number };
 };
 
 export type RosterSlotView = {
@@ -60,6 +85,13 @@ export async function getRosterView(input: {
   const dates: string[] = [];
   for (let i = 0; i < input.days; i++) dates.push(addDays(input.startDate, i));
 
+  const [sedeRow] = await db
+    .select({ rosterConfig: sedes.rosterConfig })
+    .from(sedes)
+    .where(eq(sedes.id, input.sedeId))
+    .limit(1);
+  const sedeConfig = (sedeRow?.rosterConfig as Record<string, unknown> | null) ?? null;
+
   const overrides = await db
     .select()
     .from(rosterCapacityOverrides)
@@ -93,7 +125,7 @@ export async function getRosterView(input: {
 
   const slotData = (fecha: string, turno: "AM" | "PM" | "Nocturno"): RosterSlotData => {
     const o = overrideMap.get(`${fecha}|${turno}`);
-    const capacity = o?.capacity ?? DEFAULT_CAPACITY_PER_TURNO;
+    const capacity = o?.capacity ?? defaultCapacityFor(sedeConfig, turno);
     const blocked = o?.blocked === true;
     const reserved = reservedMap.get(`${fecha}|${turno}`) ?? 0;
     const available = blocked ? 0 : Math.max(0, capacity - reserved);
@@ -145,4 +177,33 @@ export async function listAllSedes() {
     .select({ id: sedes.id, nombre: sedes.nombre })
     .from(sedes)
     .orderBy(asc(sedes.nombre));
+}
+
+export async function getSedeDefaultCapacity(
+  sedeId: string,
+): Promise<SedeDefaultCapacity> {
+  const db = getDb();
+  const [row] = await db
+    .select({ rosterConfig: sedes.rosterConfig })
+    .from(sedes)
+    .where(eq(sedes.id, sedeId))
+    .limit(1);
+  const cfg = (row?.rosterConfig as Record<string, unknown> | null) ?? null;
+  const perTurnoRaw = (cfg?.default_capacities as
+    | { AM?: number; PM?: number; Nocturno?: number }
+    | undefined) ?? {};
+  const flatRaw = cfg?.default_capacity;
+  return {
+    flat: typeof flatRaw === "number" ? flatRaw : null,
+    perTurno: {
+      AM: typeof perTurnoRaw.AM === "number" ? perTurnoRaw.AM : null,
+      PM: typeof perTurnoRaw.PM === "number" ? perTurnoRaw.PM : null,
+      Nocturno: typeof perTurnoRaw.Nocturno === "number" ? perTurnoRaw.Nocturno : null,
+    },
+    effective: {
+      AM: defaultCapacityFor(cfg, "AM"),
+      PM: defaultCapacityFor(cfg, "PM"),
+      Nocturno: defaultCapacityFor(cfg, "Nocturno"),
+    },
+  };
 }
