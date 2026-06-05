@@ -4,9 +4,6 @@
 // override actions. A seed-booking form below lets the office import
 // existing future bookings before the AI starts selling against the new
 // DB-backed roster.
-//
-// All actions are Server Actions (apps/panel/src/app/actions/roster.ts);
-// no client-side JS required for the core flow.
 
 import { PageHeader } from "~/app/_components/page-header";
 import { requireUserContext } from "~/lib/auth-context";
@@ -20,7 +17,7 @@ import {
   getRosterView,
   listAllSedes,
   listRecentBookings,
-  type RosterSlotView,
+  type RosterSlotData,
 } from "~/lib/roster-queries";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +37,42 @@ type Search = {
   start?: string;
 };
 
+type PageData = {
+  ok: true;
+  allSedes: Awaited<ReturnType<typeof listAllSedes>>;
+  selectedSede: { id: string; nombre: string };
+  startDate: string;
+  view: Awaited<ReturnType<typeof getRosterView>>;
+  recentBookings: Awaited<ReturnType<typeof listRecentBookings>>;
+} | {
+  ok: false;
+  error: string;
+  stack?: string;
+};
+
+async function loadData(params: Search): Promise<PageData> {
+  try {
+    const allSedes = await listAllSedes();
+    if (allSedes.length === 0) {
+      return { ok: false, error: "No hay sedes configuradas en la base de datos." };
+    }
+    const selectedSedeId = params.sede ?? allSedes[0]!.id;
+    const selectedSede = allSedes.find((s) => s.id === selectedSedeId) ?? allSedes[0]!;
+    const startDate = params.start ?? todayYmd();
+    const [view, recentBookings] = await Promise.all([
+      getRosterView({ sedeId: selectedSede.id, startDate, days: VIEW_DAYS }),
+      listRecentBookings({ sedeId: selectedSede.id, fechaFrom: startDate, limit: 30 }),
+    ]);
+    return { ok: true, allSedes, selectedSede, startDate, view, recentBookings };
+  } catch (err) {
+    return {
+      ok: false,
+      error: (err as Error).message ?? String(err),
+      stack: (err as Error).stack,
+    };
+  }
+}
+
 export default async function RosterPage({
   searchParams,
 }: {
@@ -47,23 +80,34 @@ export default async function RosterPage({
 }) {
   await requireUserContext();
   const params = await searchParams;
-  const allSedes = await listAllSedes();
-  if (allSedes.length === 0) {
+  const data = await loadData(params);
+
+  if (!data.ok) {
     return (
       <>
-        <PageHeader title="Roster" description="Disponibilidad + bookings por sede" />
-        <div className="card">No hay sedes configuradas.</div>
+        <PageHeader
+          eyebrow="Operación"
+          title="Roster"
+          description="Capacidad, reservas y bloqueos por sede × fecha × turno."
+        />
+        <div className="card border border-bad-200 bg-bad-50 text-bad-900">
+          <h3 className="font-semibold mb-2">Error al cargar el roster</h3>
+          <pre className="whitespace-pre-wrap text-xs">{data.error}</pre>
+          {data.stack ? (
+            <details className="mt-3 text-xs">
+              <summary className="cursor-pointer">Stack trace</summary>
+              <pre className="whitespace-pre-wrap mt-1">{data.stack}</pre>
+            </details>
+          ) : null}
+          <p className="text-xs mt-3 text-bad-700">
+            Si el error persiste, mandá este mensaje + stack al backend team.
+          </p>
+        </div>
       </>
     );
   }
-  const selectedSedeId = params.sede ?? allSedes[0]!.id;
-  const selectedSede = allSedes.find((s) => s.id === selectedSedeId) ?? allSedes[0]!;
-  const startDate = params.start ?? todayYmd();
 
-  const [view, recentBookings] = await Promise.all([
-    getRosterView({ sedeId: selectedSede.id, startDate, days: VIEW_DAYS }),
-    listRecentBookings({ sedeId: selectedSede.id, fechaFrom: startDate, limit: 30 }),
-  ]);
+  const { allSedes, selectedSede, startDate, view, recentBookings } = data;
 
   return (
     <>
@@ -255,7 +299,7 @@ function SlotCell({
   sedeId: string;
   fecha: string;
   turno: "AM" | "PM" | "Nocturno";
-  data: RosterSlotView["am"];
+  data: RosterSlotData;
 }) {
   const isLastCol = turno === "Nocturno";
   return (
