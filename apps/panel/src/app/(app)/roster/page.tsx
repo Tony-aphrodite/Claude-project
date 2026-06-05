@@ -12,14 +12,16 @@ import { PageHeader } from "~/app/_components/page-header";
 import { requireUserContext } from "~/lib/auth-context";
 import {
   blockRosterSlot,
-  getRosterView,
-  listAllSedes,
-  listRecentBookings,
   seedRosterBooking,
   setRosterCapacity,
   unblockRosterSlot,
-  type RosterSlotView,
 } from "~/app/actions/roster";
+import {
+  getRosterView,
+  listAllSedes,
+  listRecentBookings,
+  type RosterSlotView,
+} from "~/lib/roster-queries";
 
 export const dynamic = "force-dynamic";
 
