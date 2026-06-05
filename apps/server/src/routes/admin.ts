@@ -274,9 +274,11 @@ export async function adminRoutes(app: FastifyInstance) {
 
   // ── /admin/roster/block ────────────────────────────────────────────────
   //
-  // Mark one or more turnos of a sede × date as BLOCKED (capacity=0). Used
-  // by the office to mark days as weather-off, maintenance, festivo, etc.
-  // Upserts `roster_capacity_overrides` rows.
+  // Mark one or more turnos of a sede × date as manually BLOCKED (weather,
+  // charter, festivo, no boat). Sets the `blocked` flag in
+  // roster_capacity_overrides WITHOUT touching capacity — so unblocking
+  // restores the slot's previous capacity automatically (Miguel feedback
+  // 2026-06-05: capacity=0 hack was discarded in favor of flag-based block).
   //
   // Body shape:
   //   { sedeId: "<uuid>", fecha: "YYYY-MM-DD", turnos?: ["AM"|"PM"|"Nocturno"], reason?: string }
@@ -344,6 +346,165 @@ export async function adminRoutes(app: FastifyInstance) {
       "admin roster/block ok",
     );
     return reply.send({ ok: true, blocked: result.blocked });
+  });
+
+  // ── /admin/roster/unblock ──────────────────────────────────────────────
+  //
+  // Reverse of /admin/roster/block — clear the manual block flag for one
+  // or more turnos. Capacity is untouched, so the slot returns to its
+  // previous overridden or default value (Miguel feedback 2026-06-05).
+  //
+  // Body: { sedeId, fecha, turnos?, by? }
+  app.post("/admin/roster/unblock", async (req, reply) => {
+    const expected = env.ADMIN_RESET_TOKEN;
+    if (!expected) {
+      return reply.status(503).send({
+        error: { code: "admin_disabled", message: "ADMIN_RESET_TOKEN not configured" },
+      });
+    }
+    const auth = req.headers.authorization;
+    if (auth !== `Bearer ${expected}`) {
+      req.log.warn("admin roster/unblock auth rejected");
+      return reply.status(401).send({ error: { code: "unauthorized" } });
+    }
+    const body = (req.body ?? {}) as {
+      sedeId?: string;
+      fecha?: string;
+      turnos?: string[];
+      by?: string;
+    };
+    if (!body.sedeId || !body.fecha) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "Provide sedeId (uuid) and fecha (YYYY-MM-DD) in the JSON body.",
+        },
+      });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(body.fecha)) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "fecha must be YYYY-MM-DD" },
+      });
+    }
+    let turnosValidated: Turno[] | undefined;
+    if (Array.isArray(body.turnos) && body.turnos.length > 0) {
+      const invalid = body.turnos.filter((t): t is string => !isValidTurno(t));
+      if (invalid.length > 0) {
+        return reply.status(400).send({
+          error: {
+            code: "bad_request",
+            message: `Invalid turno(s): ${invalid.join(", ")}. Expected: ${VALID_TURNOS.join(", ")}`,
+          },
+        });
+      }
+      turnosValidated = body.turnos as Turno[];
+    }
+    const result = await rosterDbService.unblockDay({
+      sedeId: body.sedeId,
+      fecha: body.fecha,
+      ...(turnosValidated ? { turnos: turnosValidated } : {}),
+      by: body.by ?? "admin_api",
+    });
+    req.log.info(
+      { sedeId: body.sedeId, fecha: body.fecha, turnos: result.unblocked },
+      "admin roster/unblock ok",
+    );
+    return reply.send({ ok: true, unblocked: result.unblocked });
+  });
+
+  // ── /admin/roster/booking ──────────────────────────────────────────────
+  //
+  // Seed a confirmed booking directly, bypassing OCR validation. Used to
+  // import existing future bookings BEFORE the AI starts selling against
+  // the new DB-backed roster (Miguel go-live recommendation 2026-06-05).
+  // Without this seeding, the AI would see those seats as empty and
+  // oversell against bookings the office already has on the books.
+  //
+  // Race-safe — uses confirmBooking's SERIALIZABLE-tx capacity check
+  // internally. Returns the same shapes as the OCR-write path:
+  //   • ok:true with booking row
+  //   • ok:false reason:overbooked when no room
+  //   • ok:false reason:blocked when slot is manually blocked
+  //
+  // Body: { sedeId, fecha, turno, programa, pax, notes?, contactId? }
+  app.post("/admin/roster/booking", async (req, reply) => {
+    const expected = env.ADMIN_RESET_TOKEN;
+    if (!expected) {
+      return reply.status(503).send({
+        error: { code: "admin_disabled", message: "ADMIN_RESET_TOKEN not configured" },
+      });
+    }
+    const auth = req.headers.authorization;
+    if (auth !== `Bearer ${expected}`) {
+      req.log.warn("admin roster/booking auth rejected");
+      return reply.status(401).send({ error: { code: "unauthorized" } });
+    }
+    const body = (req.body ?? {}) as {
+      sedeId?: string;
+      fecha?: string;
+      turno?: string;
+      programa?: string;
+      pax?: number;
+      notes?: string;
+      contactId?: string;
+    };
+    if (
+      !body.sedeId ||
+      !body.fecha ||
+      !body.turno ||
+      !body.programa ||
+      body.pax === undefined
+    ) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "Provide sedeId, fecha (YYYY-MM-DD), turno, programa, pax.",
+        },
+      });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(body.fecha)) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "fecha must be YYYY-MM-DD" },
+      });
+    }
+    if (!isValidTurno(body.turno)) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: `Invalid turno: ${body.turno}. Expected: ${VALID_TURNOS.join(", ")}`,
+        },
+      });
+    }
+    if (!Number.isInteger(body.pax) || body.pax < 1) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "pax must be a positive integer" },
+      });
+    }
+    const result = await rosterDbService.seedBooking({
+      sedeId: body.sedeId,
+      fecha: body.fecha,
+      turno: body.turno,
+      programa: body.programa,
+      pax: body.pax,
+      notes: body.notes ?? "seeded via /admin/roster/booking",
+      contactId: body.contactId,
+    });
+    if (!result.ok) {
+      const code = result.reason === "blocked" ? 409 : 400;
+      return reply.status(code).send({ error: { code: result.reason, detail: result } });
+    }
+    req.log.info(
+      {
+        sedeId: body.sedeId,
+        fecha: body.fecha,
+        turno: body.turno,
+        programa: body.programa,
+        pax: body.pax,
+        bookingId: result.booking.id,
+      },
+      "admin roster/booking ok",
+    );
+    return reply.send({ ok: true, booking: result.booking });
   });
 
   // ── /admin/roster/set-capacity ─────────────────────────────────────────

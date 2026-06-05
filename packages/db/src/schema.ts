@@ -458,16 +458,33 @@ export const rosterCache = pgTable(
 );
 
 // ── roster_capacity_overrides ──────────────────────────────────────────────
-// Per-day per-turno capacity override. When no row exists for a (sede, fecha,
-// turno), the system applies the default capacity (DEFAULT_CAPACITY_PER_TURNO
-// in services/roster-db.ts; today: 22). A row with capacity=0 marks the slot
-// as BLOCKED (weather, maintenance, festivo). A row with capacity=N reduces
-// or extends the slot.
+// Per-day per-turno overrides for capacity AND manual block state. When no
+// row exists for a (sede, fecha, turno), the system applies the default
+// capacity (DEFAULT_CAPACITY_PER_TURNO in services/roster-db.ts; today: 22)
+// and treats the slot as not-manually-blocked.
+//
+// Two ORTHOGONAL states this table tracks (Miguel feedback 2026-06-05):
+//   • capacity   — explicit per-(sede, fecha, turno) seat count override.
+//                  Used for "AM has 18 instead of 22 today, fewer tanks".
+//   • blocked    — manual block flag (weather, charter, no boat, festivo).
+//                  Independent of capacity — toggling block on/off must
+//                  preserve the underlying capacity number so that
+//                  unblocking restores the slot to its previous state.
+//
+// Why this isn't "capacity=0 means blocked":
+//   The prior design used capacity=0 to mark blocks. Miguel pointed out the
+//   bug: setting capacity=0 OVERWRITES the real capacity, so when you
+//   unblock you've lost the original number — and the row shows nonsense
+//   like "reserved=22 / capacity=0" (negative remaining). The flag-based
+//   design keeps capacity intact and lets blocks toggle cleanly.
+//
+// Full-by-bookings (reserved >= capacity) is a SEPARATE state, computed by
+// services/roster-db.ts at read time. The system surfaces it on its own —
+// no row in this table is required to represent it.
 //
 // Added 2026-06-04 — Phase 2 of the "roster lives in the AI" architecture
-// (Miguel feedback). The legacy Apps Script → Google Sheet path is read
-// only and remains live in `consultar-disponibilidad` until cutover; this
-// table is for the new DB-backed source of truth.
+// (Miguel feedback). Schema refined 2026-06-05 with blocked + block_reason
+// columns after Miguel's review.
 export const rosterCapacityOverrides = pgTable(
   "roster_capacity_overrides",
   {
@@ -480,9 +497,18 @@ export const rosterCapacityOverrides = pgTable(
     fecha: text("fecha").notNull(),
     // "AM" | "PM" | "Nocturno" — same enum the AI tool uses.
     turno: text("turno").notNull(),
-    // 0 = blocked; positive = explicit capacity for that slot.
+    // Explicit capacity for this slot. ALWAYS the real seat count (even
+    // when blocked=true). Read-time logic clamps available to 0 when
+    // blocked, but the underlying number is preserved so unblocking
+    // restores the slot.
     capacity: integer("capacity").notNull(),
-    // Free-form text — "weather", "maintenance", "festivo", custom.
+    // Manual block flag — true when an operator has marked the slot
+    // unavailable for reasons external to bookings (weather, charter,
+    // festivo, no boat).
+    blocked: boolean("blocked").notNull().default(false),
+    // Free-form reason for the manual block (shown to operators in panel).
+    blockReason: text("block_reason"),
+    // Free-form note for capacity override (e.g. "fewer tanks today").
     reason: text("reason"),
     // Operator email or "api" / "ai" when programmatic.
     createdBy: text("created_by"),
@@ -490,7 +516,7 @@ export const rosterCapacityOverrides = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
-    // One override per (sede, fecha, turno). Upserts use this.
+    // One row per (sede, fecha, turno). Upserts use this.
     uniqueSedeFechaTurno: uniqueIndex("roster_cap_overrides_sede_fecha_turno_idx").on(
       t.sedeId,
       t.fecha,

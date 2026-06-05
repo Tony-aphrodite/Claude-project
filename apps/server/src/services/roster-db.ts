@@ -70,11 +70,30 @@ export function isValidTurno(value: string): value is Turno {
 export type AvailabilitySlot = {
   fecha: string;
   turno: Turno;
+  /** Real seat count (preserved across block/unblock toggles). */
   capacity: number;
+  /** Sum of pax across confirmed bookings. */
   reserved: number;
+  /**
+   * Effective availability: 0 when manually blocked, otherwise
+   * max(0, capacity - reserved). The AI consumes this directly.
+   */
   available: number;
+  /**
+   * Manual block flag (weather, charter, festivo, no boat). Independent
+   * from full-by-bookings: a slot can be `blocked=false` but still have
+   * `available=0` if reserved equals capacity (that's the natural-full
+   * state, no manual action required).
+   */
   blocked: boolean;
+  /** Reason for the manual block, surfaced to operators in the panel. */
   blockedReason?: string | undefined;
+  /**
+   * True when reserved equals or exceeds capacity. Derived; provided as a
+   * separate signal so callers can distinguish "manually blocked" from
+   * "sold out". Both produce available=0 but require different UX.
+   */
+  full: boolean;
 };
 
 export type ConfirmBookingInput = {
@@ -120,16 +139,20 @@ export class RosterDbService {
     for (const t of turnos) {
       const override = await this.getOverride(sedeId, fecha, t);
       const capacity = override?.capacity ?? DEFAULT_CAPACITY_PER_TURNO;
+      const blocked = override?.blocked === true;
       const reserved = await this.getReserved(sedeId, fecha, t);
-      const blocked = capacity === 0;
+      const full = reserved >= capacity;
+      // Effective availability: manual block forces 0; otherwise clamp at 0.
+      const available = blocked ? 0 : Math.max(0, capacity - reserved);
       result.push({
         fecha,
         turno: t,
         capacity,
         reserved,
-        available: Math.max(0, capacity - reserved),
+        available,
         blocked,
-        blockedReason: blocked ? (override?.reason ?? undefined) : undefined,
+        blockedReason: blocked ? (override?.blockReason ?? undefined) : undefined,
+        full,
       });
     }
     return result;
@@ -187,11 +210,11 @@ export class RosterDbService {
           )
           .limit(1);
         const capacity = overrideRow?.capacity ?? DEFAULT_CAPACITY_PER_TURNO;
-        if (capacity === 0) {
+        if (overrideRow?.blocked === true) {
           return {
             ok: false as const,
             reason: "blocked" as const,
-            blockedReason: overrideRow?.reason ?? undefined,
+            blockedReason: overrideRow.blockReason ?? undefined,
           };
         }
 
@@ -256,10 +279,17 @@ export class RosterDbService {
   }
 
   /**
-   * Mark one or more turnos of a date as blocked (capacity=0). Upserts the
-   * override row(s). Idempotent — calling twice with the same input is a no-op.
+   * Mark one or more turnos of a date as manually blocked (weather, charter,
+   * festivo, no boat). Sets the `blocked` flag without touching capacity —
+   * unblockDay restores the slot to its previous capacity automatically.
    *
+   * Upserts the override row(s). Idempotent — calling twice is a no-op.
    * Omit `turnos` to block ALL turnos at once (the "día entero" case).
+   *
+   * Schema note (Miguel feedback 2026-06-05): this is the FLAG-based block,
+   * not the prior capacity=0 hack. If a row already exists with a custom
+   * capacity (e.g. 18 set via setCapacity earlier), that capacity is
+   * preserved through the block/unblock cycle.
    */
   async blockDay(input: BlockDayInput): Promise<{ blocked: Turno[] }> {
     const turnos = input.turnos && input.turnos.length > 0 ? input.turnos : [...VALID_TURNOS];
@@ -272,8 +302,11 @@ export class RosterDbService {
           sedeId: input.sedeId,
           fecha: input.fecha,
           turno,
-          capacity: 0,
-          reason: input.reason ?? null,
+          // Insert path: no prior row → seed with default capacity so the
+          // value is preserved through the block/unblock toggle.
+          capacity: DEFAULT_CAPACITY_PER_TURNO,
+          blocked: true,
+          blockReason: input.reason ?? null,
           createdBy: input.by ?? "api",
         })
         .onConflictDoUpdate({
@@ -283,8 +316,11 @@ export class RosterDbService {
             rosterCapacityOverrides.turno,
           ],
           set: {
-            capacity: 0,
-            reason: input.reason ?? null,
+            // Critically: do NOT overwrite capacity here. If a prior row
+            // had capacity=18, blocking must keep 18 so the unblock path
+            // restores the right number. Only the flag + reason are touched.
+            blocked: true,
+            blockReason: input.reason ?? null,
             updatedAt: new Date(),
           },
         });
@@ -297,9 +333,52 @@ export class RosterDbService {
         reason: input.reason,
         by: input.by,
       },
-      "roster_db day blocked",
+      "roster_db day blocked (flag)",
     );
     return { blocked: turnos as Turno[] };
+  }
+
+  /**
+   * Reverse blockDay — clear the manual block flag. Capacity is untouched,
+   * so the slot returns to its previous (overridden or default) capacity.
+   *
+   * Omit `turnos` to unblock ALL turnos.
+   */
+  async unblockDay(input: {
+    sedeId: string;
+    fecha: string;
+    turnos?: Turno[];
+    by?: string;
+  }): Promise<{ unblocked: Turno[] }> {
+    const turnos = input.turnos && input.turnos.length > 0 ? input.turnos : [...VALID_TURNOS];
+    const db = getDb();
+    const log = getLogger();
+    for (const turno of turnos) {
+      await db
+        .update(rosterCapacityOverrides)
+        .set({
+          blocked: false,
+          blockReason: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(rosterCapacityOverrides.sedeId, input.sedeId),
+            eq(rosterCapacityOverrides.fecha, input.fecha),
+            eq(rosterCapacityOverrides.turno, turno),
+          ),
+        );
+    }
+    log.info(
+      {
+        sedeId: input.sedeId,
+        fecha: input.fecha,
+        turnos,
+        by: input.by,
+      },
+      "roster_db day unblocked",
+    );
+    return { unblocked: turnos as Turno[] };
   }
 
   /**
@@ -331,6 +410,7 @@ export class RosterDbService {
         capacity: input.capacity,
         reason: input.reason ?? null,
         createdBy: input.by ?? "api",
+        // Insert path: no prior row → default blocked=false. Schema default.
       })
       .onConflictDoUpdate({
         target: [
@@ -338,12 +418,46 @@ export class RosterDbService {
           rosterCapacityOverrides.fecha,
           rosterCapacityOverrides.turno,
         ],
+        // Update path: capacity + reason only. Do NOT touch blocked flag —
+        // operator may be adjusting capacity on a day that is independently
+        // blocked (e.g. weather), and changing capacity should not unblock.
         set: {
           capacity: input.capacity,
           reason: input.reason ?? null,
           updatedAt: new Date(),
         },
       });
+  }
+
+  /**
+   * Insert a confirmed booking directly, bypassing the OCR-validation flow.
+   * Used to SEED existing future bookings before the AI starts selling
+   * (Miguel's go-live recommendation 2026-06-05). Race-safe — same
+   * SERIALIZABLE-tx + capacity-check logic as confirmBooking. The only
+   * difference vs confirmBooking is that this entry point doesn't require
+   * a conversation_id; the booking will be attributed to whatever `notes`
+   * field the caller supplies.
+   *
+   * Returns the same shape as confirmBooking.
+   */
+  async seedBooking(input: {
+    sedeId: string;
+    fecha: string;
+    turno: Turno;
+    programa: string;
+    pax: number;
+    notes?: string | undefined;
+    contactId?: string | undefined;
+  }): Promise<ConfirmBookingResult> {
+    return this.confirmBooking({
+      sedeId: input.sedeId,
+      fecha: input.fecha,
+      turno: input.turno,
+      programa: input.programa,
+      pax: input.pax,
+      notes: input.notes ?? "seeded",
+      contactId: input.contactId,
+    });
   }
 
   /**

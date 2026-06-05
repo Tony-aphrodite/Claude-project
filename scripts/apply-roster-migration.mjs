@@ -14,14 +14,23 @@ if (!url) {
   process.exit(1);
 }
 
-const migrationPath = path.join(
-  "packages",
-  "db",
-  "drizzle",
-  "0002_calm_expediter.sql",
-);
+// Accept migration filename as CLI arg; default to the original 0002 for
+// backwards compat with the first invocation. Usage:
+//   node --env-file=.env scripts/apply-roster-migration.mjs           # 0002
+//   node --env-file=.env scripts/apply-roster-migration.mjs 0003_xxx.sql
+const argFile = process.argv[2];
+const migrationPath = argFile
+  ? path.isAbsolute(argFile)
+    ? argFile
+    : path.join("packages", "db", "drizzle", argFile)
+  : path.join("packages", "db", "drizzle", "0002_calm_expediter.sql");
 if (!fs.existsSync(migrationPath)) {
   console.error(`Migration file not found: ${migrationPath}`);
+  console.error(`Usage: node scripts/apply-roster-migration.mjs [filename.sql]`);
+  console.error(`Available migrations:`);
+  for (const f of fs.readdirSync(path.join("packages", "db", "drizzle"))) {
+    if (f.endsWith(".sql")) console.error(`  • ${f}`);
+  }
   process.exit(1);
 }
 
