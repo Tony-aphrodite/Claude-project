@@ -1571,15 +1571,29 @@ export async function processIncomingMessage(
       };
     }
 
-    // Dedup guard (2026-06-04 e2e regression). Without this, the AI was
-    // calling enviar_catalogo on 3 consecutive turns with the same
-    // `programa` (each short customer confirmation — "Primera vez",
-    // "Sí claro" — was reinterpreted as a fresh request for the card).
-    // Track which programas were already sent in this conversation via
-    // `lead_metadata.catalogsSent` and short-circuit with alreadySent:true
-    // when the AI re-asks. The prompt CATÁLOGO rule reads this signal and
-    // generates a text-only reply referencing the prior card instead of
-    // re-invoking the tool.
+    // Dedup guard REMOVED 2026-06-05 (Slice 3b regression hunt). The
+    // original guard returned alreadySent:true when the same `programa`
+    // had been sent earlier in the conversation. That was added 2026-06-04
+    // to stop Francisco from sending the same card 3 times in a row when
+    // a customer kept confirming ("Sí claro" / "Primera vez").
+    //
+    // After Miguel #18 (long descriptive text after each card) and Miguel
+    // 2026-06-05 MULTI-PAX rule (send one card per distinct programa in
+    // multi-pax turns), the AI is disciplined enough at the PROMPT level
+    // — the server-side dedup was now actively HARMFUL: it blocked the
+    // multi-pax re-send of programs the customer had inquired about
+    // earlier for themselves but now needs to share with their group.
+    //
+    // Concrete case 2026-06-05: customer first asks Try Scuba for
+    // themselves → card sent. Then "we are 3 people, one Try Scuba, one
+    // Refresh, one Advanced". AI calls enviar_catalogo×3 but only 2
+    // cards land (Try Scuba dedup'd) — customer sees only Refresh +
+    // Advanced and is confused.
+    //
+    // We keep tracking `catalogsSent` in lead_metadata further down as an
+    // audit trail (for the panel / future analytics), but stop using it
+    // to short-circuit the send. The prompt rules cover the "don't
+    // repeat" case correctly now.
     const conversationMeta =
       (conversation.leadMetadata as LeadMetadata | null) ?? {};
     const catalogsSentSoFar = Array.isArray(
@@ -1587,23 +1601,6 @@ export async function processIncomingMessage(
     )
       ? ((conversationMeta as { catalogsSent?: string[] }).catalogsSent ?? [])
       : [];
-    if (catalogsSentSoFar.includes(input.programa)) {
-      log.info(
-        {
-          sede: sede.nombre,
-          programa: input.programa,
-          catalogsSentSoFar,
-        },
-        "enviar_catalogo: dedup — programa already sent in this conversation, returning alreadySent:true without resending",
-      );
-      return {
-        ok: true,
-        sent: false,
-        alreadySent: true,
-        programa: input.programa,
-        catalogRef: entry.label,
-      };
-    }
 
     // Try Respond.io first (preserves operator visibility in their Inbox).
     // On failure — and only when META_WHATSAPP_* credentials are configured
