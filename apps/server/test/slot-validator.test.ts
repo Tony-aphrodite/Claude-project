@@ -1,0 +1,285 @@
+// Tests for the shared slot validator used by consultar_disponibilidad
+// AND solicitar_deposito (Miguel rule 2026-06-05 — incident: OW Phi Phi
+// June 22→23 hallucination). Both code paths must call into the same
+// predicate so they cannot drift; this file pins the contract.
+
+import { describe, expect, it } from "vitest";
+
+import type { AvailabilityDay } from "@dpm/shared";
+
+import {
+  findVerifiedAlternativeStartDates,
+  validateRequiredSlots,
+} from "../src/services/slot-validator.js";
+
+// Build a synthetic AvailabilityDay. Defaults: AM full+available, PM
+// full+available. Override per-test for blocked / full / partial states.
+function day(fecha: string, opts: {
+  amDisp?: boolean;
+  amEspacios?: number;
+  pmDisp?: boolean;
+  pmEspacios?: number;
+} = {}): AvailabilityDay {
+  return {
+    fecha,
+    turno_manana: {
+      disponible: opts.amDisp ?? true,
+      espacios: opts.amEspacios ?? 22,
+      capacidad: 22,
+    },
+    turno_tarde: {
+      disponible: opts.pmDisp ?? true,
+      espacios: opts.pmEspacios ?? 22,
+      capacidad: 22,
+    },
+  } as AvailabilityDay;
+}
+
+function buildMap(...days: AvailabilityDay[]): Map<string, AvailabilityDay> {
+  return new Map(days.map((d) => [d.fecha, d]));
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// validateRequiredSlots — the primitive used by both handlers
+// ────────────────────────────────────────────────────────────────────────
+describe("validateRequiredSlots — primary check", () => {
+  it("returns allAvailable=true when every slot has espacios > 0 and disponible", () => {
+    const result = validateRequiredSlots({
+      required: [
+        { dayOffset: 1, slot: "PM" },
+        { dayOffset: 2, slot: "AM" },
+      ],
+      detalleByDate: buildMap(
+        day("2026-06-22"),
+        day("2026-06-23"),
+        day("2026-06-24"),
+      ),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01", // far enough in past to skip cutoff
+      startDate: "2026-06-22",
+    });
+    expect(result.allAvailable).toBe(true);
+    expect(result.failingSlots).toHaveLength(0);
+  });
+
+  it("returns allAvailable=false with reason='full' when any required slot is full", () => {
+    // The exact OW June 22→23 case from Miguel's incident: starting June 23,
+    // Day 2 = June 24 PM is BLOCKED → must fail validation.
+    const result = validateRequiredSlots({
+      required: [
+        { dayOffset: 1, slot: "PM" },
+        { dayOffset: 2, slot: "AM" },
+      ],
+      detalleByDate: buildMap(
+        day("2026-06-23"), // start, no boat
+        day("2026-06-24", { pmDisp: false, pmEspacios: 0 }), // Day 2 PM blocked
+        day("2026-06-25"),
+      ),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      startDate: "2026-06-23",
+    });
+    expect(result.allAvailable).toBe(false);
+    expect(result.failingSlots).toHaveLength(1);
+    expect(result.failingSlots[0]).toMatchObject({
+      date: "2026-06-24",
+      slot: "PM",
+      reason: "full",
+    });
+  });
+
+  it("returns reason='missing_data' when the roster window doesn't include a required date", () => {
+    const result = validateRequiredSlots({
+      required: [{ dayOffset: 5, slot: "AM" }],
+      detalleByDate: buildMap(day("2026-06-22")), // missing 2026-06-27
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      startDate: "2026-06-22",
+    });
+    expect(result.allAvailable).toBe(false);
+    expect(result.failingSlots[0]?.reason).toBe("missing_data");
+  });
+
+  it("reports BOTH failing slots when more than one required day is blocked", () => {
+    const result = validateRequiredSlots({
+      required: [
+        { dayOffset: 1, slot: "PM" },
+        { dayOffset: 2, slot: "AM" },
+      ],
+      detalleByDate: buildMap(
+        day("2026-06-22"),
+        day("2026-06-23", { pmEspacios: 0, pmDisp: false }),
+        day("2026-06-24", { amEspacios: 0, amDisp: false }),
+      ),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      startDate: "2026-06-22",
+    });
+    expect(result.failingSlots).toHaveLength(2);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// findVerifiedAlternativeStartDates — the source of truth for alt dates
+// ────────────────────────────────────────────────────────────────────────
+describe("findVerifiedAlternativeStartDates — alt-date scanner", () => {
+  it("returns the next K dates where the OW schedule clears (no boat on Day 0, PM Day 1, AM Day 2)", () => {
+    // June 22 BLOCKED (the original ask). All subsequent days clear.
+    // OW = required [{1,PM},{2,AM}] → for start=23, check 24-PM + 25-AM.
+    // For start=24, check 25-PM + 26-AM. Etc.
+    const detalle = buildMap(
+      day("2026-06-22"), // start day not strictly needed but include
+      day("2026-06-23"),
+      day("2026-06-24"),
+      day("2026-06-25"),
+      day("2026-06-26"),
+      day("2026-06-27"),
+      day("2026-06-28"),
+    );
+    const alts = findVerifiedAlternativeStartDates({
+      programa: "OW",
+      fundiveSlot: undefined,
+      fromDate: "2026-06-22",
+      detalleByDate: detalle,
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      limit: 3,
+    });
+    // First 3 candidates after 2026-06-22 are 23/24/25 — all should clear.
+    expect(alts).toEqual(["2026-06-23", "2026-06-24", "2026-06-25"]);
+  });
+
+  it("skips candidates where a downstream program-day has no roster data", () => {
+    // OW needs Day 1 PM + Day 2 AM. From start=22, need 23-PM + 24-AM.
+    // From start=23, need 24-PM + 25-AM. We only seed 22 + 23 + 24, no 25.
+    // So start=22 → checks 23-PM (ok) + 24-AM (ok) → ALT viable.
+    // Start=23 → checks 24-PM (ok) + 25-AM (missing) → NOT viable.
+    const detalle = buildMap(
+      day("2026-06-22"),
+      day("2026-06-23"),
+      day("2026-06-24"),
+    );
+    const alts = findVerifiedAlternativeStartDates({
+      programa: "OW",
+      fundiveSlot: undefined,
+      fromDate: "2026-06-21",
+      detalleByDate: detalle,
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      limit: 5,
+    });
+    expect(alts).toEqual(["2026-06-22"]);
+  });
+
+  it("returns the Miguel incident shape: June 23 NOT a viable alt when June 24 PM is BLOCKED", () => {
+    // Exact reproduction of the OW Phi Phi June 22→23 hallucination.
+    // The AI proposed start=23 without checking June 24 PM. This test pins
+    // that the new server logic refuses to include June 23 in the
+    // verified-alts list under that roster state.
+    const detalle = buildMap(
+      day("2026-06-22", { amDisp: false, pmDisp: false }), // BLOQUEADO
+      day("2026-06-23"), // OK
+      day("2026-06-24", { amDisp: false, pmDisp: false }), // BLOQUEADO both
+      day("2026-06-25"), // OK
+      day("2026-06-26"), // OK
+      day("2026-06-27"), // OK
+    );
+    const alts = findVerifiedAlternativeStartDates({
+      programa: "OW",
+      fundiveSlot: undefined,
+      fromDate: "2026-06-22",
+      detalleByDate: detalle,
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      limit: 5,
+    });
+    // start=23 should NOT be in the list because Day 2 = June 24 PM is blocked.
+    // start=24 NOT in the list because Day 0 of that course schedule has no
+    // boat (OW Day 0 = theory/pool — OK), Day 1 = June 25 PM (OK), Day 2 =
+    // June 26 AM (OK). So start=24 IS viable per OW schedule. But wait —
+    // June 24 itself has no required slot for OW (Day 0 of OW is pool only),
+    // so the start date itself being blocked is irrelevant.
+    //
+    // Expected viable alts after June 22: 24, 25, 26 (and forward).
+    // June 23 is NOT in the list because of the failing Day 2 PM check.
+    expect(alts).not.toContain("2026-06-23");
+    expect(alts.length).toBeGreaterThan(0);
+  });
+
+  it("returns empty array when every day in the scan window has a blocking slot for this program", () => {
+    // All AM blocked for many days → OW (which needs Day 2 AM) can never start.
+    const days: AvailabilityDay[] = [];
+    for (let d = 22; d <= 30; d++) {
+      days.push(
+        day(`2026-06-${String(d).padStart(2, "0")}`, {
+          amDisp: false,
+          amEspacios: 0,
+        }),
+      );
+    }
+    const alts = findVerifiedAlternativeStartDates({
+      programa: "OW",
+      fundiveSlot: undefined,
+      fromDate: "2026-06-21",
+      detalleByDate: buildMap(...days),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      daysForward: 9,
+      limit: 5,
+    });
+    expect(alts).toEqual([]);
+  });
+
+  it("returns empty array for programs without a defined schedule (combos, specialties)", () => {
+    // OWAOWCombo has no schedule yet (Miguel needs to define it).
+    // Until then, the scanner can't propose alternatives — guarded.
+    const detalle = buildMap(day("2026-06-22"), day("2026-06-23"));
+    const alts = findVerifiedAlternativeStartDates({
+      programa: "OWAOWCombo",
+      fundiveSlot: undefined,
+      fromDate: "2026-06-21",
+      detalleByDate: detalle,
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      limit: 5,
+    });
+    expect(alts).toEqual([]);
+  });
+
+  it("caps results at `limit`", () => {
+    const days: AvailabilityDay[] = [];
+    for (let d = 22; d <= 30; d++) {
+      days.push(day(`2026-06-${String(d).padStart(2, "0")}`));
+    }
+    const alts = findVerifiedAlternativeStartDates({
+      programa: "OW",
+      fundiveSlot: undefined,
+      fromDate: "2026-06-21",
+      detalleByDate: buildMap(...days),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      limit: 2,
+    });
+    expect(alts).toHaveLength(2);
+  });
+
+  it("respects daysForward — does not scan past it", () => {
+    const days: AvailabilityDay[] = [];
+    for (let d = 22; d <= 30; d++) {
+      days.push(day(`2026-06-${String(d).padStart(2, "0")}`));
+    }
+    // Only scan 2 days forward → can only return start=22 (the only one
+    // whose required days fit in the window).
+    const alts = findVerifiedAlternativeStartDates({
+      programa: "OW",
+      fundiveSlot: undefined,
+      fromDate: "2026-06-21",
+      detalleByDate: buildMap(...days),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      daysForward: 1,
+      limit: 5,
+    });
+    expect(alts.length).toBeLessThanOrEqual(1);
+  });
+});

@@ -431,8 +431,25 @@ export type ConsultarDisponibilidadResult =
        * 16-May AM). Omitted when `available=true`.
        */
       failingSlots?: SlotVerdict[];
-      /** Suggested earlier/later start_date when current is blocked. */
+      /** Suggested earlier/later start_date when current is blocked.
+       * Legacy field — sourced from the Apps Script's `primer_dia_disponible`.
+       * For the verified-by-our-server alternatives (Miguel rule 2026-06-05),
+       * use `verifiedAlternativeStartDates` instead. */
       alternativeStartDate?: string;
+      /**
+       * Server-verified list of start dates that the AI MAY propose as
+       * alternatives when the requested start_date fails. Each date in this
+       * array has passed the same all-required-slots check as the primary
+       * `available` verdict — meaning if the AI proposes any of these, the
+       * subsequent `solicitar_deposito` call WILL clear the same validation
+       * (modulo races between the consult and the booking, which are caught
+       * server-side by the solicitar_deposito guard).
+       *
+       * Empty array = no viable alternative within the scan window.
+       * Miguel rule 2026-06-05 (incident: OW June 22→23 hallucination):
+       * the AI is PROHIBITED from proposing any start_date not in this list.
+       */
+      verifiedAlternativeStartDates?: string[];
       /**
        * How many days the v2 Apps Script auto-shifted forward to find a
        * fit. `0` (or omitted) = no shift, the requested date worked.
@@ -753,8 +770,26 @@ export type SolicitarDepositoResult =
     }
   | {
       ok: false;
-      reason: "sede_unknown" | "currency_unsupported" | "internal_error";
+      reason:
+        | "sede_unknown"
+        | "currency_unsupported"
+        | "internal_error"
+        | "booking_not_finalized" // programa / start_date never stamped by consultar_disponibilidad
+        | "slot_unavailable"; // a required slot is no longer available — re-check roster
       message: string;
+      /**
+       * When `reason === "slot_unavailable"`, the specific (date, slot) pairs
+       * that failed re-validation. The AI must surface these to the customer
+       * and call `consultar_disponibilidad` again to get fresh alternatives.
+       */
+      failingSlots?: SlotVerdict[];
+      /**
+       * Verified alternative start dates the AI may propose immediately
+       * without re-calling consultar_disponibilidad (Miguel rule 2026-06-05).
+       * Empty array means the AI must escalate or ask the customer for
+       * a different program / pax count.
+       */
+      verifiedAlternativeStartDates?: string[];
     };
 
 // ── Lead pipeline ───────────────────────────────────────────────────────────

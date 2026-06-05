@@ -26,6 +26,7 @@
 import type { FastifyBaseLogger } from "fastify";
 
 import type {
+  AvailabilityProgram,
   ConsultarDisponibilidadInput,
   ConsultarDisponibilidadResult,
   DepositCurrency,
@@ -48,6 +49,12 @@ import { loadEnv, resolveHandoffEmail } from "../env.js";
 import { callClaude } from "../services/anthropic.js";
 import { appsScriptService } from "../services/apps-script.js";
 import { bookableSlots } from "../services/bookable-slots.js";
+import {
+  ALT_SCAN_DAYS_FORWARD,
+  buildDetalleMap,
+  findVerifiedAlternativeStartDates,
+  validateRequiredSlots,
+} from "../services/slot-validator.js";
 import {
   describeMissingCatalog,
   getCatalogEntry,
@@ -1247,7 +1254,16 @@ export async function processIncomingMessage(
     // information/16-information-koh-tao/ROSTER_SCRIPT_v2_NOTES.md for
     // the contract and the AOW→Advanced / RescueDiver→Rescue mapping
     // open question.
-    const windowDays = maxDayOffset(required) + 1;
+    // Miguel rule 2026-06-05 (OW June 22→23 hallucination): fetch a wider
+    // window than strictly needed so that when the requested start_date
+    // fails, we can scan forward for VERIFIED alternative start dates the
+    // AI may propose without a second tool call. The base window covers
+    // the program's max day offset; the extra ALT_SCAN_DAYS_FORWARD days
+    // give the scanner room to find up to ALT_SCAN_RESULT_LIMIT viable
+    // starts. Cost = one larger Apps Script / DB call per consult; benefit
+    // = AI can never fabricate an unverified date.
+    const baseWindow = maxDayOffset(required) + 1;
+    const windowDays = baseWindow + ALT_SCAN_DAYS_FORWARD;
     // Slice 3a (2026-06-05): same per-sede flag as the prefetch above. PP
     // uses DB-backed roster; other sedes read Apps Script until cut over.
     const useDbRosterTool =
@@ -1326,41 +1342,37 @@ export async function processIncomingMessage(
       };
     }
 
-    const detalleByDate = new Map(fresh.detalle.map((d) => [d.fecha, d]));
+    const detalleByDate = buildDetalleMap(fresh);
     // The Apps Script's "today" is whatever date matches its WITA clock —
     // we infer it from fecha_consultada which is the first day in the
     // requested window. If hora_actual_wita is on the same date, that's
     // today; if start_date is in the future, no time-cutoff needed.
     const todayWitaStr = wITAYmd();
 
-    const slots: SlotVerdict[] = [];
-    let allAvailable = true;
+    const validation = validateRequiredSlots({
+      required,
+      detalleByDate,
+      horaActualWita: fresh.hora_actual_wita,
+      todayWitaStr,
+      startDate: input.start_date,
+    });
+    const { slots, allAvailable } = validation;
 
-    for (const req of required) {
-      const date = addDays(input.start_date, req.dayOffset);
-      const dayDetail = detalleByDate.get(date);
-      if (!dayDetail) {
-        slots.push({ date, slot: req.slot, available: false, espacios: 0, reason: "missing_data" });
-        allAvailable = false;
-        continue;
-      }
-      const slotData =
-        req.slot === "AM" ? dayDetail.turno_manana : dayDetail.turno_tarde;
-      const espacios = slotData.espacios ?? 0;
-
-      const bookable = bookableSlots(fresh.hora_actual_wita, todayWitaStr, date);
-      if (!bookable.has(req.slot)) {
-        slots.push({ date, slot: req.slot, available: false, espacios, reason: "past_today" });
-        allAvailable = false;
-        continue;
-      }
-      if (!slotData.disponible || espacios <= 0) {
-        slots.push({ date, slot: req.slot, available: false, espacios, reason: "full" });
-        allAvailable = false;
-        continue;
-      }
-      slots.push({ date, slot: req.slot, available: true, espacios });
-    }
+    // Miguel rule 2026-06-05: when the requested start_date is NOT
+    // available, the AI MUST NOT invent an alternative. Compute the
+    // verified list here so the AI has fact-checked options to choose
+    // from. When `available=true`, no need to scan — caller wants this
+    // date and we already confirmed it works.
+    const verifiedAlternativeStartDates = allAvailable
+      ? []
+      : findVerifiedAlternativeStartDates({
+          programa: input.programa,
+          fundiveSlot: input.fundive_slot,
+          fromDate: input.start_date,
+          detalleByDate,
+          horaActualWita: fresh.hora_actual_wita,
+          todayWitaStr,
+        });
 
     // Move pipeline forward — the AI is actively proposing dates.
     // Stamp programa + start_date + required_slots onto lead_metadata so
@@ -1407,7 +1419,7 @@ export async function processIncomingMessage(
         log.warn({ err }, "respond_io update_custom_fields failed (proposed path)"),
       );
 
-    const failingSlots = slots.filter((s) => !s.available);
+    const failingSlots = validation.failingSlots;
     return {
       ok: true,
       programa: input.programa,
@@ -1416,6 +1428,9 @@ export async function processIncomingMessage(
       available: allAvailable,
       slots,
       ...(failingSlots.length > 0 ? { failingSlots } : {}),
+      ...(verifiedAlternativeStartDates.length > 0
+        ? { verifiedAlternativeStartDates }
+        : {}),
       ...(fresh.primer_dia_disponible &&
       fresh.primer_dia_disponible !== input.start_date
         ? { alternativeStartDate: fresh.primer_dia_disponible }
@@ -1441,6 +1456,130 @@ export async function processIncomingMessage(
         "solicitar_deposito sede_id mismatch — overriding",
       );
     }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Miguel rule 2026-06-05 (Part C, server-side guard): before we touch
+    // any state, RE-VALIDATE that the (programa, start_date) the AI
+    // committed to via consultar_disponibilidad still has every required
+    // slot available. Catches two failure modes:
+    //   1. AI hallucinated an alternative start_date that was never
+    //      actually verified (the OW June 22→23 incident).
+    //   2. Race: between consultar_disponibilidad and solicitar_deposito,
+    //      another customer took the last seat on a required day.
+    //
+    // The guard is silent when the prior consult succeeded AND the data
+    // is still fresh; it only fires (and rejects the booking) when
+    // re-validation shows a real conflict. We surface verified
+    // alternatives in the rejection payload so the AI can pivot the
+    // customer to a date that actually works, without another tool call.
+    // ────────────────────────────────────────────────────────────────────
+    const preflightMeta =
+      (conversation.leadMetadata as LeadMetadata | null) ?? null;
+    const preflightPrograma = preflightMeta?.programa;
+    const preflightStartDate = preflightMeta?.start_date;
+    if (!preflightPrograma || !preflightStartDate) {
+      return {
+        ok: false,
+        reason: "booking_not_finalized",
+        message:
+          "El AI no completó consultar_disponibilidad antes de pedir el depósito. Llamá esa tool primero con el programa y fecha de inicio del cliente.",
+      };
+    }
+    const preflightRequired = getRequiredSlots(
+      preflightPrograma as AvailabilityProgram,
+      undefined, // fundive_slot stamped only when relevant; default no-op
+    );
+    if (preflightRequired && preflightRequired.length > 0) {
+      const preflightWindow =
+        maxDayOffset(preflightRequired) + 1 + ALT_SCAN_DAYS_FORWARD;
+      const useDbRosterDeposit =
+        (sede.rosterConfig as { use_db_roster?: boolean } | null)
+          ?.use_db_roster === true;
+      let preflightFresh = useDbRosterDeposit
+        ? await rosterDbService
+            .fetchAvailability(sede.id, {
+              date: preflightStartDate,
+              days: preflightWindow,
+            })
+            .catch((err) => {
+              log.warn(
+                { err: (err as Error).message },
+                "roster_db preflight failed — falling back to Apps Script",
+              );
+              return null;
+            })
+        : null;
+      if (!preflightFresh) {
+        preflightFresh = await appsScriptService.fetchAvailability(sede, {
+          date: preflightStartDate,
+          days: preflightWindow,
+          pax: input.pax,
+          curso: preflightPrograma,
+          mode: preflightWindow > 1 ? "range" : "single",
+        });
+      }
+      if (preflightFresh) {
+        const preflightDetalle = buildDetalleMap(preflightFresh);
+        const todayWita = wITAYmd();
+        const preflightVerdict = validateRequiredSlots({
+          required: preflightRequired,
+          detalleByDate: preflightDetalle,
+          horaActualWita: preflightFresh.hora_actual_wita,
+          todayWitaStr: todayWita,
+          startDate: preflightStartDate,
+        });
+        if (!preflightVerdict.allAvailable) {
+          // Re-check failed — either AI proposed a date it never verified
+          // (Miguel's exact bug) or someone took the seat. Compute fresh
+          // alternatives so the AI has a fact-checked answer ready.
+          const verifiedAlternativeStartDates = findVerifiedAlternativeStartDates({
+            programa: preflightPrograma as AvailabilityProgram,
+            fundiveSlot: undefined,
+            fromDate: preflightStartDate,
+            detalleByDate: preflightDetalle,
+            horaActualWita: preflightFresh.hora_actual_wita,
+            todayWitaStr: todayWita,
+          });
+          log.warn(
+            {
+              conversationId: conversation.id,
+              programa: preflightPrograma,
+              startDate: preflightStartDate,
+              failingSlots: preflightVerdict.failingSlots,
+              alternativeCount: verifiedAlternativeStartDates.length,
+            },
+            "solicitar_deposito rejected — required slots no longer available (Miguel rule 2026-06-05)",
+          );
+          return {
+            ok: false,
+            reason: "slot_unavailable",
+            message:
+              "Antes de confirmar el depósito, re-verifiqué la disponibilidad y uno o más días del programa ya no tienen lugar. NO confirmes el depósito — disculpate con el cliente y ofrecé una fecha alternativa de la lista verificada.",
+            failingSlots: preflightVerdict.failingSlots,
+            ...(verifiedAlternativeStartDates.length > 0
+              ? { verifiedAlternativeStartDates }
+              : {}),
+          };
+        }
+      } else {
+        // Roster fetch failed AND we had no fallback. We err on the side
+        // of safety: reject the booking rather than proceed with stale
+        // data. The AI must re-try consultar_disponibilidad which will
+        // surface the timeout to the customer with the prompt's mandated
+        // "verifying with team" reply.
+        log.warn(
+          { sedeId: sede.id, startDate: preflightStartDate },
+          "solicitar_deposito preflight roster fetch returned null — rejecting to avoid stale booking",
+        );
+        return {
+          ok: false,
+          reason: "slot_unavailable",
+          message:
+            "No pude re-verificar disponibilidad antes del depósito (sistema de roster no respondió). Volvé a llamar consultar_disponibilidad para confirmar antes de pedir la seña.",
+        };
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────
 
     // Block IDR for clients without an Indonesian bank account. We can't
     // verify that from the AI side, so we trust the client's claim — but
