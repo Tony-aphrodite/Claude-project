@@ -982,10 +982,31 @@ export async function processIncomingMessage(
   // a specific start_date. Cache TTL is 30s so this prefetch is essentially
   // free for the tool call that follows seconds later.
   const todayWita = wITAYmd();
-  const rosterPromise = appsScriptService.fetchAvailability(sede, {
-    date: todayWita,
-    days: 7,
-  });
+  // Slice 3a (2026-06-05): PP cuts over to DB-backed roster. Other sedes
+  // continue to read from Apps Script until each cuts over individually.
+  // The flag is per-sede in rosterConfig.use_db_roster — when true we
+  // skip Apps Script entirely and pull capacity/bookings from our DB.
+  const useDbRoster =
+    (sede.rosterConfig as { use_db_roster?: boolean } | null)?.use_db_roster ===
+    true;
+  const rosterPromise = useDbRoster
+    ? rosterDbService
+        .fetchAvailability(sede.id, { date: todayWita, days: 7 })
+        .then((r) => r)
+        .catch((err) => {
+          log.warn(
+            { err: (err as Error).message, sede: sede.nombre },
+            "roster_db fetchAvailability failed (prefetch) — falling back to Apps Script",
+          );
+          return appsScriptService.fetchAvailability(sede, {
+            date: todayWita,
+            days: 7,
+          });
+        })
+    : appsScriptService.fetchAvailability(sede, {
+        date: todayWita,
+        days: 7,
+      });
 
   // Step 6: dynamic block + 5: 4-block prompt
   //
@@ -1142,13 +1163,34 @@ export async function processIncomingMessage(
     // the contract and the AOW→Advanced / RescueDiver→Rescue mapping
     // open question.
     const windowDays = maxDayOffset(required) + 1;
-    const fresh = await appsScriptService.fetchAvailability(sede, {
-      date: input.start_date,
-      days: windowDays,
-      pax: input.pax,
-      curso: input.programa,
-      mode: windowDays > 1 ? "range" : "single",
-    });
+    // Slice 3a (2026-06-05): same per-sede flag as the prefetch above. PP
+    // uses DB-backed roster; other sedes read Apps Script until cut over.
+    const useDbRosterTool =
+      (sede.rosterConfig as { use_db_roster?: boolean } | null)
+        ?.use_db_roster === true;
+    let fresh = useDbRosterTool
+      ? await rosterDbService
+          .fetchAvailability(sede.id, {
+            date: input.start_date,
+            days: windowDays,
+          })
+          .catch((err) => {
+            log.warn(
+              { err: (err as Error).message, sede: sede.nombre },
+              "roster_db fetchAvailability failed (tool) — falling back to Apps Script",
+            );
+            return null;
+          })
+      : null;
+    if (!fresh) {
+      fresh = await appsScriptService.fetchAvailability(sede, {
+        date: input.start_date,
+        days: windowDays,
+        pax: input.pax,
+        curso: input.programa,
+        mode: windowDays > 1 ? "range" : "single",
+      });
+    }
     if (!fresh) {
       return {
         ok: false,
@@ -1389,16 +1431,43 @@ export async function processIncomingMessage(
     // Push deposit-related fields to Respond.io contact (DPM_AI_LAUNCH
     // 2026-05-07 §2). The Sheet Logger reads from these the moment the
     // conversation closes — we don't have to coordinate further.
+    //
+    // 2026-06-05 (Miguel feedback Slice 3c): ALSO push programa/turno/
+    // start_date if available in lead_metadata. Previously only the
+    // consultar_disponibilidad success path populated these, so if a
+    // customer skipped the disponibilidad step or that step errored,
+    // the contact panel ended up with empty programa + turno fields
+    // (Miguel's screenshot of a deposit_paid lead showed exactly this).
+    // We read from leadMetadata as the source of truth and re-push at
+    // deposit time as a belt-and-suspenders.
+    const depositMeta =
+      (conversation.leadMetadata as LeadMetadata | null) ?? {};
+    const extraFields: Record<string, string | number | null> = {
+      sede: sede.nombre,
+      monto: montoTotal,
+      moneda: currency,
+      codigo_referencia: refCode,
+      pax,
+    };
+    if (depositMeta.programa) extraFields.programa = depositMeta.programa;
+    if (depositMeta.start_date) extraFields.start_date = depositMeta.start_date;
+    // Derive turno from required_slots if it isn't already an explicit field.
+    // required_slots is Array<{dayOffset, slot:"AM"|"PM"}>. For multi-slot
+    // programs we surface "AM/PM" so the office sees both.
+    const reqSlots = depositMeta.required_slots ?? [];
+    if (reqSlots.length > 0) {
+      const slots = new Set(reqSlots.map((s) => s.slot));
+      extraFields.turno =
+        slots.has("AM") && slots.has("PM")
+          ? "AM/PM"
+          : slots.has("AM")
+            ? "AM"
+            : "PM";
+    }
     void respondIoClient
       .updateContactCustomFields({
         contactId: payload.contact.id,
-        fields: {
-          sede: sede.nombre,
-          monto: montoTotal, // Sheet Logger sees the total the customer paid
-          moneda: currency,
-          codigo_referencia: refCode,
-          pax,
-        },
+        fields: extraFields,
         language: detectedLanguageIso ?? undefined,
       })
       .catch((err) =>
@@ -1975,6 +2044,37 @@ export async function processIncomingMessage(
         contactId: payload.contact.id,
         text: segment,
       });
+    }
+
+    // Slice 3d (Miguel feedback 2026-06-05): after the AI successfully
+    // replies, claim the conversation as assigned to the AI user so it
+    // doesn't show "Sin asignar" in Respond.io panel. Skip when the lead
+    // is in a terminal/handoff stage — those go to a human team via the
+    // tag-based workflow Miguel maintains, we don't want to fight it.
+    //
+    // Env-gated: when RESPOND_IO_AI_ASSIGNEE_ID is unset, this is a no-op.
+    const aiAssigneeId = loadEnv().RESPOND_IO_AI_ASSIGNEE_ID;
+    const handsOffStages: ReadonlyArray<typeof conversation.leadStage> = [
+      "handed_off",
+      "deposit_paid",
+      "closed",
+      "lost",
+    ];
+    if (
+      aiAssigneeId &&
+      !handsOffStages.includes(conversation.leadStage)
+    ) {
+      void respondIoClient
+        .assignConversation({
+          contactId: payload.contact.id,
+          assignee: aiAssigneeId,
+        })
+        .catch((err) =>
+          log.warn(
+            { err: (err as Error).message },
+            "ai self-assign failed (non-blocking)",
+          ),
+        );
     }
   } catch (err) {
     log.error({ err }, "respond_io send failed; AI text saved but not delivered");

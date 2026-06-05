@@ -47,6 +47,20 @@ import {
 } from "@dpm/db";
 
 import { getLogger } from "../logger.js";
+import { addDays } from "./program-schedule.js";
+
+/**
+ * Days between two YYYY-MM-DD strings. Positive when `to` is after `from`.
+ * Used to compute Apps-Script-compatible `offset_dias` for fetchAvailability.
+ */
+function daysBetween(from: string, to: string): number {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  if (!fy || !ty) return 0;
+  const f = Date.UTC(fy, (fm ?? 1) - 1, fd ?? 1);
+  const t = Date.UTC(ty, (tm ?? 1) - 1, td ?? 1);
+  return Math.round((t - f) / 86400000);
+}
 
 /**
  * Default capacity per turno when no per-(sede, fecha, turno) override exists.
@@ -518,6 +532,105 @@ export class RosterDbService {
        ORDER BY ${rosterBookings.fecha} ASC, ${rosterBookings.turno} ASC, ${rosterBookings.createdAt} ASC
     `);
     return rows as unknown as RosterBooking[];
+  }
+
+  /**
+   * Slice 3a (2026-06-05): DB-backed availability fetch shaped EXACTLY like
+   * the Apps Script's `AvailabilityResponse`. Lets us swap the read source
+   * in `consultar_disponibilidad` without rewriting the rest of the handler
+   * (which parses turno_manana/turno_tarde/turno_nocturno, applies
+   * bookableSlots time-cutoff logic, etc).
+   *
+   * Why this exists: Miguel's 2026-06-05 feedback identified that the AI
+   * kept saying "necesito verificar con el equipo" because Apps Script
+   * timeouts / cold-starts produced `null`/`ok:false` responses too often,
+   * triggering the fallback prompt rule. The DB has no cold-start and no
+   * external dependency — it always returns a clean answer.
+   *
+   * Mapping from DB rows to Apps Script shape:
+   *   • `capacity` → `capacidad`
+   *   • `reserved` → `reservados` (implicitly, via `espacios = capacity - reserved`)
+   *   • `available > 0` → `disponible: true`
+   *   • `blocked: true` → `disponible: false` + `espacios: 0`
+   *   • `full: true (reserved >= capacity)` → `disponible: false` + `espacios: 0`
+   *
+   * Nocturno: the AI tool's getRequiredSlots only emits AM/PM (no Nocturno
+   * required by any program today). We still surface turno_nocturno in the
+   * response because the prompt-builder dynamic block uses the 7-day
+   * preview to give the AI context. Nocturno comes through with the same
+   * capacity/reserved as AM/PM.
+   */
+  async fetchAvailability(
+    sedeId: string,
+    opts: {
+      date: string;
+      days: number;
+    },
+  ): Promise<import("@dpm/shared").AvailabilityResponse> {
+    const detalle: import("@dpm/shared").AvailabilityDay[] = [];
+    let firstAvailableDate: string | null = null;
+
+    for (let i = 0; i < Math.max(1, opts.days); i++) {
+      const fecha = addDays(opts.date, i);
+      const slots = await this.getAvailability(sedeId, fecha);
+      const am = slots.find((s) => s.turno === "AM");
+      const pm = slots.find((s) => s.turno === "PM");
+      const noc = slots.find((s) => s.turno === "Nocturno");
+      const dayAvailable =
+        (am?.available ?? 0) > 0 ||
+        (pm?.available ?? 0) > 0 ||
+        (noc?.available ?? 0) > 0;
+      if (dayAvailable && !firstAvailableDate) firstAvailableDate = fecha;
+
+      detalle.push({
+        fecha,
+        disponible: dayAvailable,
+        turno_manana: am
+          ? {
+              disponible: am.available > 0,
+              espacios: am.available,
+              capacidad: am.capacity,
+            }
+          : { disponible: false, espacios: 0, capacidad: 0 },
+        turno_tarde: pm
+          ? {
+              disponible: pm.available > 0,
+              espacios: pm.available,
+              capacidad: pm.capacity,
+            }
+          : { disponible: false, espacios: 0, capacidad: 0 },
+        ...(noc
+          ? {
+              turno_nocturno: {
+                disponible: noc.available > 0,
+                espacios: noc.available,
+                capacidad: noc.capacity,
+              },
+            }
+          : {}),
+      });
+    }
+
+    const horaActualWita = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Bangkok",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date());
+
+    return {
+      hora_actual_wita: horaActualWita,
+      fecha_consultada: opts.date,
+      disponible: firstAvailableDate !== null,
+      primer_dia_disponible: firstAvailableDate ?? opts.date,
+      resumen: firstAvailableDate
+        ? `Disponible desde ${firstAvailableDate}`
+        : "Sin disponibilidad en la ventana consultada",
+      detalle,
+      offset_dias: firstAvailableDate
+        ? Math.max(0, daysBetween(opts.date, firstAvailableDate))
+        : 0,
+    };
   }
 
   // ────────────────────────────────────────────────────────────────────────

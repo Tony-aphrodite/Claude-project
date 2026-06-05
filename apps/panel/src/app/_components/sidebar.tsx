@@ -119,6 +119,20 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/roster",
+    label: "Roster",
+    group: "live",
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+        <rect x="3" y="4" width="14" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+        <path d="M3 8h14M7 4V2.5M13 4V2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        <circle cx="7" cy="12" r="1" fill="currentColor" />
+        <circle cx="10" cy="12" r="1" fill="currentColor" />
+        <circle cx="13" cy="12" r="1" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
     href: "/prompts",
     label: "Prompts",
     group: "config",

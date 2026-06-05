@@ -90,6 +90,12 @@ const envSchema = z.object({
   // require this in the body so Respond.io knows which connected number
   // to use as origin. Defaults to 274637 (WAP EN main, workspace 216239).
   RESPOND_IO_CHANNEL_ID: z.string().default("274637"),
+  // 2026-06-05 (Miguel Slice 3d): user/team id in Respond.io to assign as
+  // the AI agent for conversations Francisco is handling. Without this set,
+  // conversations stay "Sin asignar" in the panel. Find this id in
+  // Respond.io → Settings → Team → user/team properties; numeric id only.
+  // Optional — when missing, AI conversations remain unassigned (no harm).
+  RESPOND_IO_AI_ASSIGNEE_ID: z.coerce.number().int().positive().optional(),
   // Alternative shared-secret auth for webhook callers that cannot compute
   // an HMAC of the body (e.g. Respond.io's "Petición HTTP" workflow step,
   // which sends static headers only). When set and matched, the route

@@ -401,6 +401,80 @@ export class RespondIoClient {
   }
 
   /**
+   * Assign a conversation to a user or team (Miguel feedback 2026-06-05
+   * Slice 3d). The AI was leaving conversations as "Sin asignar" in
+   * Respond.io UI even while actively handling them. After this method
+   * runs, the panel + workflow filters that gate on assignee can include
+   * AI-handled conversations.
+   *
+   * Endpoint per @respond-io/typescript-sdk@1.4.0 dist/index.js:344:
+   *   POST /v2/contact/{identifier}/conversation/assignee
+   *   body: { assignee: <user_id | team_id | null> }
+   *
+   * Pass `null` to unassign (used when handing off to the agents team via
+   * an existing tag-based workflow we don't want to fight).
+   *
+   * Idempotent at the API level — Respond.io accepts the same assignee
+   * repeatedly without side effects. We do NOT pre-check current
+   * assignee here because that's an extra GET and risk of races; callers
+   * that need "only-if-unassigned" semantics should add the check before
+   * invoking.
+   */
+  async assignConversation(input: {
+    contactId: string;
+    assignee: number | string | null;
+  }): Promise<void> {
+    const env = loadEnv();
+    const log = getLogger();
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/conversation/assignee`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+    try {
+      const res = await undiciFetch(url, {
+        method: "POST",
+        dispatcher: keepAliveAgent,
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+        },
+        body: JSON.stringify({ assignee: input.assignee }),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        log.warn(
+          {
+            contactId: input.contactId,
+            assignee: input.assignee,
+            status: res.status,
+            body: body.slice(0, 300),
+          },
+          "respond_io assign_conversation non-2xx",
+        );
+        return;
+      }
+      log.info(
+        { contactId: input.contactId, assignee: input.assignee },
+        "respond_io assign_conversation ok",
+      );
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        log.warn(
+          { contactId: input.contactId },
+          "respond_io assign_conversation timed out",
+        );
+        return;
+      }
+      log.warn(
+        { contactId: input.contactId, err: (err as Error).message },
+        "respond_io assign_conversation threw",
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * Look up the active conversation id for a contact.
    *
    * 2026-06-04 finding: Respond.io v2 /contact/id:{id}/message ONLY
