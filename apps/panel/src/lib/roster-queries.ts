@@ -70,17 +70,21 @@ export async function getRosterView(input: {
       ),
     );
 
-  const reservedRows = (await db.execute(sql`
-    SELECT
-      ${rosterBookings.fecha} AS fecha,
-      ${rosterBookings.turno} AS turno,
-      COALESCE(SUM(${rosterBookings.pax}), 0)::int AS reserved
-      FROM ${rosterBookings}
-     WHERE ${rosterBookings.sedeId} = ${input.sedeId}
-       AND ${rosterBookings.fecha} = ANY(${dates}::text[])
-       AND ${rosterBookings.status} = 'confirmed'
-     GROUP BY ${rosterBookings.fecha}, ${rosterBookings.turno}
-  `)) as unknown as Array<{ fecha: string; turno: string; reserved: number }>;
+  const reservedRows = await db
+    .select({
+      fecha: rosterBookings.fecha,
+      turno: rosterBookings.turno,
+      reserved: sql<number>`COALESCE(SUM(${rosterBookings.pax}), 0)::int`,
+    })
+    .from(rosterBookings)
+    .where(
+      and(
+        eq(rosterBookings.sedeId, input.sedeId),
+        inArray(rosterBookings.fecha, dates),
+        eq(rosterBookings.status, "confirmed"),
+      ),
+    )
+    .groupBy(rosterBookings.fecha, rosterBookings.turno);
 
   const overrideMap = new Map<string, (typeof overrides)[number]>();
   for (const o of overrides) overrideMap.set(`${o.fecha}|${o.turno}`, o);
