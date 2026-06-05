@@ -5,6 +5,8 @@
 // existing future bookings before the AI starts selling against the new
 // DB-backed roster.
 
+import { CATALOG_PROGRAMS } from "@dpm/shared";
+
 import { PageHeader } from "~/app/_components/page-header";
 import { requireUserContext } from "~/lib/auth-context";
 import {
@@ -259,9 +261,15 @@ export default async function RosterPage({
           <input
             name="programa"
             required
-            placeholder="TryScuba"
+            list="programa-options"
+            placeholder="TryScuba (o tipear custom)"
             className="block rounded border border-ink-200 px-2 py-1 text-sm"
           />
+          <datalist id="programa-options">
+            {CATALOG_PROGRAMS.map((p) => (
+              <option key={p} value={p} />
+            ))}
+          </datalist>
         </label>
         <label className="text-sm text-ink-700">
           Pax
