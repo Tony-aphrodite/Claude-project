@@ -18,7 +18,9 @@ import type { FastifyBaseLogger } from "fastify";
 import { eq } from "drizzle-orm";
 
 import { conversaciones, getDb } from "@dpm/db";
+import type { LeadMetadata } from "@dpm/shared";
 
+import { loadEnv } from "../env.js";
 import { leadStageService } from "../services/lead-stage.js";
 
 type IncomingPayload = {
@@ -32,6 +34,8 @@ export type ContactStateResult =
   | { ok: true; action: "no_conversation" }
   | { ok: true; action: "lifecycle_reset"; from: string; to: string }
   | { ok: true; action: "tag_event_ignored"; reason: string }
+  | { ok: true; action: "human_takeover"; assignee: string }
+  | { ok: true; action: "human_released"; clearedFlag: boolean }
   | { ok: true; action: "noop"; reason: string };
 
 /**
@@ -227,7 +231,115 @@ export async function handleContactStateEvent(
     };
   }
 
+  // ────────────────────────────────────────────────────────────────────────
+  // Conversation assignee changed — Miguel rule (2026-06-05):
+  //   "si un agente humano hace take over, no volver a interferir"
+  //
+  // When a human operator clicks "Assign to me" (or reassigns to a
+  // teammate) in the Respond.io panel, Respond.io fires
+  // `conversation.assignee.changed` with the new assignee userId. We:
+  //   1. Detect non-AI assignee  → mark `human_took_over` in leadMetadata
+  //      AND force-transition to handed_off so the existing silence guard
+  //      in process-message.ts trips. The flag is what makes the silence
+  //      DEFINITIVE (bypasses the new-topic re-engagement heuristic).
+  //   2. Detect null/AI assignee → operator handed it back. Clear the flag
+  //      but DO NOT auto-reset lead_stage — the operator should drive
+  //      stage transitions via lifecycle to be explicit. (Aborting a
+  //      take-over by re-assigning to AI is the rare case anyway.)
+  //
+  // Payload shape (Respond.io v2):
+  //   { event_type: "conversation.assignee.changed",
+  //     assignee: <number | null>,    ← new assignee userId (NULL = unassigned)
+  //     oldAssignee: <number | null>, ← previous (informational)
+  //     contact: { id: ... } }
+  // We also accept legacy data/payload wrappers + nested `userId` keys.
+  // ────────────────────────────────────────────────────────────────────────
+  if (event.startsWith("conversation.assignee.")) {
+    const newAssignee = readNumberOrNull(
+      payload.assignee ??
+        (payload.data as Record<string, unknown> | undefined)?.assignee ??
+        (payload.payload as Record<string, unknown> | undefined)?.assignee,
+    );
+
+    const aiAssigneeId = loadEnv().RESPOND_IO_AI_ASSIGNEE_ID;
+    const isHuman = newAssignee !== null && newAssignee !== aiAssigneeId;
+
+    log.info(
+      { event, contactId, newAssignee, aiAssigneeId, isHuman },
+      "assignee event parsed",
+    );
+
+    const oldMeta = (conv.leadMetadata as LeadMetadata | null) ?? {};
+    if (isHuman) {
+      const result = await leadStageService.forceTransition({
+        conversacionId: conv.id,
+        to: "handed_off",
+        by: "human",
+        note: `respond_io_human_takeover:${newAssignee}`,
+        metadataPatch: {
+          human_took_over: true,
+          human_took_over_at: new Date().toISOString(),
+          human_took_over_by: String(newAssignee),
+        },
+      });
+      if (!result.ok) {
+        // Stage transition may fail when conv is already in handed_off or a
+        // terminal state. The metadata patch is the load-bearing part —
+        // write it directly so the silence flag is set regardless.
+        await db
+          .update(conversaciones)
+          .set({
+            leadMetadata: {
+              ...oldMeta,
+              human_took_over: true,
+              human_took_over_at: new Date().toISOString(),
+              human_took_over_by: String(newAssignee),
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(conversaciones.id, conv.id));
+        log.info(
+          { contactId, transitionReason: result.reason },
+          "human takeover: stage transition skipped, flag set directly",
+        );
+      }
+      return { ok: true, action: "human_takeover", assignee: String(newAssignee) };
+    }
+
+    // Assignee is null or the AI bot → human gave it back (or never had it).
+    // Clear the flag if it was set; leave lead_stage alone.
+    if (oldMeta.human_took_over) {
+      const { human_took_over, human_took_over_at, human_took_over_by, ...rest } =
+        oldMeta;
+      await db
+        .update(conversaciones)
+        .set({ leadMetadata: rest as LeadMetadata, updatedAt: new Date() })
+        .where(eq(conversaciones.id, conv.id));
+      log.info(
+        { contactId, newAssignee },
+        "human released conversation back to AI/null — flag cleared",
+      );
+      return { ok: true, action: "human_released", clearedFlag: true };
+    }
+    return { ok: true, action: "human_released", clearedFlag: false };
+  }
+
   return { ok: true, action: "tag_event_ignored", reason: event };
+}
+
+function readNumberOrNull(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  if (typeof v === "object" && v !== null) {
+    const obj = v as Record<string, unknown>;
+    // Some shapes wrap assignee in { userId: N } or { id: N }
+    return readNumberOrNull(obj.userId ?? obj.id);
+  }
+  return null;
 }
 
 function readString(obj: unknown, key: string): string | null {

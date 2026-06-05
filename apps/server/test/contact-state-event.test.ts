@@ -3,10 +3,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Mock the DB module before importing the handler so the in-handler DB
 // lookups go through our stub. The conversation row returned by `limit()`
 // is controllable per-test via `setMockConversation()`.
-let mockConversation: { id: string; leadStage: string } | null = null;
+let mockConversation: {
+  id: string;
+  leadStage: string;
+  leadMetadata?: Record<string, unknown> | null;
+} | null = null;
 
-function setMockConversation(row: { id: string; leadStage: string } | null) {
+function setMockConversation(
+  row: {
+    id: string;
+    leadStage: string;
+    leadMetadata?: Record<string, unknown> | null;
+  } | null,
+) {
   mockConversation = row;
+}
+
+const updateCalls: Array<{ set: Record<string, unknown> }> = [];
+
+function resetUpdateCalls() {
+  updateCalls.length = 0;
 }
 
 vi.mock("@dpm/db", async () => {
@@ -21,9 +37,26 @@ vi.mock("@dpm/db", async () => {
           }),
         }),
       }),
+      update: () => ({
+        set: (s: Record<string, unknown>) => {
+          updateCalls.push({ set: s });
+          return {
+            where: () => Promise.resolve(),
+          };
+        },
+      }),
     }),
   };
 });
+
+// Mock env so RESPOND_IO_AI_ASSIGNEE_ID is deterministic in tests. 999 is
+// the "AI bot" user id; anything else counts as a human takeover. We
+// don't call the real loadEnv() because test env vars aren't seeded
+// (NODE_ENV=test bypasses .env loading).
+vi.mock("../src/env.js", () => ({
+  loadEnv: () => ({ RESPOND_IO_AI_ASSIGNEE_ID: 999 }),
+  resolveHandoffEmail: () => "test@example.com",
+}));
 
 // Mock leadStageService so we can observe (and stub) the forceTransition
 // call without spinning up the real state machine.
@@ -60,6 +93,7 @@ import { handleContactStateEvent } from "../src/handlers/contact-state-event.js"
 
 beforeEach(() => {
   forceTransitionMock.mockClear();
+  resetUpdateCalls();
   setMockConversation({ id: "conv_abc", leadStage: "deposit_paid" });
 });
 
@@ -300,5 +334,91 @@ describe("contact-state-event — guard rails", () => {
     );
     expect(forceTransitionMock).not.toHaveBeenCalled();
     expect(result.action).toBe("tag_event_ignored");
+  });
+});
+
+// ─── conversation.assignee.* (Miguel rule 2026-06-05) ─────────────────────
+describe("contact-state-event — conversation.assignee.changed", () => {
+  it("human takeover (assignee != AI bot id) sets human_took_over flag + transitions to handed_off", async () => {
+    setMockConversation({ id: "conv_xyz", leadStage: "engaged" });
+    const result = await handleContactStateEvent(
+      {
+        contact: { id: 445381935 },
+        assignee: 7733, // human user id (not the mocked AI id 999)
+        oldAssignee: 999,
+      },
+      "conversation.assignee.changed",
+      silentLog,
+    );
+    expect(forceTransitionMock).toHaveBeenCalledTimes(1);
+    expect(forceTransitionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversacionId: "conv_xyz",
+        to: "handed_off",
+        by: "human",
+        note: "respond_io_human_takeover:7733",
+        metadataPatch: expect.objectContaining({
+          human_took_over: true,
+          human_took_over_by: "7733",
+        }),
+      }),
+    );
+    expect(result.action).toBe("human_takeover");
+  });
+
+  it("assignee = AI bot id is a no-op (handed back to AI, flag not set)", async () => {
+    setMockConversation({ id: "conv_xyz", leadStage: "engaged" });
+    const result = await handleContactStateEvent(
+      {
+        contact: { id: 445381935 },
+        assignee: 999, // matches mocked RESPOND_IO_AI_ASSIGNEE_ID
+      },
+      "conversation.assignee.changed",
+      silentLog,
+    );
+    expect(forceTransitionMock).not.toHaveBeenCalled();
+    expect(result.action).toBe("human_released");
+  });
+
+  it("assignee = null with flag previously set clears the flag", async () => {
+    setMockConversation({
+      id: "conv_xyz",
+      leadStage: "handed_off",
+      leadMetadata: { human_took_over: true, human_took_over_by: "7733" },
+    });
+    const result = await handleContactStateEvent(
+      {
+        contact: { id: 445381935 },
+        assignee: null,
+      },
+      "conversation.assignee.changed",
+      silentLog,
+    );
+    expect(forceTransitionMock).not.toHaveBeenCalled();
+    expect(result.action).toBe("human_released");
+    if (result.action === "human_released") {
+      expect(result.clearedFlag).toBe(true);
+    }
+    // The update call should have stripped the flag keys.
+    expect(updateCalls.length).toBeGreaterThan(0);
+    const lastUpdate = updateCalls[updateCalls.length - 1]!.set;
+    expect(lastUpdate.leadMetadata).toBeDefined();
+    const meta = lastUpdate.leadMetadata as Record<string, unknown>;
+    expect(meta.human_took_over).toBeUndefined();
+    expect(meta.human_took_over_by).toBeUndefined();
+  });
+
+  it("accepts assignee wrapped in data.* (legacy payload shape)", async () => {
+    setMockConversation({ id: "conv_xyz", leadStage: "engaged" });
+    const result = await handleContactStateEvent(
+      {
+        contact: { id: 445381935 },
+        data: { assignee: 7733 },
+      },
+      "conversation.assignee.updated",
+      silentLog,
+    );
+    expect(forceTransitionMock).toHaveBeenCalledTimes(1);
+    expect(result.action).toBe("human_takeover");
   });
 });

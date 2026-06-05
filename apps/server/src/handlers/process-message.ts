@@ -113,7 +113,8 @@ export type ProcessResult =
         | "branch_empty"
         | "sede_not_seeded"
         | "test_tag_missing"
-        | "ai_silenced_post_handoff";
+        | "ai_silenced_post_handoff"
+        | "ai_silenced_human_assignee";
       branch?: string | null;
       latencyMs: number;
     }
@@ -867,6 +868,80 @@ export async function processIncomingMessage(
     .cancelOpenFollowUpsForConversation(conversation.id, "client_responded")
     .catch((err) => log.warn({ err }, "follow-up cancel-on-reply failed"));
 
+  // ────────────────────────────────────────────────────────────────────────
+  // Human-takeover hard silence (Miguel rule 2026-06-05):
+  // "si un agente humano hace take over, no volver a interferir".
+  //
+  // Two complementary signals — first one to fire wins:
+  //  (a) The persisted flag `leadMetadata.human_took_over` set by the
+  //      `conversation.assignee.changed` webhook handler. Authoritative.
+  //  (b) Inline payload check: the incoming message envelope sometimes
+  //      carries `conversation.assignee` directly. Useful for the race
+  //      condition where the customer's next message arrives BEFORE the
+  //      assignee.changed webhook fires (Respond.io doesn't guarantee
+  //      ordering between message + state webhooks).
+  //
+  // When either trips, the message is still persisted above (panel
+  // timeline stays complete) but the AI does not generate or send a reply.
+  // ────────────────────────────────────────────────────────────────────────
+  const persistedHumanTookOver =
+    (conversation.leadMetadata as LeadMetadata | null)?.human_took_over === true;
+  if (persistedHumanTookOver) {
+    log.info(
+      {
+        conversationId: conversation.id,
+        contactId: payload.contact.id,
+      },
+      "ai silenced — human_took_over flag set (Miguel rule)",
+    );
+    return {
+      ok: false,
+      ignored: true,
+      reason: "ai_silenced_human_assignee",
+      latencyMs: Date.now() - t0,
+    };
+  }
+  const incomingAssignee = payload.conversation?.assignee;
+  if (incomingAssignee !== undefined && incomingAssignee !== null && incomingAssignee !== "") {
+    const aiAssigneeId = loadEnv().RESPOND_IO_AI_ASSIGNEE_ID;
+    // assignee from webhook is a string; coerce both sides to string for compare.
+    const isAi =
+      aiAssigneeId !== undefined && String(incomingAssignee) === String(aiAssigneeId);
+    if (!isAi) {
+      log.info(
+        {
+          conversationId: conversation.id,
+          contactId: payload.contact.id,
+          incomingAssignee,
+        },
+        "ai silenced — inbound payload shows human assignee (race-cover before assignee.changed webhook)",
+      );
+      // Best-effort: stamp the flag so subsequent messages skip the inline
+      // check too. Fire-and-forget so we still bail fast on this one.
+      void getDb()
+        .update(conversaciones)
+        .set({
+          leadMetadata: {
+            ...((conversation.leadMetadata as LeadMetadata | null) ?? {}),
+            human_took_over: true,
+            human_took_over_at: new Date().toISOString(),
+            human_took_over_by: String(incomingAssignee),
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(conversaciones.id, conversation.id))
+        .catch((err) =>
+          log.warn({ err: (err as Error).message }, "human_took_over flag stamp failed"),
+        );
+      return {
+        ok: false,
+        ignored: true,
+        reason: "ai_silenced_human_assignee",
+        latencyMs: Date.now() - t0,
+      };
+    }
+  }
+
   // Hard guard: once a conversation has crossed into a post-handoff stage,
   // the AI must stay silent regardless of what the system prompt says.
   // The schema declares `handed_off — AI silenced; sede team owns the
@@ -937,10 +1012,20 @@ export async function processIncomingMessage(
         "ai active in post-purchase grace window — proceeding with reply",
       );
     } else {
-      const isNewTopic = isNewTopicAfterHandoff({
-        text: incomingText,
-        leadStageChangedAt: conversation.leadStageChangedAt ?? null,
-      });
+      // Miguel rule 2026-06-05: if the silence is driven by a HUMAN
+      // takeover (not the AI's own escalation), skip the new-topic
+      // re-engagement heuristic — "no volver a interferir" is absolute.
+      // The flag-based fast-return above normally catches this case;
+      // we leave the check here as defense-in-depth in case lead_stage
+      // is handed_off via takeover but the flag got cleared by an
+      // operator unassign-then-leave-stuck-in-handed_off sequence.
+      const meta = conversation.leadMetadata as LeadMetadata | null;
+      const isNewTopic = meta?.human_took_over === true
+        ? false
+        : isNewTopicAfterHandoff({
+            text: incomingText,
+            leadStageChangedAt: conversation.leadStageChangedAt ?? null,
+          });
       if (!isNewTopic) {
         log.info(
           {
@@ -2049,6 +2134,12 @@ export async function processIncomingMessage(
     // is in a terminal/handoff stage — those go to a human team via the
     // tag-based workflow Miguel maintains, we don't want to fight it.
     //
+    // Also skip when a human operator has taken over (Miguel rule
+    // 2026-06-05). The `human_took_over` flag short-circuits this whole
+    // handler much earlier — by the time we'd reach this self-assign
+    // block, the flag has been clear. The extra check is paranoia against
+    // a race where the takeover happened DURING this handler's run.
+    //
     // Env-gated: when RESPOND_IO_AI_ASSIGNEE_ID is unset, this is a no-op.
     const aiAssigneeId = loadEnv().RESPOND_IO_AI_ASSIGNEE_ID;
     const handsOffStages: ReadonlyArray<typeof conversation.leadStage> = [
@@ -2057,9 +2148,12 @@ export async function processIncomingMessage(
       "closed",
       "lost",
     ];
+    const humanTookOverNow =
+      (conversation.leadMetadata as LeadMetadata | null)?.human_took_over === true;
     if (
       aiAssigneeId &&
-      !handsOffStages.includes(conversation.leadStage)
+      !handsOffStages.includes(conversation.leadStage) &&
+      !humanTookOverNow
     ) {
       void respondIoClient
         .assignConversation({

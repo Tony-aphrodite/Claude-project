@@ -851,6 +851,26 @@ export type LeadMetadata = {
    * Added 2026-06-04 (Phase 2 roster).
    */
   roster_booking_ids?: string[];
+  /**
+   * Set true when a human operator manually claims the conversation in
+   * Respond.io (POST /conversation/assignee fires the
+   * `conversation.assignee.changed` webhook). Once set, the AI must stay
+   * silent for the rest of the conversation lifecycle — including bypassing
+   * the `isNewTopicAfterHandoff` heuristic that normally re-engages on
+   * fresh-inquiry-shaped messages after a post-handoff stage. Miguel's
+   * explicit rule (2026-06-05): "si un agente humano hace take over, no
+   * volver a interferir."
+   *
+   * Cleared only when an operator unassigns (assignee = null) OR reassigns
+   * back to the AI bot user — that signals "give it back to the AI". The
+   * lead_stage rollback already handled by lifecycle/tag events continues
+   * to govern stage transitions; this flag is the silence master switch.
+   */
+  human_took_over?: boolean;
+  /** ISO timestamp of the most recent human takeover, for diagnostics. */
+  human_took_over_at?: string;
+  /** Respond.io userId of the human who claimed it, for diagnostics. */
+  human_took_over_by?: string;
   // Free-form audit trail of the last 10 transitions: { from, to, at, by }.
   history?: Array<{
     from: LeadStage;
