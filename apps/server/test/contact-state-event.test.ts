@@ -381,6 +381,9 @@ describe("contact-state-event — conversation.assignee.changed", () => {
   });
 
   it("assignee = null with flag previously set clears the flag", async () => {
+    // Note: stage reset behavior is covered by a separate test below
+    // ("human unassigns with flag set → same resume path"). Here we lock
+    // the metadata-side contract: flag and its diagnostic keys are stripped.
     setMockConversation({
       id: "conv_xyz",
       leadStage: "handed_off",
@@ -394,7 +397,6 @@ describe("contact-state-event — conversation.assignee.changed", () => {
       "conversation.assignee.changed",
       silentLog,
     );
-    expect(forceTransitionMock).not.toHaveBeenCalled();
     expect(result.action).toBe("human_released");
     if (result.action === "human_released") {
       expect(result.clearedFlag).toBe(true);
@@ -406,6 +408,82 @@ describe("contact-state-event — conversation.assignee.changed", () => {
     const meta = lastUpdate.leadMetadata as Record<string, unknown>;
     expect(meta.human_took_over).toBeUndefined();
     expect(meta.human_took_over_by).toBeUndefined();
+  });
+
+  it("human re-assigns BACK to AI bot → flag cleared AND lead_stage forced from handed_off → qualified (Miguel resume rule)", async () => {
+    setMockConversation({
+      id: "conv_xyz",
+      leadStage: "handed_off",
+      leadMetadata: { human_took_over: true, human_took_over_by: "7733" },
+    });
+    const result = await handleContactStateEvent(
+      {
+        contact: { id: 445381935 },
+        assignee: 999, // back to AI bot
+      },
+      "conversation.assignee.changed",
+      silentLog,
+    );
+    expect(result.action).toBe("human_released");
+    if (result.action === "human_released") {
+      expect(result.clearedFlag).toBe(true);
+    }
+    // Flag cleared via direct update
+    const lastUpdate = updateCalls[updateCalls.length - 1]!.set;
+    const meta = lastUpdate.leadMetadata as Record<string, unknown>;
+    expect(meta.human_took_over).toBeUndefined();
+    // Stage reset triggered
+    expect(forceTransitionMock).toHaveBeenCalledTimes(1);
+    expect(forceTransitionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "qualified",
+        by: "human",
+        note: "respond_io_human_release:999",
+      }),
+    );
+  });
+
+  it("human unassigns (assignee=null) with flag set → same resume path (flag + stage)", async () => {
+    setMockConversation({
+      id: "conv_xyz",
+      leadStage: "handed_off",
+      leadMetadata: { human_took_over: true, human_took_over_by: "7733" },
+    });
+    const result = await handleContactStateEvent(
+      {
+        contact: { id: 445381935 },
+        assignee: null,
+      },
+      "conversation.assignee.changed",
+      silentLog,
+    );
+    expect(result.action).toBe("human_released");
+    expect(forceTransitionMock).toHaveBeenCalledTimes(1);
+    expect(forceTransitionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "qualified",
+        note: "respond_io_human_release:null",
+      }),
+    );
+  });
+
+  it("release path does NOT reset lead_stage when flag was never set (avoids undoing AI-driven handoffs)", async () => {
+    setMockConversation({
+      id: "conv_xyz",
+      leadStage: "handed_off",
+      leadMetadata: {}, // no human_took_over flag
+    });
+    await handleContactStateEvent(
+      {
+        contact: { id: 445381935 },
+        assignee: 999,
+      },
+      "conversation.assignee.changed",
+      silentLog,
+    );
+    // AI's own handoff_human escalation has its own semantics; the
+    // reassign-to-AI gesture should not undo that judgment.
+    expect(forceTransitionMock).not.toHaveBeenCalled();
   });
 
   it("accepts assignee wrapped in data.* (legacy payload shape)", async () => {

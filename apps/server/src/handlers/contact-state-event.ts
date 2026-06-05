@@ -307,16 +307,47 @@ export async function handleContactStateEvent(
     }
 
     // Assignee is null or the AI bot → human gave it back (or never had it).
-    // Clear the flag if it was set; leave lead_stage alone.
+    // Miguel rule 2026-06-05: when the release ORIGINATED from a takeover
+    // (oldMeta.human_took_over === true), the operator wants the AI to fully
+    // resume — not just on "new-topic" messages. We therefore:
+    //   1. Clear the human_took_over flag (silence master switch).
+    //   2. If lead_stage is currently `handed_off`, force-transition it back
+    //      to `qualified` so the POST_HANDOFF guard in process-message no
+    //      longer trips on the next inbound message.
+    //
+    // We only touch lead_stage when the prior flag was set — i.e. the
+    // handoff was caused by THIS subsystem, not by an AI-driven handoff_human
+    // tool call (which has its own semantics: "AI thinks this needs human").
+    // Touching lead_stage on AI-driven handoffs would undo the AI's own
+    // judgment, which is not what the operator's reassign-to-AI action means.
     if (oldMeta.human_took_over) {
       const { human_took_over, human_took_over_at, human_took_over_by, ...rest } =
         oldMeta;
+      // Persist the flag-clear immediately so even if the stage transition
+      // below fails (e.g. terminal state), the flag part lands.
       await db
         .update(conversaciones)
         .set({ leadMetadata: rest as LeadMetadata, updatedAt: new Date() })
         .where(eq(conversaciones.id, conv.id));
+
+      let stageReset = false;
+      if (conv.leadStage === "handed_off") {
+        const stageResult = await leadStageService.forceTransition({
+          conversacionId: conv.id,
+          to: "qualified",
+          by: "human",
+          note: `respond_io_human_release:${newAssignee ?? "null"}`,
+        });
+        stageReset = stageResult.ok;
+        if (!stageResult.ok) {
+          log.warn(
+            { contactId, reason: stageResult.reason },
+            "human release: stage reset failed (flag still cleared)",
+          );
+        }
+      }
       log.info(
-        { contactId, newAssignee },
+        { contactId, newAssignee, stageReset },
         "human released conversation back to AI/null — flag cleared",
       );
       return { ok: true, action: "human_released", clearedFlag: true };
