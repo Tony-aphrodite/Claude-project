@@ -475,6 +475,78 @@ export class RespondIoClient {
   }
 
   /**
+   * Close the active conversation with a specific close category (Miguel
+   * rule 2026-06-06). Used by the AI when all close_sale rows have been
+   * written so the existing "DPM Ventas Master Logger" workflow can be
+   * configured to SKIP the "booked by ai" category (avoids double-write
+   * — close_sale already wrote the rows). The "Unassign After
+   * Conversation Closes" workflow continues to fire for all categories.
+   *
+   * Endpoint:
+   *   POST /v2/contact/id:{contactId}/conversation/close
+   *   body: { category: "<close category name>" }
+   *
+   * Categories are configured per-workspace; Miguel added "booked by ai"
+   * specifically for this flow.
+   */
+  async closeConversation(input: {
+    contactId: string;
+    category: string;
+  }): Promise<{ ok: boolean; status?: number; message?: string }> {
+    const env = loadEnv();
+    const log = getLogger();
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/conversation/close`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+    try {
+      const res = await undiciFetch(url, {
+        method: "POST",
+        dispatcher: keepAliveAgent,
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+        },
+        body: JSON.stringify({ category: input.category }),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        log.warn(
+          {
+            contactId: input.contactId,
+            category: input.category,
+            status: res.status,
+            body: body.slice(0, 300),
+          },
+          "respond_io close_conversation non-2xx",
+        );
+        return { ok: false, status: res.status, message: body.slice(0, 300) };
+      }
+      log.info(
+        { contactId: input.contactId, category: input.category },
+        "respond_io close_conversation ok",
+      );
+      return { ok: true, status: res.status };
+    } catch (err) {
+      const message = (err as Error).message;
+      if ((err as { name?: string }).name === "AbortError") {
+        log.warn(
+          { contactId: input.contactId },
+          "respond_io close_conversation timed out",
+        );
+        return { ok: false, message: "timeout" };
+      }
+      log.warn(
+        { contactId: input.contactId, err: message },
+        "respond_io close_conversation threw",
+      );
+      return { ok: false, message };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * Look up the active conversation id for a contact.
    *
    * 2026-06-04 finding: Respond.io v2 /contact/id:{id}/message ONLY

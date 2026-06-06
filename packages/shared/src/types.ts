@@ -745,6 +745,17 @@ export const solicitarDepositoInputSchema = z.object({
   // demonstrated that the Bertrand-Klein 40 EUR PDF auto-validated a
   // 2-pax booking that should have required 80 EUR).
   pax: z.number().int().min(1).max(20),
+  /**
+   * Optional list of CatalogProgram keys when the booking is multi-program
+   * (Miguel rule 2026-06-06 — one ref code per program). When omitted, the
+   * server falls back to `leadMetadata.programa` (the singular field
+   * stamped by consultar_disponibilidad) and generates 1 code. Examples:
+   *   - 1 person 1 program → omit (or pass ["OW"])
+   *   - 3 people same program → omit (single code for the row, pax=3)
+   *   - 1 person 2 programs → pass ["OW", "AOW"] → 2 codes
+   *   - 3 people 3 different programs → pass ["TryScuba","Refresh","AOW"]
+   */
+  programas: z.array(z.string()).min(1).max(10).optional(),
 });
 
 export type SolicitarDepositoInput = z.infer<typeof solicitarDepositoInputSchema>;
@@ -752,7 +763,20 @@ export type SolicitarDepositoInput = z.infer<typeof solicitarDepositoInputSchema
 export type SolicitarDepositoResult =
   | {
       ok: true;
+      /**
+       * Primary ref code. For single-program bookings this is THE code.
+       * For multi-program, it's the FIRST code generated, kept for
+       * backward compat with callers that expect a single string.
+       */
       ref_code: string;
+      /**
+       * Multi-program ref code mapping (Miguel rule 2026-06-06). Present
+       * when the booking includes >1 distinct program. Key = program
+       * (CatalogProgram), value = the program-specific ref code. The AI
+       * must surface ALL entries to the customer so each row of the
+       * sales master sheet reconciles 1:1 with a bank transfer concept.
+       */
+      ref_codes_by_program?: Record<string, string>;
       /** Per-person amount (e.g. 40 EUR). */
       monto: number;
       /** Total the customer should transfer = monto × pax. */
@@ -821,7 +845,37 @@ export const LEAD_STAGE_TRANSITIONS: Record<LeadStage, LeadStage[]> = {
 };
 
 export type LeadMetadata = {
+  /**
+   * Primary reference code for the booking. When a multi-program booking
+   * generates more than one code (Miguel rule 2026-06-06 — one code per
+   * program), `ref_code` is the FIRST code generated and
+   * `ref_codes_by_program` carries the full mapping. Single-program
+   * bookings have `ref_code` only.
+   */
   ref_code?: string;
+  /**
+   * Multi-program ref code mapping (Miguel rule 2026-06-06). Key is the
+   * `CatalogProgram` enum value (e.g. "OW", "AOW", "TryScuba"), value is
+   * the program-specific ref code. Each row in DPM_Ventas_Master holds
+   * one of these codes so deposits reconcile 1:1 with rows. Absent for
+   * single-program bookings where `ref_code` is sufficient.
+   */
+  ref_codes_by_program?: Record<string, string>;
+  /**
+   * Idempotency map for the close_sale auto-fire path (Miguel rule
+   * 2026-06-06). Key = CatalogProgram, value = ISO timestamp of when the
+   * row was written to DPM_Ventas_Master. Set by the OCR-validated →
+   * deposit_paid hook. A re-OCR / re-validation re-runs the hook but
+   * skips any program already in this map — no double-write.
+   */
+  sale_logged_at_by_program?: Record<string, string>;
+  /**
+   * ISO timestamp of when the AI closed the conversation with category
+   * "booked by ai" (Miguel rule 2026-06-06). Set after all close_sale
+   * rows are written. Presence here means the conversation is in the
+   * "AI-booked, awaiting unassign workflow" terminal state.
+   */
+  ai_closed_at?: string;
   /** Per-person deposit amount (e.g. 40 EUR). */
   deposit_amount?: number;
   /**

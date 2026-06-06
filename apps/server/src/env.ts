@@ -96,6 +96,11 @@ const envSchema = z.object({
   // Respond.io → Settings → Team → user/team properties; numeric id only.
   // Optional — when missing, AI conversations remain unassigned (no harm).
   RESPOND_IO_AI_ASSIGNEE_ID: z.coerce.number().int().positive().optional(),
+  // 2026-06-06 (Miguel close_sale): development override that beats
+  // `sede.roster_config.sales_logger_url`. Use a webhook.site URL or
+  // local Apps Script proxy for testing without touching DB rows.
+  // Leave empty in production — production paths read from DB only.
+  SALES_LOGGER_URL_OVERRIDE: z.string().optional().or(z.literal("")),
   // Alternative shared-secret auth for webhook callers that cannot compute
   // an HMAC of the body (e.g. Respond.io's "Petición HTTP" workflow step,
   // which sends static headers only). When set and matched, the route

@@ -43,7 +43,7 @@ import type {
 import { depositAmountFor } from "@dpm/shared";
 
 import { eq } from "drizzle-orm";
-import { conversaciones, errores, getDb, mensajes } from "@dpm/db";
+import { conversaciones, errores, getDb, mensajes, type Sede } from "@dpm/db";
 
 import { loadEnv, resolveHandoffEmail } from "../env.js";
 import { callClaude } from "../services/anthropic.js";
@@ -79,6 +79,7 @@ import {
 import { followUpProcessor } from "../services/follow-up.js";
 import { sendMetaProductCard } from "../services/meta-whatsapp.js";
 import { rosterDbService } from "../services/roster-db.js";
+import { salesLoggerService } from "../services/sales-logger.js";
 import { detectLanguage, languageLabelToIso2 } from "../services/language.js";
 import { isNewTopicAfterHandoff } from "../services/new-topic-detector.js";
 import { leadStageService } from "../services/lead-stage.js";
@@ -820,6 +821,27 @@ export async function processIncomingMessage(
             .catch((err) =>
               log.warn({ err }, "auto handoff transition failed"),
             );
+
+          // ─── close_sale: write rows to DPM_Ventas_Master ─────────────
+          // Miguel rule 2026-06-06: one row PER PROGRAM. Each row carries
+          // its program-specific ref code + agent="Francisco" so the
+          // master sheet can filter AI-vs-human. Idempotent via
+          // leadMetadata.sale_logged_at_by_program. Failures DON'T block
+          // the rest of the post-deposit flow — the panel will surface a
+          // "manual log needed" row from the errores table.
+          try {
+            await logSaleRowsForBooking({
+              sede,
+              conversation,
+              contact: payload.contact,
+              log,
+            });
+          } catch (err) {
+            log.warn(
+              { err: (err as Error).message },
+              "close_sale auto-fire failed — manual log required",
+            );
+          }
 
           // 4. Queue gilit@dpmdiving.com notification (Wise-side already
           // active per §8; this is the in-AI redundancy).
@@ -1602,8 +1624,60 @@ export async function processIncomingMessage(
       existingMeta?.ref_code && isValidRefCode(existingMeta.ref_code)
         ? existingMeta.ref_code
         : null;
+    const existingRefCodesByProgram = existingMeta?.ref_codes_by_program ?? null;
     const reused = existingRefCode !== null;
-    const refCode = existingRefCode ?? generateRefCode();
+
+    // Miguel rule 2026-06-06: multi-program bookings get ONE ref code per
+    // program. Resolve the program list from (priority order):
+    //   1. input.programas (AI explicitly passed it)
+    //   2. existing ref_codes_by_program keys (reuse on retry/idempotency)
+    //   3. existing leadMetadata.programa (singular field stamped by
+    //      consultar_disponibilidad) → single-program booking
+    //   4. unknown → single code, no per-program mapping (legacy behavior)
+    let programaList: string[] = [];
+    if (input.programas && input.programas.length > 0) {
+      // Dedup while preserving order — multi-pax same program collapses.
+      const seen = new Set<string>();
+      for (const p of input.programas) {
+        if (!seen.has(p)) {
+          seen.add(p);
+          programaList.push(p);
+        }
+      }
+    } else if (existingRefCodesByProgram) {
+      programaList = Object.keys(existingRefCodesByProgram);
+    } else if (existingMeta?.programa) {
+      programaList = [existingMeta.programa];
+    }
+
+    // Generate codes. Reuse existing ones (the never-mint-twice rule) by
+    // program key, then mint new codes for any program without one.
+    // Miguel 2026-06-06: pass sede.nombre so the code carries the correct
+    // 2-letter sede prefix (PP/GT/GA/KT/NP) instead of legacy "GT".
+    let refCode: string;
+    let refCodesByProgram: Record<string, string> | undefined;
+    if (programaList.length > 1) {
+      const map: Record<string, string> = { ...(existingRefCodesByProgram ?? {}) };
+      for (const p of programaList) {
+        if (!map[p]) map[p] = generateRefCode(sede.nombre);
+      }
+      refCodesByProgram = map;
+      // Primary code = first program's code (backward compat for callers
+      // that expect a single string). Stable across retries because
+      // programaList order is preserved.
+      refCode = map[programaList[0]!]!;
+    } else if (programaList.length === 1) {
+      // Single-program booking — reuse existing code or mint one. Also
+      // populate ref_codes_by_program so downstream paths (close_sale,
+      // panel) see the same shape regardless of program count.
+      const prog = programaList[0]!;
+      const existingForProg = existingRefCodesByProgram?.[prog] ?? existingRefCode;
+      refCode = existingForProg ?? generateRefCode(sede.nombre);
+      refCodesByProgram = { [prog]: refCode };
+    } else {
+      // Unknown program — legacy single-code path. Don't populate the map.
+      refCode = existingRefCode ?? generateRefCode(sede.nombre);
+    }
 
     const requiresHumanVerification = !sedeHasAutomaticGateway(
       sede.nombre as SedeKey,
@@ -1629,6 +1703,7 @@ export async function processIncomingMessage(
         : `solicitar_deposito ${refCode} ${currency}`,
       metadataPatch: {
         ref_code: refCode,
+        ...(refCodesByProgram ? { ref_codes_by_program: refCodesByProgram } : {}),
         deposit_amount: monto, // per-person, kept for backward compat
         deposit_amount_total: montoTotal, // pax × per-person — OCR target
         deposit_currency: currency,
@@ -1701,6 +1776,12 @@ export async function processIncomingMessage(
     return {
       ok: true,
       ref_code: refCode,
+      // Surface the per-program mapping only when multi-program. Single-
+      // program callers and the AI prompt see the same legacy `ref_code`
+      // string and don't have to branch on the optional field.
+      ...(refCodesByProgram && Object.keys(refCodesByProgram).length > 1
+        ? { ref_codes_by_program: refCodesByProgram }
+        : {}),
       monto,
       monto_total: montoTotal,
       pax,
@@ -2346,6 +2427,219 @@ function wITAYmd(): string {
     month: "2-digit",
     day: "2-digit",
   }).format(new Date());
+}
+
+/**
+ * Miguel rule 2026-06-06: log one row per program to the sede's
+ * DPM_Ventas_Master sheet (via per-sede Apps Script sales logger).
+ *
+ * Idempotency: each program logged once across the conversation's
+ * lifetime via `leadMetadata.sale_logged_at_by_program`. A re-OCR or
+ * re-validation never double-writes.
+ *
+ * Determining which programs to log:
+ *   1. Multi-program: `leadMetadata.ref_codes_by_program` keys
+ *   2. Single-program: `leadMetadata.programa` + `leadMetadata.ref_code`
+ *
+ * Determining per-row pax:
+ *   - Single-program (1 entry): pax = leadMetadata.pax (the booking total)
+ *   - Multi-program (>1 entry): pax = 1 per row (different people per
+ *     program is the typical case Miguel asked about)
+ *
+ * Determining per-row monto:
+ *   - per-person amount × per-row pax (kept consistent with deposit
+ *     amount logic in solicitar_deposito).
+ *
+ * Failures are logged to the `errores` table so the panel can surface
+ * "AI tried to log sale, write failed" — operator logs manually.
+ */
+async function logSaleRowsForBooking(input: {
+  sede: Sede;
+  conversation: { id: string; leadMetadata: unknown };
+  contact: { id: string; name?: string | null; phone?: string | null };
+  log: FastifyBaseLogger;
+}): Promise<void> {
+  const { sede, conversation, contact, log } = input;
+  const meta = (conversation.leadMetadata as LeadMetadata | null) ?? {};
+
+  // Build the (programa → refCode) entries to log.
+  const entries: Array<{ programa: string; refCode: string }> = [];
+  if (
+    meta.ref_codes_by_program &&
+    Object.keys(meta.ref_codes_by_program).length > 0
+  ) {
+    for (const [programa, refCode] of Object.entries(meta.ref_codes_by_program)) {
+      entries.push({ programa, refCode });
+    }
+  } else if (meta.programa && meta.ref_code) {
+    entries.push({ programa: meta.programa, refCode: meta.ref_code });
+  } else {
+    log.warn(
+      { convId: conversation.id },
+      "sales_logger: skip — no programa+ref_code available in lead_metadata",
+    );
+    return;
+  }
+
+  const totalPax = meta.pax ?? 1;
+  const currency = meta.deposit_currency;
+  if (!currency) {
+    log.warn(
+      { convId: conversation.id },
+      "sales_logger: skip — deposit_currency missing in lead_metadata",
+    );
+    return;
+  }
+  const perPersonAmount = depositAmountFor(currency);
+  const startDate = meta.start_date ?? "";
+
+  // Per-row pax: single-program shares the total; multi-program defaults
+  // to 1 per row (Miguel's typical case: each person picks their own
+  // program). If Miguel later wants explicit per-program pax breakdown,
+  // we add it as a new metadata field.
+  const isMulti = entries.length > 1;
+  const perRowPax = isMulti ? 1 : totalPax;
+
+  const alreadyLogged = meta.sale_logged_at_by_program ?? {};
+  const newlyLogged: Record<string, string> = { ...alreadyLogged };
+  const failures: Array<{ programa: string; reason: string; message: string }> = [];
+
+  for (const { programa, refCode } of entries) {
+    if (alreadyLogged[programa]) {
+      log.info(
+        { programa, convId: conversation.id, loggedAt: alreadyLogged[programa] },
+        "sales_logger: skip — programa already logged for this conversation",
+      );
+      continue;
+    }
+
+    const requiredSlots = meta.required_slots ?? [];
+    let turno: string | null = null;
+    if (requiredSlots.length > 0) {
+      const slots = new Set(requiredSlots.map((s) => s.slot));
+      turno =
+        slots.has("AM") && slots.has("PM")
+          ? "AM/PM"
+          : slots.has("AM")
+            ? "AM"
+            : slots.has("PM")
+              ? "PM"
+              : null;
+    }
+
+    const row = {
+      ref_code: refCode,
+      programa,
+      turno,
+      pax: perRowPax,
+      monto: perPersonAmount * perRowPax,
+      moneda: currency,
+      sede: sede.nombre,
+      start_date: startDate,
+      cliente_nombre: contact.name ?? null,
+      cliente_telefono: contact.phone ?? null,
+      descuento: "Sin descuento",
+      agent: "Francisco",
+      closed_by_ai: true,
+      logged_at: new Date().toISOString(),
+    };
+
+    const result = await salesLoggerService.logSale(sede, row);
+    if (result.ok) {
+      newlyLogged[programa] = row.logged_at;
+    } else {
+      failures.push({
+        programa,
+        reason: result.reason,
+        message: result.message,
+      });
+      log.warn(
+        {
+          programa,
+          refCode,
+          reason: result.reason,
+          message: result.message,
+          convId: conversation.id,
+        },
+        "sales_logger row write failed",
+      );
+    }
+  }
+
+  // Persist whichever programs DID succeed so a partial retry doesn't
+  // re-write the already-logged rows. Also log the failures to `errores`
+  // so the panel surfaces "manual log needed".
+  if (Object.keys(newlyLogged).length > Object.keys(alreadyLogged).length) {
+    await leadStageService
+      .transition({
+        conversacionId: conversation.id,
+        to: "deposit_paid",
+        by: "system",
+        note: `sales_logger wrote ${Object.keys(newlyLogged).length - Object.keys(alreadyLogged).length} row(s)`,
+        metadataPatch: { sale_logged_at_by_program: newlyLogged },
+      })
+      .catch((err) =>
+        log.warn(
+          { err: (err as Error).message },
+          "sale_logged_at_by_program metadata patch failed",
+        ),
+      );
+  }
+  if (failures.length > 0) {
+    await getDb()
+      .insert(errores)
+      .values({
+        source: "internal",
+        conversacionId: conversation.id,
+        errorType: "sales_logger_failed",
+        errorMessage: `Could not write ${failures.length} sales row(s) — operator must log manually`,
+        context: { failures },
+      })
+      .catch(() => {});
+  }
+
+  // Miguel rule 2026-06-06: when ALL programs are logged successfully
+  // AND we haven't already closed this conversation, fire
+  // `close_conversation("booked by ai")`. The Respond.io workflow Miguel
+  // configures must SKIP the master logger for that category (close_sale
+  // already wrote the rows) and KEEP firing the unassign workflow.
+  //
+  // Idempotent via ai_closed_at — a second pass through this code path
+  // (re-OCR, manual re-validation) will see the flag and skip.
+  const allLogged = entries.every((e) => newlyLogged[e.programa]);
+  const alreadyClosed = !!meta.ai_closed_at;
+  if (allLogged && !alreadyClosed && failures.length === 0) {
+    const closeResult = await respondIoClient.closeConversation({
+      contactId: contact.id,
+      category: "booked by ai",
+    });
+    if (closeResult.ok) {
+      const closedAt = new Date().toISOString();
+      await leadStageService
+        .transition({
+          conversacionId: conversation.id,
+          to: "closed",
+          by: "system",
+          note: 'respond_io closeConversation("booked by ai")',
+          metadataPatch: { ai_closed_at: closedAt },
+        })
+        .catch((err) =>
+          log.warn(
+            { err: (err as Error).message },
+            "ai_closed_at metadata patch failed (close succeeded in Respond.io)",
+          ),
+        );
+      log.info(
+        { convId: conversation.id, programCount: entries.length },
+        'conversation closed with category "booked by ai" after sales rows written',
+      );
+    } else {
+      log.warn(
+        { convId: conversation.id, closeResult },
+        'closeConversation("booked by ai") failed — conversation stays open',
+      );
+    }
+  }
 }
 
 /**
