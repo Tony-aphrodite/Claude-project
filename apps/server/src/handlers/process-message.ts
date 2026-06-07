@@ -80,6 +80,13 @@ import { followUpProcessor } from "../services/follow-up.js";
 import { sendMetaProductCard } from "../services/meta-whatsapp.js";
 import { rosterDbService } from "../services/roster-db.js";
 import { salesLoggerService } from "../services/sales-logger.js";
+import {
+  agenteCierreFor,
+  formatSaleTimestamp,
+  marketingAttributionFor,
+  programaDisplayName,
+  splitContactName,
+} from "../services/sales-logger-mapping.js";
 import { detectLanguage, languageLabelToIso2 } from "../services/language.js";
 import { isNewTopicAfterHandoff } from "../services/new-topic-detector.js";
 import { leadStageService } from "../services/lead-stage.js";
@@ -2430,8 +2437,11 @@ function wITAYmd(): string {
 }
 
 /**
- * Miguel rule 2026-06-06: log one row per program to the sede's
- * DPM_Ventas_Master sheet (via per-sede Apps Script sales logger).
+ * Miguel rule 2026-06-07 (revised from 2026-06-06): log one row per
+ * program to DPM_Ventas_Master via the SAME Apps Script `/exec` Miguel's
+ * human-side workflow uses. AI bypasses the workflow and POSTs directly
+ * with real values (no $contact.X variables). Spec lives in
+ * `information/2026-06-07-miguel-sales-logger-spec.md`.
  *
  * Idempotency: each program logged once across the conversation's
  * lifetime via `leadMetadata.sale_logged_at_by_program`. A re-OCR or
@@ -2446,9 +2456,15 @@ function wITAYmd(): string {
  *   - Multi-program (>1 entry): pax = 1 per row (different people per
  *     program is the typical case Miguel asked about)
  *
- * Determining per-row monto:
+ * Determining per-row monto (TOTAL not per-person):
  *   - per-person amount × per-row pax (kept consistent with deposit
  *     amount logic in solicitar_deposito).
+ *
+ * Mandatory exact-match fields (Miguel's revenue calculator returns 0
+ * if these don't match his tarifario): `sede` + `programa`. Program key
+ * goes through `programaDisplayName(sede, key)`; if no mapping exists
+ * we SKIP the row and log a warning (writing the internal enum key
+ * would silently zero out the revenue, worse than not writing).
  *
  * Failures are logged to the `errores` table so the panel can surface
  * "AI tried to log sale, write failed" — operator logs manually.
@@ -2456,7 +2472,14 @@ function wITAYmd(): string {
 async function logSaleRowsForBooking(input: {
   sede: Sede;
   conversation: { id: string; leadMetadata: unknown };
-  contact: { id: string; name?: string | null; phone?: string | null };
+  contact: {
+    id: string;
+    name?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    countryCode?: string | null;
+    language?: string | null;
+  };
   log: FastifyBaseLogger;
 }): Promise<void> {
   const { sede, conversation, contact, log } = input;
@@ -2491,7 +2514,6 @@ async function logSaleRowsForBooking(input: {
     return;
   }
   const perPersonAmount = depositAmountFor(currency);
-  const startDate = meta.start_date ?? "";
 
   // Per-row pax: single-program shares the total; multi-program defaults
   // to 1 per row (Miguel's typical case: each person picks their own
@@ -2499,6 +2521,18 @@ async function logSaleRowsForBooking(input: {
   // we add it as a new metadata field.
   const isMulti = entries.length > 1;
   const perRowPax = isMulti ? 1 : totalPax;
+
+  // Resolve all sede-scoped + once-per-call values OUTSIDE the loop.
+  const { firstName, lastName } = splitContactName(contact.name);
+  const agenteCierre = agenteCierreFor(sede.nombre);
+  const marketing = marketingAttributionFor(meta);
+  const fechaVenta = formatSaleTimestamp(sede.nombre);
+  if (!agenteCierre) {
+    log.warn(
+      { sede: sede.nombre, convId: conversation.id },
+      "sales_logger: no agente_cierre registered for sede — row will log without agent marker (Miguel needs to configure)",
+    );
+  }
 
   const alreadyLogged = meta.sale_logged_at_by_program ?? {};
   const newlyLogged: Record<string, string> = { ...alreadyLogged };
@@ -2513,40 +2547,71 @@ async function logSaleRowsForBooking(input: {
       continue;
     }
 
+    // Resolve the Apps Script-expected display name. If we don't have a
+    // mapping for this (sede, programa) pair, REFUSE to log — sending
+    // the internal enum key would make Miguel's revenue calc return 0
+    // for the row. Surface a failure so the operator logs manually.
+    const programaForSheet = programaDisplayName(sede.nombre, programa);
+    if (!programaForSheet) {
+      failures.push({
+        programa,
+        reason: "no_program_mapping",
+        message: `No display name mapping for (${sede.nombre}, ${programa}) — operator must log manually. Miguel: please add to PROGRAMA_DISPLAY_NAME table.`,
+      });
+      log.warn(
+        { sede: sede.nombre, programa, convId: conversation.id },
+        "sales_logger: skip row — no programa display-name mapping",
+      );
+      continue;
+    }
+
+    // Resolve the row's turno (Miguel's sheet wants one of AM/PM/Nocturno/
+    // Confinadas — Confinadas-only programs still get a meaningful slot
+    // string). We pick the FIRST boat-departure slot if any, otherwise
+    // the first Confinadas slot. Multi-day programs that use both AM and
+    // PM surface "AM/PM" so the office sees both.
     const requiredSlots = meta.required_slots ?? [];
-    let turno: string | null = null;
-    if (requiredSlots.length > 0) {
-      const slots = new Set(requiredSlots.map((s) => s.slot));
-      turno =
-        slots.has("AM") && slots.has("PM")
-          ? "AM/PM"
-          : slots.has("AM")
-            ? "AM"
-            : slots.has("PM")
-              ? "PM"
-              : null;
+    const slotsInBooking = new Set(requiredSlots.map((s) => s.slot));
+    let turno = "";
+    if (slotsInBooking.has("AM") && slotsInBooking.has("PM")) {
+      turno = "AM/PM";
+    } else if (slotsInBooking.has("AM")) {
+      turno = "AM";
+    } else if (slotsInBooking.has("PM")) {
+      turno = "PM";
+    } else if (slotsInBooking.has("Nocturno")) {
+      turno = "Nocturno";
+    } else if (slotsInBooking.has("Confinadas")) {
+      turno = "Confinadas";
     }
 
     const row = {
-      ref_code: refCode,
-      programa,
+      fecha_venta: fechaVenta,
+      sede: sede.nombre, // assumed to match Miguel's tarifario verbatim
+      firstName,
+      lastName,
+      phone: contact.phone ?? "",
+      email: contact.email ?? "",
+      countryCode: contact.countryCode ?? "",
+      language: contact.language ?? "",
+      programa: programaForSheet,
       turno,
       pax: perRowPax,
       monto: perPersonAmount * perRowPax,
       moneda: currency,
-      sede: sede.nombre,
-      start_date: startDate,
-      cliente_nombre: contact.name ?? null,
-      cliente_telefono: contact.phone ?? null,
-      descuento: "Sin descuento",
-      agent: "Francisco",
-      closed_by_ai: true,
-      logged_at: new Date().toISOString(),
+      agente_cierre: agenteCierre,
+      marketing_source: marketing.marketing_source,
+      marketing_campaign: marketing.marketing_campaign,
+      gclid: marketing.gclid,
+      precio_total_usd: "", // course full price — deferred (per-program tarifario lookup needed)
+      resto_a_pagar_usd: "", // remaining balance after deposit — same dep
+      descuento: "Sin descuento", // TODO: pull from leadMetadata when discount tooling lands
+      codigo_referencia: refCode,
     };
 
-    const result = await salesLoggerService.logSale(sede, row);
+    const result = await salesLoggerService.logSale(row);
     if (result.ok) {
-      newlyLogged[programa] = row.logged_at;
+      newlyLogged[programa] = new Date().toISOString();
     } else {
       failures.push({
         programa,

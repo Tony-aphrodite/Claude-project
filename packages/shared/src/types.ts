@@ -983,6 +983,19 @@ export type LeadMetadata = {
   human_took_over?: boolean;
   /** ISO timestamp of the most recent human takeover, for diagnostics. */
   human_took_over_at?: string;
+  /**
+   * Meta CTWA (Click-to-WhatsApp) ad attribution captured at contact
+   * creation time when the lead-source-attribution path is active. Read
+   * by the sales-logger to populate `marketing_source` / `marketing_campaign`
+   * / `gclid` in the master sheet. See `project_lead_source_attribution`
+   * memory — capture is deferred; the field is typed here so the eventual
+   * implementation has a contract to write to.
+   */
+  lead_source_attribution?: {
+    source?: string; // e.g. "fb_ads", "web", "google_ads"
+    campaign?: string; // human-readable campaign name
+    gclid?: string; // Google click id
+  };
   /** Respond.io userId of the human who claimed it, for diagnostics. */
   human_took_over_by?: string;
   // Free-form audit trail of the last 10 transitions: { from, to, at, by }.

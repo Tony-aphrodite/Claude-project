@@ -1,36 +1,24 @@
 // ============================================================================
-// Per-sede Google Apps Script sales logger.
+// Sales logger — POSTs one row per program to Miguel's existing Apps
+// Script (DPM_Ventas_Master sheet).
 //
-// Miguel feedback 2026-06-06: when a sale is confirmed (deposit auto-
-// confirmed by OCR), the AI must write ONE row PER PROGRAM into the
-// existing DPM_Ventas_Master sheet — the SAME sheet humans write to —
-// so there is a single source of truth for reconciliation. Each row
-// carries its own ref code, agent="Francisco" (so master can filter
-// AI-vs-human), and the program's specific values.
+// Miguel rule 2026-06-07: the AI uses the SAME `/exec` endpoint humans use
+// via the "DPM Ventas Master Logger" workflow. The only difference is the
+// caller — humans go through the workflow (which auto-fills $contact.X
+// variables), the AI POSTs directly with the real values. That keeps a
+// SINGLE writer per sale and avoids double-writing when "booked by ai" is
+// a label-only category with no workflow behind it.
 //
-// Architecture mirrors `apps-script.ts` (roster fetcher). Per-sede URL
-// lives in `sede.roster_config.sales_logger_url` JSONB — same column
-// already holds `url` (roster) and `default_capacity` (capacity overrides).
-// Miguel owns the Apps Script behind that URL, so the column mapping is
-// his responsibility, not ours.
+// Full spec: information/2026-06-07-miguel-sales-logger-spec.md
 //
-// Failure model: per-row idempotency tracked via
-// `lead_metadata.sale_logged_at_by_program`. Server retries on transient
-// network errors with exponential backoff. Hard failures (no URL,
-// upstream 4xx) surface as `reason` so the panel can show "AI tried to
-// log sale, write failed — please log manually". We DO NOT swallow these
-// silently because the master sheet is the operator's only billing
-// view.
+// Authentication: a shared token is sent in the JSON body (not header)
+// and verified by Miguel's Apps Script.
 //
-// Tested contract (Apps Script side):
-//   POST <url>
-//   Content-Type: application/json
-//   Body: { row: {...} }
-//   Response 200: { ok: true, rowId?: string }
-//   Response 4xx/5xx: row not written, server should NOT retry on 4xx
+// Failure model: per-row idempotency tracked by the CALLER via
+// `lead_metadata.sale_logged_at_by_program`. We retry on 5xx with linear
+// backoff; 4xx errors return immediately (caller's payload problem).
+// Hard failures bubble up so the panel can show "manual log needed".
 // ============================================================================
-
-import type { Sede } from "@dpm/db";
 
 import { loadEnv } from "../env.js";
 import { getLogger } from "../logger.js";
@@ -38,67 +26,115 @@ import { getLogger } from "../logger.js";
 const TIMEOUT_MS = 5000; // Sheet writes can be slow — 2s (roster default) is too tight.
 const MAX_RETRIES = 2; // Total 3 attempts.
 
+/**
+ * Row payload Miguel's Apps Script expects. Field names + casing match
+ * his spec EXACTLY — the script maps them to sheet columns by name, so
+ * misnaming a field silently drops that column.
+ */
 export type SalesLoggerRow = {
-  /** Program-specific ref code (DPM-PP-MMDD-XXXXXX). */
-  ref_code: string;
-  /** CatalogProgram key (e.g. "OW", "AOW", "TryScuba"). */
-  programa: string;
-  /** "AM" | "PM" | "AM/PM" | "Nocturno" — derived from program-schedule. */
-  turno?: string | null;
-  /** Pax for THIS row only (not the booking total when multi-program). */
-  pax: number;
-  /** Total deposit for this row = per-person × pax. */
-  monto: number;
-  moneda: string;
+  /** Shared secret token. Sent in body (not header). */
+  token: string;
+  /** "YYYY-MM-DD HH:MM:SS" in the sede's local timezone — NOT ISO 8601. */
+  fecha_venta: string;
+  /** Sede display name as it appears in Miguel's tarifario.
+   *  Must match EXACTLY or his revenue calculator returns 0. */
   sede: string;
-  start_date: string;
-  cliente_nombre?: string | null;
-  cliente_telefono?: string | null;
+  /** Customer first name (split from full name). Empty string OK. */
+  firstName: string;
+  /** Customer last name (split from full name). Empty string OK. */
+  lastName: string;
+  /** Customer phone with + prefix. Empty string OK. */
+  phone: string;
+  /** Customer email. Empty string OK. */
+  email: string;
+  /** ISO country code (e.g. "GB", "US", "AR"). Empty string OK. */
+  countryCode: string;
+  /** ISO 639-1 language code (e.g. "en", "es"). Empty string OK. */
+  language: string;
+  /** Program display name from Miguel's tarifario (e.g. "OW 18", not "OW").
+   *  Must match EXACTLY per sede or revenue is 0. */
+  programa: string;
+  /** "AM" | "PM" | "Nocturno" | "Confinadas" — derived from program-schedule. */
+  turno: string;
+  /** Pax for this row (multi-program splits: 1 per row; single-program: total). */
+  pax: number;
+  /** TOTAL amount (pax × per-person), in the chosen currency. NOT per-person. */
+  monto: number;
+  /** ISO currency code (EUR / GBP / AUD / USD / IDR / THB). */
+  moneda: string;
+  /** Closer-agent name as registered in Miguel's Config tab.
+   *  For Phi Phi AI: "Francisco Emilio" (exact). */
+  agente_cierre: string;
+  /** Meta CTWA attribution source (e.g. "web", "fb_ads"). Empty OK. */
+  marketing_source: string;
+  /** Meta CTWA campaign name. Empty OK. */
+  marketing_campaign: string;
+  /** Google click id (CTWA via search ads). Empty OK. */
+  gclid: string;
+  /** Full course price in USD if known. Empty string OK. */
+  precio_total_usd: string;
+  /** Remaining balance after deposit, in USD. Empty string OK. */
+  resto_a_pagar_usd: string;
   /** Discount label ("Sin descuento" / "5%" / "10%"). */
-  descuento?: string | null;
-  /** Always "Francisco" when written by AI. */
-  agent: string;
-  /** Tagged true so the master sheet can filter AI rows. */
-  closed_by_ai: boolean;
-  /** ISO timestamp of when the AI logged this sale. */
-  logged_at: string;
+  descuento: string;
+  /** Unique per-row ref code (one per program in multi-program bookings). */
+  codigo_referencia: string;
 };
 
 export type LogSaleResult =
   | { ok: true; rowId?: string }
   | {
       ok: false;
-      reason: "no_logger_url" | "upstream_error" | "timeout" | "client_error";
+      reason:
+        | "no_logger_url"
+        | "no_logger_token"
+        | "upstream_error"
+        | "timeout"
+        | "client_error";
       message: string;
       httpStatus?: number;
     };
 
 export class SalesLoggerService {
   /**
-   * POST one row to the sede's sales logger. Idempotency is the CALLER's
-   * responsibility (track logged programas in lead_metadata) — this
-   * service is dumb-pipe.
+   * POST one row to Miguel's Apps Script. Idempotency is the CALLER's
+   * responsibility (track logged programas in lead_metadata). This
+   * service is a dumb pipe with auth + retry.
    *
-   * Network/5xx errors retry up to MAX_RETRIES with linear backoff.
-   * 4xx errors return immediately (caller's responsibility to fix the
-   * payload).
+   * URL resolution order (first hit wins):
+   *   1. `SALES_LOGGER_URL_OVERRIDE` env (dev/test escape hatch)
+   *   2. `SALES_LOGGER_URL` env (production)
+   *
+   * Caller MUST NOT set `row.token` — this service injects it from env
+   * so callers don't have to know the secret. If the env var is unset
+   * we fail with `no_logger_token`.
    */
-  async logSale(sede: Sede, row: SalesLoggerRow): Promise<LogSaleResult> {
+  async logSale(
+    row: Omit<SalesLoggerRow, "token">,
+  ): Promise<LogSaleResult> {
     const log = getLogger();
     const env = loadEnv();
-    const url = (sede.rosterConfig as { sales_logger_url?: string } | null)
-      ?.sales_logger_url;
+    const effectiveUrl = env.SALES_LOGGER_URL_OVERRIDE || env.SALES_LOGGER_URL;
+    const token = env.SALES_LOGGER_TOKEN;
 
-    // Override path for tests / local dev. Env var beats DB config so a
-    // developer can swap in a webhook.site URL without touching DB rows.
-    const effectiveUrl = env.SALES_LOGGER_URL_OVERRIDE || url;
     if (!effectiveUrl) {
       return {
         ok: false,
         reason: "no_logger_url",
-        message: `Sede ${sede.nombre} has no sales_logger_url in roster_config — operator must log this sale manually.`,
+        message:
+          "SALES_LOGGER_URL is not configured — operator must log this sale manually.",
       };
     }
+    if (!token) {
+      return {
+        ok: false,
+        reason: "no_logger_token",
+        message:
+          "SALES_LOGGER_TOKEN is not configured — Miguel's script will reject the row.",
+      };
+    }
+
+    const body: SalesLoggerRow = { ...row, token };
 
     let attempt = 0;
     type RetryErr = {
@@ -115,38 +151,47 @@ export class SalesLoggerService {
         const res = await fetch(effectiveUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ row }),
+          body: JSON.stringify(body),
           signal: controller.signal,
         });
         clearTimeout(timeoutId);
 
         if (res.status >= 200 && res.status < 300) {
-          const body = (await res.json().catch(() => ({}))) as {
+          const respBody = (await res.json().catch(() => ({}))) as {
             ok?: boolean;
             rowId?: string;
+            error?: string;
           };
-          if (body.ok === false) {
+          if (respBody.ok === false) {
             return {
               ok: false,
               reason: "upstream_error",
-              message: "Apps Script returned ok=false in the response body",
+              message:
+                respBody.error ??
+                "Apps Script returned ok=false in the response body",
               httpStatus: res.status,
             };
           }
           log.info(
-            { sede: sede.nombre, refCode: row.ref_code, attempt, rowId: body.rowId },
+            {
+              sede: row.sede,
+              codigo_referencia: row.codigo_referencia,
+              programa: row.programa,
+              attempt,
+              rowId: respBody.rowId,
+            },
             "sales_logger row written",
           );
-          return { ok: true, rowId: body.rowId };
+          return { ok: true, rowId: respBody.rowId };
         }
 
         // 4xx → client problem, don't retry.
         if (res.status >= 400 && res.status < 500) {
-          const body = await res.text().catch(() => "");
+          const txt = await res.text().catch(() => "");
           return {
             ok: false,
             reason: "client_error",
-            message: `Apps Script rejected payload (${res.status}): ${body.slice(0, 200)}`,
+            message: `Apps Script rejected payload (${res.status}): ${txt.slice(0, 200)}`,
             httpStatus: res.status,
           };
         }

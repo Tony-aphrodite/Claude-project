@@ -96,10 +96,20 @@ const envSchema = z.object({
   // Respond.io → Settings → Team → user/team properties; numeric id only.
   // Optional — when missing, AI conversations remain unassigned (no harm).
   RESPOND_IO_AI_ASSIGNEE_ID: z.coerce.number().int().positive().optional(),
-  // 2026-06-06 (Miguel close_sale): development override that beats
-  // `sede.roster_config.sales_logger_url`. Use a webhook.site URL or
-  // local Apps Script proxy for testing without touching DB rows.
-  // Leave empty in production — production paths read from DB only.
+  // 2026-06-07 (Miguel sales logger spec): the Apps Script endpoint that
+  // writes one row to DPM_Ventas_Master per call. SAME URL the human
+  // workflow "DPM Ventas Master Logger" uses — Miguel confirmed the AI
+  // posts directly to the same /exec endpoint, just bypassing the
+  // workflow. URL is global (one for all sedes); the script routes by the
+  // `sede` field in the body. Required in production.
+  SALES_LOGGER_URL: z.string().url().optional().or(z.literal("")),
+  // Auth token Miguel's Apps Script verifies before accepting the row.
+  // Sent as the `token` field in the JSON BODY (not a header). Without
+  // this set, sales-logger calls will be rejected by the script. Required
+  // in production.
+  SALES_LOGGER_TOKEN: z.string().optional().or(z.literal("")),
+  // Dev override that beats SALES_LOGGER_URL. Point at webhook.site or
+  // a local proxy to test without writing to Miguel's real sheet.
   SALES_LOGGER_URL_OVERRIDE: z.string().optional().or(z.literal("")),
   // Alternative shared-secret auth for webhook callers that cannot compute
   // an HMAC of the body (e.g. Respond.io's "Petición HTTP" workflow step,
