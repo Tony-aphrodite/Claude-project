@@ -372,8 +372,30 @@ export const AVAILABILITY_PROGRAMS = [
 ] as const;
 export type AvailabilityProgram = (typeof AVAILABILITY_PROGRAMS)[number];
 
+/**
+ * Customer-pickable dive slots. Used for `fundive_slot` in the AI tool
+ * input (Fun Dive customers can pick AM or PM). Excludes Nocturno
+ * (operator-decided) and Confinadas (pool training; never customer-pickable).
+ */
 export const SLOT_KEYS = ["AM", "PM"] as const;
 export type SlotKey = (typeof SLOT_KEYS)[number];
+
+/**
+ * Roster slot buckets — the full set of "where each program-day consumes
+ * capacity". Includes:
+ *   - "AM" / "PM" / "Nocturno": boat departures
+ *   - "Confinadas": pool / confined-water training (no boat, but takes
+ *     instructor capacity). Added Miguel rule 2026-06-07 — before this,
+ *     pool days were INVISIBLE in the roster which caused overbooking risk
+ *     ("no se descontaban espacio" / "sin excusas").
+ *
+ * Distinct from SlotKey because the AI's `fundive_slot` input must NOT
+ * include Confinadas or Nocturno (those are never customer choices for
+ * fun dives). Program schedules and roster reservations use TurnoKey;
+ * AI tool input uses SlotKey.
+ */
+export const TURNO_KEYS = ["AM", "PM", "Nocturno", "Confinadas"] as const;
+export type TurnoKey = (typeof TURNO_KEYS)[number];
 
 export const consultarDisponibilidadInputSchema = z.object({
   sede_id: z.string().uuid(),
@@ -391,10 +413,13 @@ export const consultarDisponibilidadInputSchema = z.object({
 
 export type ConsultarDisponibilidadInput = z.infer<typeof consultarDisponibilidadInputSchema>;
 
-/** Per-slot verdict the server returns to the AI for each required slot. */
+/** Per-slot verdict the server returns to the AI for each required slot.
+ *  Uses TurnoKey (not SlotKey) so a confined-water requirement of a
+ *  program shows up explicitly when the AI asks for availability — Miguel
+ *  rule 2026-06-07: "el roster no debe tener nada implícito". */
 export type SlotVerdict = {
   date: string; // YYYY-MM-DD
-  slot: SlotKey;
+  slot: TurnoKey;
   available: boolean;
   espacios: number; // remaining seats
   /**
@@ -929,7 +954,7 @@ export type LeadMetadata = {
    *
    * Added 2026-06-04 (Phase 2 roster) — see services/roster-db.ts.
    */
-  required_slots?: Array<{ dayOffset: number; slot: "AM" | "PM" }>;
+  required_slots?: Array<{ dayOffset: number; slot: TurnoKey }>;
   /**
    * UUIDs of the roster_bookings rows inserted by the OCR-validation path.
    * Used as an idempotency key: if this array is non-empty, the OCR hook

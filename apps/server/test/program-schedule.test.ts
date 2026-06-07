@@ -8,23 +8,30 @@ import {
   maxDayOffset,
 } from "../src/services/program-schedule.js";
 
-describe("getRequiredSlots", () => {
-  it("returns single PM slot for TryScuba / ScubaDiver / Refresh", () => {
+describe("getRequiredSlots (Miguel rule 2026-06-07: Confinadas slot added)", () => {
+  it("returns Day-0 Confinadas + Day-0 PM for TryScuba / ScubaDiver / Refresh", () => {
+    // Pool morning is now an explicit Confinadas slot in the roster
+    // (before 2026-06-07 it was invisible — Miguel demonstrated the
+    // overbooking risk).
     for (const p of ["TryScuba", "ScubaDiver", "Refresh"] as const) {
       const slots = getRequiredSlots(p);
-      expect(slots).toEqual([{ dayOffset: 0, slot: "PM" }]);
+      expect(slots).toEqual([
+        { dayOffset: 0, slot: "Confinadas" },
+        { dayOffset: 0, slot: "PM" },
+      ]);
     }
   });
 
-  it("returns OW pattern: PM day 2 + AM day 3", () => {
+  it("returns OW pattern: Day-0 Confinadas + Day-1 PM + Day-2 AM", () => {
     const slots = getRequiredSlots("OW");
     expect(slots).toEqual([
+      { dayOffset: 0, slot: "Confinadas" },
       { dayOffset: 1, slot: "PM" },
       { dayOffset: 2, slot: "AM" },
     ]);
   });
 
-  it("returns AOW pattern: PM day 1 + AM/PM day 2", () => {
+  it("returns AOW pattern: PM day 1 + AM/PM day 2 (NO pool day — AOW doesn't include pool refresh)", () => {
     const slots = getRequiredSlots("AOW");
     expect(slots).toEqual([
       { dayOffset: 0, slot: "PM" },
@@ -33,8 +40,13 @@ describe("getRequiredSlots", () => {
     ]);
   });
 
-  it("RefreshAdv mirrors AOW", () => {
-    expect(getRequiredSlots("RefreshAdv")).toEqual(getRequiredSlots("AOW"));
+  it("RefreshAdv = Confinadas + AOW (pool refresh + advanced dives)", () => {
+    expect(getRequiredSlots("RefreshAdv")).toEqual([
+      { dayOffset: 0, slot: "Confinadas" },
+      { dayOffset: 0, slot: "PM" },
+      { dayOffset: 1, slot: "AM" },
+      { dayOffset: 1, slot: "PM" },
+    ]);
   });
 
   it("returns null for FunDive without fundive_slot (caller must provide)", () => {
@@ -120,7 +132,10 @@ describe("computeTurno — high-level field for Miguel's Sheet Logger", () => {
     expect(computeTurno([])).toBe(null);
   });
 
-  it("returns 'PM' for PM-only programs (TryScuba, ScubaDiver, Refresh)", () => {
+  it("returns 'PM' for PM-only programs even when they also have a Confinadas day", () => {
+    // TryScuba / ScubaDiver / Refresh = Confinadas + PM. computeTurno
+    // surfaces "PM" because it tracks BOAT turnos for the sales
+    // logger; Confinadas isn't a boat departure so it's ignored here.
     expect(computeTurno(getRequiredSlots("TryScuba")!)).toBe("PM");
     expect(computeTurno(getRequiredSlots("ScubaDiver")!)).toBe("PM");
     expect(computeTurno(getRequiredSlots("Refresh")!)).toBe("PM");

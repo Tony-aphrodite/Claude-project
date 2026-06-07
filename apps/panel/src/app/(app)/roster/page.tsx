@@ -160,13 +160,16 @@ export default async function RosterPage({
         <p className="mb-3 text-xs text-ink-600">
           Aplica a todos los días sin override individual. Si querés que esta
           sede tenga 50 en vez de 22 todos los días, cambiá el flat. Los AM/PM/
-          Nocturno overridean al flat para ese turno. Vacío = sin cambio.
+          Nocturno/Confinadas overridean al flat para ese turno. Confinadas =
+          capacidad de pileta / aguas confinadas (no barco — sirve para
+          cursos como OW Día 1 o TryScuba mañana de pool). Vacío = sin cambio.
         </p>
         <div className="mb-3 text-xs text-ink-700">
           Actual efectivo →{" "}
           <span className="font-mono">
             AM {sedeDefault.effective.AM} · PM {sedeDefault.effective.PM} ·
-            Noc {sedeDefault.effective.Nocturno}
+            Noc {sedeDefault.effective.Nocturno} · Conf{" "}
+            {sedeDefault.effective.Confinadas}
           </span>
           {sedeDefault.flat !== null ? (
             <span className="ml-2 text-ink-500">
@@ -223,6 +226,17 @@ export default async function RosterPage({
               className="block w-20 rounded border border-ink-200 px-2 py-1 text-sm"
             />
           </label>
+          <label className="text-xs text-ink-700">
+            Confinadas
+            <input
+              type="number"
+              name="confinadas"
+              min={0}
+              defaultValue={sedeDefault.perTurno.Confinadas ?? ""}
+              placeholder="—"
+              className="block w-20 rounded border border-ink-200 px-2 py-1 text-sm"
+            />
+          </label>
           <button type="submit" className="btn-secondary text-sm">
             Guardar default
           </button>
@@ -235,6 +249,7 @@ export default async function RosterPage({
             <tr>
               <th className="pl-5">Fecha</th>
               <th>Día</th>
+              <th>Confinadas (pool)</th>
               <th>AM (7:00–12:00)</th>
               <th>PM (12:30–17:00)</th>
               <th className="pr-5">Nocturno (18:00–20:00)</th>
@@ -245,6 +260,12 @@ export default async function RosterPage({
               <tr key={row.fecha}>
                 <td className="pl-5 font-medium text-ink-900">{row.fecha}</td>
                 <td className="text-sm text-ink-700">{row.weekday}</td>
+                <SlotCell
+                  sedeId={selectedSede.id}
+                  fecha={row.fecha}
+                  turno="Confinadas"
+                  data={row.confinadas}
+                />
                 <SlotCell
                   sedeId={selectedSede.id}
                   fecha={row.fecha}
@@ -310,13 +331,20 @@ export default async function RosterPage({
       <h2 className="mt-8 mb-3 text-lg font-semibold text-ink-900">
         Cargar reserva manualmente (seed)
       </h2>
+      <p className="mb-3 text-xs text-ink-600">
+        El campo "Fecha" es la fecha de INICIO del programa. El sistema
+        expande automáticamente el cronograma (ej. OW arrancando 7/3 →
+        3 filas: 7/3 Confinadas + 7/4 PM + 7/5 AM). Si querés cargar
+        UN slot específico sin expansión (walk-in suelto, charter
+        privado), marcá "Slot manual".
+      </p>
       <form
         action={seedRosterBooking}
         className="card flex flex-wrap items-end gap-3"
       >
         <input type="hidden" name="sedeId" value={selectedSede.id} />
         <label className="text-sm text-ink-700">
-          Fecha
+          Fecha inicio
           <input
             type="date"
             name="fecha"
@@ -326,12 +354,13 @@ export default async function RosterPage({
           />
         </label>
         <label className="text-sm text-ink-700">
-          Turno
+          Turno (solo si Slot manual)
           <select
             name="turno"
-            required
             className="block rounded border border-ink-200 px-2 py-1 text-sm"
           >
+            <option value="">—</option>
+            <option value="Confinadas">Confinadas</option>
             <option value="AM">AM</option>
             <option value="PM">PM</option>
             <option value="Nocturno">Nocturno</option>
@@ -371,6 +400,10 @@ export default async function RosterPage({
             className="block rounded border border-ink-200 px-2 py-1 text-sm"
           />
         </label>
+        <label className="flex items-center gap-1 text-xs text-ink-700">
+          <input type="checkbox" name="manualSlot" />
+          Slot manual (no expandir cronograma)
+        </label>
         <button type="submit" className="btn-primary">
           Cargar
         </button>
@@ -387,7 +420,7 @@ function SlotCell({
 }: {
   sedeId: string;
   fecha: string;
-  turno: "AM" | "PM" | "Nocturno";
+  turno: "AM" | "PM" | "Nocturno" | "Confinadas";
   data: RosterSlotData;
 }) {
   const isLastCol = turno === "Nocturno";

@@ -89,7 +89,7 @@ function defaultCapacityFor(
 ): number {
   if (!rosterConfig) return GLOBAL_DEFAULT_CAPACITY;
   const perTurno = rosterConfig.default_capacities as
-    | { AM?: number; PM?: number; Nocturno?: number }
+    | Partial<Record<Turno, number>>
     | undefined;
   if (perTurno && typeof perTurno[turno] === "number") return perTurno[turno]!;
   const flat = rosterConfig.default_capacity;
@@ -97,9 +97,21 @@ function defaultCapacityFor(
   return GLOBAL_DEFAULT_CAPACITY;
 }
 
-export type Turno = "AM" | "PM" | "Nocturno";
+/**
+ * Roster slot buckets. "Confinadas" added Miguel rule 2026-06-07 to
+ * represent pool / confined-water training days explicitly (no boat,
+ * but consumes instructor capacity). Before this every program day
+ * that wasn't AM/PM/Nocturno was INVISIBLE in the roster — Miguel's
+ * exact concern: pool days "no se descontaban espacio".
+ */
+export type Turno = "AM" | "PM" | "Nocturno" | "Confinadas";
 
-export const VALID_TURNOS: readonly Turno[] = ["AM", "PM", "Nocturno"] as const;
+export const VALID_TURNOS: readonly Turno[] = [
+  "AM",
+  "PM",
+  "Nocturno",
+  "Confinadas",
+] as const;
 
 export function isValidTurno(value: string): value is Turno {
   return (VALID_TURNOS as readonly string[]).includes(value);
@@ -677,8 +689,8 @@ export class RosterDbService {
   async setSedeDefaultCapacity(input: {
     sedeId: string;
     capacity?: number;
-    perTurno?: { AM?: number; PM?: number; Nocturno?: number };
-  }): Promise<{ effective: Record<string, number> }> {
+    perTurno?: Partial<Record<Turno, number>>;
+  }): Promise<{ effective: Record<Turno, number> }> {
     if (input.capacity === undefined && !input.perTurno) {
       throw new Error("setSedeDefaultCapacity: provide capacity or perTurno");
     }
@@ -710,10 +722,11 @@ export class RosterDbService {
       .set({ rosterConfig: newConfig, updatedAt: new Date() })
       .where(eq(sedes.id, input.sedeId));
 
-    const effective: Record<string, number> = {
+    const effective: Record<Turno, number> = {
       AM: defaultCapacityFor(newConfig, "AM"),
       PM: defaultCapacityFor(newConfig, "PM"),
       Nocturno: defaultCapacityFor(newConfig, "Nocturno"),
+      Confinadas: defaultCapacityFor(newConfig, "Confinadas"),
     };
     log.info(
       { sedeId: input.sedeId, newConfig: { default_capacity: newConfig.default_capacity, default_capacities: newConfig.default_capacities }, effective },

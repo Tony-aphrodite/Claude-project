@@ -20,7 +20,7 @@
 // cutoffs and future-day full availability.
 // ============================================================================
 
-import type { SlotKey } from "@dpm/shared";
+import type { TurnoKey } from "@dpm/shared";
 
 /**
  * Parse "HH:mm" in 24h to a minute-of-day count. Returns null on malformed
@@ -54,30 +54,36 @@ export function bookableSlots(
   horaActualWita: string | null | undefined,
   todayStr: string,
   dateStr: string,
-): Set<SlotKey> {
+): Set<TurnoKey> {
   // Past day in WITA → nothing.
   if (dateStr < todayStr) return new Set();
-  // Future day → no time-of-day constraint.
-  if (dateStr > todayStr) return new Set(["AM", "PM"]);
+  // Future day → no time-of-day constraint. Confinadas (pool) and
+  // Nocturno (operator-scheduled boat) are always available on future
+  // days too — boat cutoffs only matter same-day.
+  if (dateStr > todayStr) return new Set(["AM", "PM", "Nocturno", "Confinadas"]);
 
-  // Same day — apply cutoffs.
+  // Same day — apply cutoffs. Confinadas is pool training; no boat
+  // departure means no time cutoff. Nocturno (night boat) operates
+  // late so the AM/PM cutoffs don't apply to it either — kept
+  // bookable until DAY_END (17:00) which is when the pre-night
+  // operator window closes.
   if (horaActualWita == null) {
     // Sede that doesn't return hora_actual_wita (Nusa Penida, Koh Tao,
     // Koh Phi Phi as of 2026-05-06). Conservative fallback: only PM is
     // bookable today since AM almost always departs before the operator
     // can react. Better to miss a sale than oversell a boat that left.
-    return new Set(["PM"]);
+    // Confinadas and Nocturno stay bookable — they don't have an AM cutoff.
+    return new Set(["PM", "Nocturno", "Confinadas"]);
   }
   const minutes = parseHHMM(horaActualWita);
   if (minutes === null) {
-    // Malformed time string — be conservative: treat as already too late
-    // for AM (the most common cutoff to miss) but still allow PM until we
-    // can confirm. The AI prompt will surface a "no pude verificar la
-    // hora" note in that case.
-    return new Set(["PM"]);
+    return new Set(["PM", "Nocturno", "Confinadas"]);
   }
+  // Past DAY_END (17:00) the operator window closes — nothing more today
+  // (including Confinadas and Nocturno, both need operator coordination
+  // to start).
   if (minutes >= DAY_END) return new Set();
-  if (minutes >= PM_CUTOFF) return new Set();
-  if (minutes >= AM_CUTOFF) return new Set(["PM"]);
-  return new Set(["AM", "PM"]);
+  if (minutes >= PM_CUTOFF) return new Set(["Nocturno", "Confinadas"]);
+  if (minutes >= AM_CUTOFF) return new Set(["PM", "Nocturno", "Confinadas"]);
+  return new Set(["AM", "PM", "Nocturno", "Confinadas"]);
 }

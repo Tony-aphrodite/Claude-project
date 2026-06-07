@@ -23,19 +23,31 @@ describe("bookableSlots — same-day cutoffs", () => {
     expect(set.has("PM")).toBe(true);
   });
 
-  it("right at 12:15: nothing bookable today (PM boat departs)", () => {
+  // Miguel rule 2026-06-07: Confinadas (pool) and Nocturno are NOT
+  // affected by AM/PM boat cutoffs — they have their own operator
+  // coordination window. Only DAY_END (17:00) closes them.
+  it("right at 12:15: no AM or PM boat, but Nocturno + Confinadas still bookable", () => {
     const set = bookableSlots("12:15", TODAY, TODAY);
-    expect(set.size).toBe(0);
+    expect(set.has("AM")).toBe(false);
+    expect(set.has("PM")).toBe(false);
+    expect(set.has("Nocturno")).toBe(true);
+    expect(set.has("Confinadas")).toBe(true);
   });
 
-  it("at 12:20 (just past PM cutoff): nothing today", () => {
+  it("at 12:20 (just past PM cutoff): same — Nocturno + Confinadas still bookable", () => {
     const set = bookableSlots("12:20", TODAY, TODAY);
-    expect(set.size).toBe(0);
+    expect(set.has("AM")).toBe(false);
+    expect(set.has("PM")).toBe(false);
+    expect(set.has("Nocturno")).toBe(true);
+    expect(set.has("Confinadas")).toBe(true);
   });
 
-  it("between 12:15 and 17:00: nothing today (PM in progress)", () => {
+  it("between 12:15 and 17:00: no boat, but Nocturno + Confinadas still bookable", () => {
     const set = bookableSlots("14:00", TODAY, TODAY);
-    expect(set.size).toBe(0);
+    expect(set.has("AM")).toBe(false);
+    expect(set.has("PM")).toBe(false);
+    expect(set.has("Nocturno")).toBe(true);
+    expect(set.has("Confinadas")).toBe(true);
   });
 
   it("after 17:00: nothing today", () => {

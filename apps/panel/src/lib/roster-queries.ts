@@ -20,13 +20,15 @@ const GLOBAL_DEFAULT_CAPACITY = 22;
  * 2026-06-05). Lookup order: default_capacities.{turno} → default_capacity →
  * GLOBAL. Kept in sync with apps/server/src/services/roster-db.ts.
  */
+type Turno = "AM" | "PM" | "Nocturno" | "Confinadas";
+
 function defaultCapacityFor(
   rosterConfig: Record<string, unknown> | null | undefined,
-  turno: "AM" | "PM" | "Nocturno",
+  turno: Turno,
 ): number {
   if (!rosterConfig) return GLOBAL_DEFAULT_CAPACITY;
   const perTurno = rosterConfig.default_capacities as
-    | { AM?: number; PM?: number; Nocturno?: number }
+    | Partial<Record<Turno, number>>
     | undefined;
   if (perTurno && typeof perTurno[turno] === "number") return perTurno[turno]!;
   const flat = rosterConfig.default_capacity;
@@ -44,8 +46,13 @@ export type RosterSlotData = {
 
 export type SedeDefaultCapacity = {
   flat: number | null;
-  perTurno: { AM: number | null; PM: number | null; Nocturno: number | null };
-  effective: { AM: number; PM: number; Nocturno: number };
+  perTurno: {
+    AM: number | null;
+    PM: number | null;
+    Nocturno: number | null;
+    Confinadas: number | null;
+  };
+  effective: { AM: number; PM: number; Nocturno: number; Confinadas: number };
 };
 
 export type RosterSlotView = {
@@ -54,6 +61,9 @@ export type RosterSlotView = {
   am: RosterSlotData;
   pm: RosterSlotData;
   nocturno: RosterSlotData;
+  /** Miguel rule 2026-06-07 — pool / confined-water capacity, tracked
+   *  explicitly to remove ambiguity around multi-day programs. */
+  confinadas: RosterSlotData;
 };
 
 const WEEKDAY_ES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
@@ -123,7 +133,7 @@ export async function getRosterView(input: {
   const reservedMap = new Map<string, number>();
   for (const r of reservedRows) reservedMap.set(`${r.fecha}|${r.turno}`, Number(r.reserved));
 
-  const slotData = (fecha: string, turno: "AM" | "PM" | "Nocturno"): RosterSlotData => {
+  const slotData = (fecha: string, turno: Turno): RosterSlotData => {
     const o = overrideMap.get(`${fecha}|${turno}`);
     const capacity = o?.capacity ?? defaultCapacityFor(sedeConfig, turno);
     const blocked = o?.blocked === true;
@@ -144,6 +154,7 @@ export async function getRosterView(input: {
     am: slotData(fecha, "AM"),
     pm: slotData(fecha, "PM"),
     nocturno: slotData(fecha, "Nocturno"),
+    confinadas: slotData(fecha, "Confinadas"),
   }));
 }
 
@@ -190,7 +201,7 @@ export async function getSedeDefaultCapacity(
     .limit(1);
   const cfg = (row?.rosterConfig as Record<string, unknown> | null) ?? null;
   const perTurnoRaw = (cfg?.default_capacities as
-    | { AM?: number; PM?: number; Nocturno?: number }
+    | Partial<Record<Turno, number>>
     | undefined) ?? {};
   const flatRaw = cfg?.default_capacity;
   return {
@@ -199,11 +210,13 @@ export async function getSedeDefaultCapacity(
       AM: typeof perTurnoRaw.AM === "number" ? perTurnoRaw.AM : null,
       PM: typeof perTurnoRaw.PM === "number" ? perTurnoRaw.PM : null,
       Nocturno: typeof perTurnoRaw.Nocturno === "number" ? perTurnoRaw.Nocturno : null,
+      Confinadas: typeof perTurnoRaw.Confinadas === "number" ? perTurnoRaw.Confinadas : null,
     },
     effective: {
       AM: defaultCapacityFor(cfg, "AM"),
       PM: defaultCapacityFor(cfg, "PM"),
       Nocturno: defaultCapacityFor(cfg, "Nocturno"),
+      Confinadas: defaultCapacityFor(cfg, "Confinadas"),
     },
   };
 }
