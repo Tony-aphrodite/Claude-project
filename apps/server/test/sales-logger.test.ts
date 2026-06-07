@@ -69,15 +69,18 @@ beforeEach(() => {
 
 describe("salesLoggerService.logSale — happy path", () => {
   it("POSTs to SALES_LOGGER_URL with token injected from env", async () => {
+    // Miguel's Apps Script returns { ok, row, tab } per 2026-06-07 smoke
+    // test. We accept both `row` (number) and legacy `rowId` (string).
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, rowId: "row-42" }), {
-        status: 200,
-      }),
+      new Response(
+        JSON.stringify({ ok: true, row: 175, tab: "Junio 2026" }),
+        { status: 200 },
+      ),
     );
     const result = await salesLoggerService.logSale(makeRow());
 
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.rowId).toBe("row-42");
+    if (result.ok) expect(result.rowId).toBe("175");
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [calledUrl, init] = fetchSpy.mock.calls[0]!;
     expect(calledUrl).toBe("https://example.com/logger");

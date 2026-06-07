@@ -157,9 +157,15 @@ export class SalesLoggerService {
         clearTimeout(timeoutId);
 
         if (res.status >= 200 && res.status < 300) {
+          // Miguel's Apps Script response shape (verified 2026-06-07
+          // smoke test): { ok: true, row: <number>, tab: <string> } on
+          // success, { ok: false, error: <string> } on rejection. We
+          // accept both `row` and `rowId` for forward-compat.
           const respBody = (await res.json().catch(() => ({}))) as {
             ok?: boolean;
+            row?: number | string;
             rowId?: string;
+            tab?: string;
             error?: string;
           };
           if (respBody.ok === false) {
@@ -172,17 +178,21 @@ export class SalesLoggerService {
               httpStatus: res.status,
             };
           }
+          const rowId =
+            respBody.rowId ??
+            (respBody.row !== undefined ? String(respBody.row) : undefined);
           log.info(
             {
               sede: row.sede,
               codigo_referencia: row.codigo_referencia,
               programa: row.programa,
               attempt,
-              rowId: respBody.rowId,
+              rowId,
+              tab: respBody.tab,
             },
             "sales_logger row written",
           );
-          return { ok: true, rowId: respBody.rowId };
+          return { ok: true, rowId };
         }
 
         // 4xx → client problem, don't retry.
