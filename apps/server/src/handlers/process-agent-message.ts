@@ -16,8 +16,10 @@
 // ============================================================================
 
 import type { FastifyBaseLogger } from "fastify";
+import { eq } from "drizzle-orm";
 
 import type { LeadMetadata, RespondIoIncomingMessage } from "@dpm/shared";
+import { conversaciones, getDb } from "@dpm/db";
 
 import { loadEnv } from "../env.js";
 import { chatContactsService } from "../services/chat-contacts.js";
@@ -178,6 +180,57 @@ export async function processAgentMessage(
   followUpProcessor
     .cancelOpenFollowUpsForConversation(conversation.id, "agent_replied")
     .catch((err) => log.warn({ err }, "espia: follow-up cancel-on-agent-reply failed"));
+
+  // ─── Take-over silence (Tony fix 2026-06-07) ───────────────────────────
+  // A human agent sent a message from the Respond.io panel. This is the
+  // most definitive signal of human take-over we can get.
+  //
+  // We tried two webhook-based signals first and both failed:
+  //   1. `conversation.assignee.changed` webhook → Respond.io doesn't
+  //      fire this event for self-assignments in the UI (only for some
+  //      API-driven changes).
+  //   2. Active GET to /contact/.../conversation → returns 404 (no such
+  //      endpoint exists in Respond.io v2).
+  //
+  // Message-based detection is the ONLY reliable signal we have. When
+  // any human sends a message (regardless of how they took over the
+  // conversation), we stamp `human_took_over` on the conversation.
+  // The next inbound customer message hits the silence guard in
+  // process-message.ts (persistedHumanTookOver check) and the AI
+  // stays quiet.
+  //
+  // Limitation we accept: if a human ASSIGNS but doesn't message, AI
+  // may respond ONCE more before the next assignment-with-message
+  // resets the flag. In real usage humans almost always message after
+  // taking over, so the gap is short.
+  void getDb()
+    .update(conversaciones)
+    .set({
+      leadMetadata: {
+        ...((conversation.leadMetadata as LeadMetadata | null) ?? {}),
+        human_took_over: true,
+        human_took_over_at: new Date().toISOString(),
+        human_took_over_by: agentName ?? "panel_agent",
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(conversaciones.id, conversation.id))
+    .then(() => {
+      log.info(
+        {
+          conversationId: conversation.id,
+          contactId: payload.contact.id,
+          agentName: agentName ?? "panel_agent",
+        },
+        "espia: human_took_over flag set from agent message",
+      );
+    })
+    .catch((err: unknown) =>
+      log.warn(
+        { err: (err as Error).message },
+        "espia: human_took_over flag stamp failed",
+      ),
+    );
 
   const stageTransition = await observeStageFromAgentMessage({
     conversationId: conversation.id,

@@ -503,15 +503,23 @@ export class RespondIoClient {
   }): Promise<{ assigneeId: string | null } | null> {
     const env = loadEnv();
     const log = getLogger();
-    // Tony 2026-06-07 debug: log shows this returns null on every call,
-    // breaking the 3rd defense layer of the take-over silence flow.
-    // Trying multiple endpoint shapes since Respond.io API has flipped
-    // between styles. Logging full response body so we can see what the
-    // API actually returns and fix the parser.
+    // Tony 2026-06-07 debug round 2: previous endpoints
+    // /contact/id:{id}/conversation and /conversations both 404. But
+    // /contact/id:{id} (the contact endpoint, known working in
+    // getContact above) DOES work and likely includes assignee info
+    // in its response — Respond.io v2 typically includes the
+    // currently-assigned user on the contact object.
+    //
+    // Strategy: try the contact endpoint first (proven working), then
+    // legacy candidates as fallback. Log the FULL response body so we
+    // can see exactly which field name holds the assignee.
     const candidates = [
-      // v2 typical
+      // Known working: contact endpoint (returns the full contact object
+      // which v2 typically includes assignee on).
+      `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}`,
+      // Legacy candidates (404'd in production but kept for new
+      // workspaces that might support them).
       `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/conversation`,
-      // plural variant
       `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/conversations`,
     ];
     for (const url of candidates) {
@@ -541,11 +549,14 @@ export class RespondIoClient {
           continue;
         }
         // Log raw body so we know what Respond.io actually returns.
+        // Longer slice now (2000 chars) since the contact endpoint
+        // returns more fields than the assignee-only conversation
+        // endpoint did.
         log.info(
           {
             contactId: input.contactId,
             url,
-            bodyPreview: bodyText.slice(0, 500),
+            bodyPreview: bodyText.slice(0, 2000),
           },
           "respond_io get_conversation raw response",
         );
