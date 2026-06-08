@@ -108,31 +108,78 @@ export function validateRequiredSlots(
     // to verify it). Treat as available with "high" espacios so the
     // check passes.
     let slotData: typeof dayDetail.turno_manana | undefined;
+    // Track which actual turno was picked (matters for the legacy
+    // "Confinadas" → AM/PM choice path below).
+    let pickedSlot: typeof req.slot = req.slot;
     if (req.slot === "AM") slotData = dayDetail.turno_manana;
     else if (req.slot === "PM") slotData = dayDetail.turno_tarde;
     else if (req.slot === "Nocturno") slotData = dayDetail.turno_nocturno;
-    else if (req.slot === "Confinadas") slotData = dayDetail.turno_confinadas;
+    else if (req.slot === "ConfinadasAM") slotData = dayDetail.turno_confinadas_am;
+    else if (req.slot === "ConfinadasPM") slotData = dayDetail.turno_confinadas_pm;
+    else if (req.slot === "Confinadas") {
+      // Pool requirement (Miguel 2026-06-07 PM split): pick whichever
+      // session has space. Prefer AM (the natural morning-pool-then-
+      // afternoon-rest schedule); fall back to PM if AM is full. This
+      // is the "any of" semantic — both sessions count as a valid
+      // Day-1 for OW.
+      const am = dayDetail.turno_confinadas_am;
+      const pm = dayDetail.turno_confinadas_pm;
+      const amHasSpace = am && am.disponible && (am.espacios ?? 0) > 0;
+      const pmHasSpace = pm && pm.disponible && (pm.espacios ?? 0) > 0;
+      if (amHasSpace) {
+        slotData = am;
+        pickedSlot = "ConfinadasAM";
+      } else if (pmHasSpace) {
+        slotData = pm;
+        pickedSlot = "ConfinadasPM";
+      } else if (am || pm) {
+        // Both populated but both full — report failure against AM
+        // (canonical session), keeps the error message stable.
+        slotData = am ?? pm;
+        pickedSlot = am ? "ConfinadasAM" : "ConfinadasPM";
+      } else {
+        // Neither field populated — fall through to legacy single
+        // Confinadas slot (some sedes still on pre-split data).
+        slotData = dayDetail.turno_confinadas;
+        pickedSlot = "Confinadas";
+      }
+    }
     if (!slotData) {
       // Miguel rule: when the roster source doesn't expose this turno
       // (Apps Script doesn't have Confinadas/Nocturno), trust that
       // capacity exists. Office manages internally. Surface as
       // available so the program-day check passes.
-      slots.push({ date, slot: req.slot, available: true, espacios: 99 });
+      slots.push({ date, slot: pickedSlot, available: true, espacios: 99 });
       continue;
     }
     const espacios = slotData.espacios ?? 0;
     const bookable = bookableSlots(input.horaActualWita, input.todayWitaStr, date);
-    if (!bookable.has(req.slot)) {
-      slots.push({ date, slot: req.slot, available: false, espacios, reason: "past_today" });
+    // bookable-slots uses "AM"/"PM"/"Nocturno" only — pool slots are
+    // never gated by hora-actual-wita (the office runs the pool when
+    // it wants). Treat Confinadas* as always bookable from a
+    // time-of-day perspective.
+    const bookableSlotKey: typeof req.slot =
+      pickedSlot === "ConfinadasAM" || pickedSlot === "Confinadas"
+        ? "AM"
+        : pickedSlot === "ConfinadasPM"
+          ? "PM"
+          : pickedSlot;
+    if (
+      pickedSlot !== "ConfinadasAM" &&
+      pickedSlot !== "ConfinadasPM" &&
+      pickedSlot !== "Confinadas" &&
+      !bookable.has(bookableSlotKey)
+    ) {
+      slots.push({ date, slot: pickedSlot, available: false, espacios, reason: "past_today" });
       allAvailable = false;
       continue;
     }
     if (!slotData.disponible || espacios <= 0) {
-      slots.push({ date, slot: req.slot, available: false, espacios, reason: "full" });
+      slots.push({ date, slot: pickedSlot, available: false, espacios, reason: "full" });
       allAvailable = false;
       continue;
     }
-    slots.push({ date, slot: req.slot, available: true, espacios });
+    slots.push({ date, slot: pickedSlot, available: true, espacios });
   }
   return {
     allAvailable,

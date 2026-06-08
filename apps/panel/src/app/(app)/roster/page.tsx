@@ -160,16 +160,17 @@ export default async function RosterPage({
         <p className="mb-3 text-xs text-ink-600">
           Aplica a todos los días sin override individual. Si querés que esta
           sede tenga 50 en vez de 22 todos los días, cambiá el flat. Los AM/PM/
-          Nocturno/Confinadas overridean al flat para ese turno. Confinadas =
-          capacidad de pileta / aguas confinadas (no barco — sirve para
+          Nocturno/Confinadas AM/Confinadas PM overridean al flat para ese
+          turno. Confinadas AM/PM = sesiones de pileta (no barco — sirven para
           cursos como OW Día 1 o TryScuba mañana de pool). Vacío = sin cambio.
         </p>
         <div className="mb-3 text-xs text-ink-700">
           Actual efectivo →{" "}
           <span className="font-mono">
             AM {sedeDefault.effective.AM} · PM {sedeDefault.effective.PM} ·
-            Noc {sedeDefault.effective.Nocturno} · Conf{" "}
-            {sedeDefault.effective.Confinadas}
+            Noc {sedeDefault.effective.Nocturno} · Conf AM{" "}
+            {sedeDefault.effective.ConfinadasAM} · Conf PM{" "}
+            {sedeDefault.effective.ConfinadasPM}
           </span>
           {sedeDefault.flat !== null ? (
             <span className="ml-2 text-ink-500">
@@ -227,12 +228,23 @@ export default async function RosterPage({
             />
           </label>
           <label className="text-xs text-ink-700">
-            Confinadas
+            Confinadas AM
             <input
               type="number"
-              name="confinadas"
+              name="confinadasAM"
               min={0}
-              defaultValue={sedeDefault.perTurno.Confinadas ?? ""}
+              defaultValue={sedeDefault.perTurno.ConfinadasAM ?? ""}
+              placeholder="—"
+              className="block w-20 rounded border border-ink-200 px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="text-xs text-ink-700">
+            Confinadas PM
+            <input
+              type="number"
+              name="confinadasPM"
+              min={0}
+              defaultValue={sedeDefault.perTurno.ConfinadasPM ?? ""}
               placeholder="—"
               className="block w-20 rounded border border-ink-200 px-2 py-1 text-sm"
             />
@@ -249,7 +261,8 @@ export default async function RosterPage({
             <tr>
               <th className="pl-5">Fecha</th>
               <th>Día</th>
-              <th>Confinadas (pool)</th>
+              <th>Conf AM (pool)</th>
+              <th>Conf PM (pool)</th>
               <th>AM (7:00–12:00)</th>
               <th>PM (12:30–17:00)</th>
               <th className="pr-5">Nocturno (18:00–20:00)</th>
@@ -263,8 +276,14 @@ export default async function RosterPage({
                 <SlotCell
                   sedeId={selectedSede.id}
                   fecha={row.fecha}
-                  turno="Confinadas"
-                  data={row.confinadas}
+                  turno="ConfinadasAM"
+                  data={row.confinadasAM}
+                />
+                <SlotCell
+                  sedeId={selectedSede.id}
+                  fecha={row.fecha}
+                  turno="ConfinadasPM"
+                  data={row.confinadasPM}
                 />
                 <SlotCell
                   sedeId={selectedSede.id}
@@ -360,7 +379,8 @@ export default async function RosterPage({
             className="block rounded border border-ink-200 px-2 py-1 text-sm"
           >
             <option value="">—</option>
-            <option value="Confinadas">Confinadas</option>
+            <option value="ConfinadasAM">Confinadas AM</option>
+            <option value="ConfinadasPM">Confinadas PM</option>
             <option value="AM">AM</option>
             <option value="PM">PM</option>
             <option value="Nocturno">Nocturno</option>
@@ -420,7 +440,7 @@ function SlotCell({
 }: {
   sedeId: string;
   fecha: string;
-  turno: "AM" | "PM" | "Nocturno" | "Confinadas";
+  turno: "AM" | "PM" | "Nocturno" | "ConfinadasAM" | "ConfinadasPM" | "Confinadas";
   data: RosterSlotData;
 }) {
   const isLastCol = turno === "Nocturno";

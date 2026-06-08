@@ -20,19 +20,43 @@ const GLOBAL_DEFAULT_CAPACITY = 22;
  * 2026-06-05). Lookup order: default_capacities.{turno} → default_capacity →
  * GLOBAL. Kept in sync with apps/server/src/services/roster-db.ts.
  */
-type Turno = "AM" | "PM" | "Nocturno" | "Confinadas";
+type Turno =
+  | "AM"
+  | "PM"
+  | "Nocturno"
+  | "ConfinadasAM"
+  | "ConfinadasPM"
+  | "Confinadas"; // deprecated
 
 function defaultCapacityFor(
   rosterConfig: Record<string, unknown> | null | undefined,
   turno: Turno,
 ): number {
-  if (!rosterConfig) return GLOBAL_DEFAULT_CAPACITY;
+  if (!rosterConfig) return defaultForTurno(turno);
   const perTurno = rosterConfig.default_capacities as
     | Partial<Record<Turno, number>>
     | undefined;
   if (perTurno && typeof perTurno[turno] === "number") return perTurno[turno]!;
+  // Fallback: ConfinadasAM/PM inherit half of legacy "Confinadas" if set.
+  if (
+    perTurno &&
+    (turno === "ConfinadasAM" || turno === "ConfinadasPM") &&
+    typeof perTurno["Confinadas"] === "number"
+  ) {
+    return Math.floor(perTurno["Confinadas"]! / 2);
+  }
   const flat = rosterConfig.default_capacity;
-  if (typeof flat === "number" && flat >= 0) return flat;
+  if (typeof flat === "number" && flat >= 0) {
+    if (turno === "ConfinadasAM" || turno === "ConfinadasPM") return 30;
+    if (turno === "Confinadas") return 60;
+    return flat;
+  }
+  return defaultForTurno(turno);
+}
+
+function defaultForTurno(turno: Turno): number {
+  if (turno === "ConfinadasAM" || turno === "ConfinadasPM") return 30;
+  if (turno === "Confinadas") return 60;
   return GLOBAL_DEFAULT_CAPACITY;
 }
 
@@ -50,9 +74,16 @@ export type SedeDefaultCapacity = {
     AM: number | null;
     PM: number | null;
     Nocturno: number | null;
-    Confinadas: number | null;
+    ConfinadasAM: number | null;
+    ConfinadasPM: number | null;
   };
-  effective: { AM: number; PM: number; Nocturno: number; Confinadas: number };
+  effective: {
+    AM: number;
+    PM: number;
+    Nocturno: number;
+    ConfinadasAM: number;
+    ConfinadasPM: number;
+  };
 };
 
 export type RosterSlotView = {
@@ -61,9 +92,9 @@ export type RosterSlotView = {
   am: RosterSlotData;
   pm: RosterSlotData;
   nocturno: RosterSlotData;
-  /** Miguel rule 2026-06-07 — pool / confined-water capacity, tracked
-   *  explicitly to remove ambiguity around multi-day programs. */
-  confinadas: RosterSlotData;
+  /** Pool / confined-water sessions — split AM/PM (Miguel 2026-06-07 PM). */
+  confinadasAM: RosterSlotData;
+  confinadasPM: RosterSlotData;
 };
 
 const WEEKDAY_ES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
@@ -154,7 +185,8 @@ export async function getRosterView(input: {
     am: slotData(fecha, "AM"),
     pm: slotData(fecha, "PM"),
     nocturno: slotData(fecha, "Nocturno"),
-    confinadas: slotData(fecha, "Confinadas"),
+    confinadasAM: slotData(fecha, "ConfinadasAM"),
+    confinadasPM: slotData(fecha, "ConfinadasPM"),
   }));
 }
 
@@ -210,13 +242,17 @@ export async function getSedeDefaultCapacity(
       AM: typeof perTurnoRaw.AM === "number" ? perTurnoRaw.AM : null,
       PM: typeof perTurnoRaw.PM === "number" ? perTurnoRaw.PM : null,
       Nocturno: typeof perTurnoRaw.Nocturno === "number" ? perTurnoRaw.Nocturno : null,
-      Confinadas: typeof perTurnoRaw.Confinadas === "number" ? perTurnoRaw.Confinadas : null,
+      ConfinadasAM:
+        typeof perTurnoRaw.ConfinadasAM === "number" ? perTurnoRaw.ConfinadasAM : null,
+      ConfinadasPM:
+        typeof perTurnoRaw.ConfinadasPM === "number" ? perTurnoRaw.ConfinadasPM : null,
     },
     effective: {
       AM: defaultCapacityFor(cfg, "AM"),
       PM: defaultCapacityFor(cfg, "PM"),
       Nocturno: defaultCapacityFor(cfg, "Nocturno"),
-      Confinadas: defaultCapacityFor(cfg, "Confinadas"),
+      ConfinadasAM: defaultCapacityFor(cfg, "ConfinadasAM"),
+      ConfinadasPM: defaultCapacityFor(cfg, "ConfinadasPM"),
     },
   };
 }

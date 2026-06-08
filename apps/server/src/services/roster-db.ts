@@ -87,30 +87,72 @@ function defaultCapacityFor(
   rosterConfig: Record<string, unknown> | null | undefined,
   turno: Turno,
 ): number {
-  if (!rosterConfig) return GLOBAL_DEFAULT_CAPACITY;
+  if (!rosterConfig) return defaultForTurno(turno);
   const perTurno = rosterConfig.default_capacities as
     | Partial<Record<Turno, number>>
     | undefined;
   if (perTurno && typeof perTurno[turno] === "number") return perTurno[turno]!;
+  // For ConfinadasAM/PM, also accept the legacy "Confinadas" key as a
+  // migration fallback (sedes set a single 60 default before the split;
+  // we split it evenly until they re-configure).
+  if (
+    perTurno &&
+    (turno === "ConfinadasAM" || turno === "ConfinadasPM") &&
+    typeof perTurno["Confinadas"] === "number"
+  ) {
+    return Math.floor(perTurno["Confinadas"]! / 2);
+  }
   const flat = rosterConfig.default_capacity;
-  if (typeof flat === "number" && flat >= 0) return flat;
-  return GLOBAL_DEFAULT_CAPACITY;
+  if (typeof flat === "number" && flat >= 0) {
+    // Flat default applies to boat turnos only. Pool sessions default
+    // to 30 each unless explicitly overridden (Miguel: pool fits 30
+    // students per session morning/afternoon).
+    if (turno === "ConfinadasAM" || turno === "ConfinadasPM") return 30;
+    if (turno === "Confinadas") return 60; // legacy
+    return flat;
+  }
+  return defaultForTurno(turno);
+}
+
+function defaultForTurno(turno: Turno): number {
+  if (turno === "ConfinadasAM" || turno === "ConfinadasPM") return 30;
+  if (turno === "Confinadas") return 60; // legacy aggregate
+  return GLOBAL_DEFAULT_CAPACITY; // 22 for boat turnos
 }
 
 /**
- * Roster slot buckets. "Confinadas" added Miguel rule 2026-06-07 to
- * represent pool / confined-water training days explicitly (no boat,
- * but consumes instructor capacity). Before this every program day
- * that wasn't AM/PM/Nocturno was INVISIBLE in the roster — Miguel's
- * exact concern: pool days "no se descontaban espacio".
+ * Roster slot buckets.
+ *
+ * History:
+ * - "Confinadas" added Miguel rule 2026-06-07 to represent pool /
+ *   confined-water training days explicitly (no boat, but consumes
+ *   instructor capacity).
+ * - 2026-06-07 PM (Miguel follow-up after first test): split into
+ *   "ConfinadasAM" + "ConfinadasPM" so the AI can build clear
+ *   itineraries with a specific pool session (instead of just "pool"
+ *   without time-of-day). Default capacity 30 each = 60/day total.
+ *   Miguel's exact ask: "tiene que estar separado así la AI puede
+ *   realmente armar el itinerario sin error".
+ *
+ * The legacy single "Confinadas" turno is kept as deprecated alias —
+ * existing test-data rows from before this split don't crash and the
+ * validator can fall back to it if a sede hasn't been migrated.
  */
-export type Turno = "AM" | "PM" | "Nocturno" | "Confinadas";
+export type Turno =
+  | "AM"
+  | "PM"
+  | "Nocturno"
+  | "ConfinadasAM"
+  | "ConfinadasPM"
+  | "Confinadas"; // deprecated alias — kept for backwards compat with pre-split data
 
 export const VALID_TURNOS: readonly Turno[] = [
   "AM",
   "PM",
   "Nocturno",
-  "Confinadas",
+  "ConfinadasAM",
+  "ConfinadasPM",
+  "Confinadas", // deprecated — accept but don't surface in new flows
 ] as const;
 
 export function isValidTurno(value: string): value is Turno {
@@ -689,12 +731,23 @@ export class RosterDbService {
       const am = buildSlot(fecha, "AM");
       const pm = buildSlot(fecha, "PM");
       const noc = buildSlot(fecha, "Nocturno");
-      const conf = buildSlot(fecha, "Confinadas");
+      // Confinadas split into AM/PM sessions (Miguel 2026-06-07 PM).
+      // The legacy single "Confinadas" turno is also computed for
+      // backwards compat — but only when there are existing bookings
+      // against it (otherwise we hide it from the response so the
+      // panel doesn't show empty legacy columns).
+      const confAM = buildSlot(fecha, "ConfinadasAM");
+      const confPM = buildSlot(fecha, "ConfinadasPM");
+      const confLegacy = buildSlot(fecha, "Confinadas");
+      const hasLegacyData =
+        confLegacy.reserved > 0 ||
+        (overrideByKey.get(`${fecha}|Confinadas`) !== undefined);
       const dayAvailable =
         am.available > 0 ||
         pm.available > 0 ||
         noc.available > 0 ||
-        conf.available > 0;
+        confAM.available > 0 ||
+        confPM.available > 0;
       if (dayAvailable && !firstAvailableDate) firstAvailableDate = fecha;
 
       detalle.push({
@@ -715,11 +768,27 @@ export class RosterDbService {
           espacios: noc.available,
           capacidad: noc.capacity,
         },
-        turno_confinadas: {
-          disponible: conf.available > 0,
-          espacios: conf.available,
-          capacidad: conf.capacity,
+        turno_confinadas_am: {
+          disponible: confAM.available > 0,
+          espacios: confAM.available,
+          capacidad: confAM.capacity,
         },
+        turno_confinadas_pm: {
+          disponible: confPM.available > 0,
+          espacios: confPM.available,
+          capacidad: confPM.capacity,
+        },
+        // Legacy bucket — only surface when data exists, to avoid
+        // confusing the panel with a stale always-zero column.
+        ...(hasLegacyData
+          ? {
+              turno_confinadas: {
+                disponible: confLegacy.available > 0,
+                espacios: confLegacy.available,
+                capacidad: confLegacy.capacity,
+              },
+            }
+          : {}),
       });
     }
 
@@ -796,7 +865,9 @@ export class RosterDbService {
       AM: defaultCapacityFor(newConfig, "AM"),
       PM: defaultCapacityFor(newConfig, "PM"),
       Nocturno: defaultCapacityFor(newConfig, "Nocturno"),
-      Confinadas: defaultCapacityFor(newConfig, "Confinadas"),
+      ConfinadasAM: defaultCapacityFor(newConfig, "ConfinadasAM"),
+      ConfinadasPM: defaultCapacityFor(newConfig, "ConfinadasPM"),
+      Confinadas: defaultCapacityFor(newConfig, "Confinadas"), // legacy
     };
     log.info(
       { sedeId: input.sedeId, newConfig: { default_capacity: newConfig.default_capacity, default_capacities: newConfig.default_capacities }, effective },

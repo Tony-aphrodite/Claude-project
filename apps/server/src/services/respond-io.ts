@@ -291,10 +291,18 @@ export class RespondIoClient {
           },
         );
       }
+      // Tony 2026-06-08 debug: catalog "send ok" but doesn't always
+      // reach WhatsApp. Log the response body so we see if Respond.io
+      // is returning an async-queued status that fails downstream.
+      const okBodyText = await res.text().catch(() => "");
       log.info(
         {
           payloadType: input.payload.type,
           via: useContactFallback ? "contact" : "conversation",
+          status: res.status,
+          responseBody: okBodyText.slice(0, 500),
+          contactId: input.contactId ?? null,
+          conversationId: input.conversationId,
         },
         "respond_io send_catalog ok",
       );

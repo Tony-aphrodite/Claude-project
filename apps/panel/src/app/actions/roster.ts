@@ -23,9 +23,24 @@ import { requireAdminContext } from "~/lib/auth-context";
 
 // Miguel rule 2026-06-07: Confinadas added as a 4th slot to track pool /
 // confined-water capacity explicitly (instructor capacity, no boat).
-type Turno = "AM" | "PM" | "Nocturno" | "Confinadas";
+// Follow-up 2026-06-07 PM: Confinadas split into AM/PM sessions so the AI
+// can build clear itineraries with explicit pool-session time-of-day.
+type Turno =
+  | "AM"
+  | "PM"
+  | "Nocturno"
+  | "ConfinadasAM"
+  | "ConfinadasPM"
+  | "Confinadas"; // deprecated alias (kept for legacy data rows)
 
-const VALID_TURNOS = ["AM", "PM", "Nocturno", "Confinadas"] as const;
+const VALID_TURNOS = [
+  "AM",
+  "PM",
+  "Nocturno",
+  "ConfinadasAM",
+  "ConfinadasPM",
+  "Confinadas", // legacy
+] as const;
 const DEFAULT_CAPACITY_PER_TURNO = 22;
 
 function isValidTurno(value: string): value is Turno {
@@ -165,14 +180,16 @@ export async function setSedeDefaultCapacity(formData: FormData): Promise<void> 
   const am = parseOptionalNum(formData.get("am"));
   const pm = parseOptionalNum(formData.get("pm"));
   const nocturno = parseOptionalNum(formData.get("nocturno"));
-  const confinadas = parseOptionalNum(formData.get("confinadas"));
+  const confinadasAM = parseOptionalNum(formData.get("confinadasAM"));
+  const confinadasPM = parseOptionalNum(formData.get("confinadasPM"));
 
   if (
     flat === undefined &&
     am === undefined &&
     pm === undefined &&
     nocturno === undefined &&
-    confinadas === undefined
+    confinadasAM === undefined &&
+    confinadasPM === undefined
   ) {
     throw new Error("Ingresá al menos un valor de capacidad");
   }
@@ -194,7 +211,8 @@ export async function setSedeDefaultCapacity(formData: FormData): Promise<void> 
     am !== undefined ||
     pm !== undefined ||
     nocturno !== undefined ||
-    confinadas !== undefined
+    confinadasAM !== undefined ||
+    confinadasPM !== undefined
   ) {
     const existingPerTurno = (existing.default_capacities as
       | Record<string, number>
@@ -203,7 +221,8 @@ export async function setSedeDefaultCapacity(formData: FormData): Promise<void> 
     if (am !== undefined) merged.AM = am;
     if (pm !== undefined) merged.PM = pm;
     if (nocturno !== undefined) merged.Nocturno = nocturno;
-    if (confinadas !== undefined) merged.Confinadas = confinadas;
+    if (confinadasAM !== undefined) merged.ConfinadasAM = confinadasAM;
+    if (confinadasPM !== undefined) merged.ConfinadasPM = confinadasPM;
     newConfig.default_capacities = merged;
   }
 

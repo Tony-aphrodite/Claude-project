@@ -394,7 +394,18 @@ export type SlotKey = (typeof SLOT_KEYS)[number];
  * fun dives). Program schedules and roster reservations use TurnoKey;
  * AI tool input uses SlotKey.
  */
-export const TURNO_KEYS = ["AM", "PM", "Nocturno", "Confinadas"] as const;
+// "Confinadas" kept for backwards compat with pre-split data, but new
+// flows use ConfinadasAM/PM (Miguel 2026-06-07 PM split). The validator
+// treats a "Confinadas" requirement as "pick AM session preferred, fall
+// back to PM if AM is full".
+export const TURNO_KEYS = [
+  "AM",
+  "PM",
+  "Nocturno",
+  "ConfinadasAM",
+  "ConfinadasPM",
+  "Confinadas", // deprecated alias
+] as const;
 export type TurnoKey = (typeof TURNO_KEYS)[number];
 
 export const consultarDisponibilidadInputSchema = z.object({
@@ -534,13 +545,23 @@ export type AvailabilityDay = {
    */
   turno_nocturno?: AvailabilitySlot;
   /**
-   * Pool / confined-water slot (Miguel rule 2026-06-07). Tracked
-   * separately from boat slots because pool capacity is instructor-based,
-   * not boat-seat based. Apps Script doesn't have this field — only the
-   * DB-backed roster populates it. When absent, slot-validator treats
-   * Confinadas as ALWAYS AVAILABLE (Miguel's stated policy: pool
-   * scheduling is managed internally by the office, the AI doesn't
-   * need to verify it).
+   * Pool / confined-water slots — split into AM and PM sessions
+   * (Miguel rule 2026-06-07 PM follow-up: "tiene que estar separado
+   * así la AI puede armar el itinerario sin error"). Default capacity
+   * is 30 per session = 60/day total. Tracked separately from boat
+   * slots because pool capacity is instructor-based, not boat-seat
+   * based. Apps Script doesn't populate these fields — only the
+   * DB-backed roster does. When absent, slot-validator treats pool
+   * as ALWAYS AVAILABLE (Miguel's stated policy: pool scheduling is
+   * managed internally by the office, the AI doesn't need to verify
+   * it for legacy sedes).
+   */
+  turno_confinadas_am?: AvailabilitySlot;
+  turno_confinadas_pm?: AvailabilitySlot;
+  /**
+   * @deprecated Pre-split aggregate Confinadas bucket (kept for
+   * backwards compat with rows persisted before the AM/PM split).
+   * New code paths use turno_confinadas_am / turno_confinadas_pm.
    */
   turno_confinadas?: AvailabilitySlot;
 };
