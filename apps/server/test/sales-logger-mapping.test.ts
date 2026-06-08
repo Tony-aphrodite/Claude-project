@@ -33,27 +33,81 @@ describe("agenteCierreFor", () => {
   });
 });
 
-describe("programaDisplayName — Koh Phi Phi", () => {
-  it("returns 'OW 18' for OW (Miguel's example payload)", () => {
+describe("programaDisplayName — Koh Phi Phi (Miguel's tarifario 2026-06-07)", () => {
+  // All assertions below mirror the EXACT strings in Miguel's tarifario
+  // (see information/17-information-phi-phi/2026-06-07-tarifario-phi-phi.md).
+  // Any mismatch makes his revenue calculator return 0 for the row.
+
+  it("OW → 'OW 18'", () => {
     expect(programaDisplayName("Koh Phi Phi", "OW")).toBe("OW 18");
   });
 
-  it("returns provisional display names for the rest of the Phi Phi catalog", () => {
-    // These are educated guesses, not yet Miguel-confirmed. The test
-    // pins the current state so a future change is intentional.
-    expect(programaDisplayName("Koh Phi Phi", "TryScuba")).toBe("Try Scuba");
-    expect(programaDisplayName("Koh Phi Phi", "ScubaDiver")).toBe("Scuba Diver");
-    expect(programaDisplayName("Koh Phi Phi", "AOW")).toBe("Advanced");
+  it("TryScuba → 'DSD / Try Scuba' (note spaces around slash)", () => {
+    expect(programaDisplayName("Koh Phi Phi", "TryScuba")).toBe(
+      "DSD / Try Scuba",
+    );
+  });
+
+  it("ScubaDiver → 'Scuba Diver'", () => {
+    expect(programaDisplayName("Koh Phi Phi", "ScubaDiver")).toBe(
+      "Scuba Diver",
+    );
+  });
+
+  it("OW30 → 'OW 30'", () => {
+    expect(programaDisplayName("Koh Phi Phi", "OW30")).toBe("OW 30");
+  });
+
+  it("AOW → 'Advanced (AOW)' (note parens are part of the name)", () => {
+    expect(programaDisplayName("Koh Phi Phi", "AOW")).toBe("Advanced (AOW)");
+  });
+
+  it("Refresh → 'Refresh'", () => {
     expect(programaDisplayName("Koh Phi Phi", "Refresh")).toBe("Refresh");
   });
 
-  it("returns null for programs without a mapping (caller surfaces warning)", () => {
-    // Combos / specialties without a defined display name → caller must
-    // skip or alert. Posting null to Miguel's script would silently
-    // zero-out the revenue.
+  it("FunDive → 'Fun Dive'", () => {
+    expect(programaDisplayName("Koh Phi Phi", "FunDive")).toBe("Fun Dive");
+  });
+
+  it("DeepAdvFD → 'Deep Adventure + Fun Dive'", () => {
+    expect(programaDisplayName("Koh Phi Phi", "DeepAdvFD")).toBe(
+      "Deep Adventure + Fun Dive",
+    );
+  });
+
+  it("ReactRight → 'React Right'", () => {
+    expect(programaDisplayName("Koh Phi Phi", "ReactRight")).toBe(
+      "React Right",
+    );
+  });
+
+  it("RescueDiver → 'Rescue'", () => {
+    expect(programaDisplayName("Koh Phi Phi", "RescueDiver")).toBe("Rescue");
+  });
+
+  it("NitroxSpecialty → 'Nitrox Specialty' (NOT just 'Nitrox')", () => {
+    expect(programaDisplayName("Koh Phi Phi", "NitroxSpecialty")).toBe(
+      "Nitrox Specialty",
+    );
+  });
+
+  it("DeepSpecialty → 'Deep Specialty (OW cert)' (OW cert is the default variant)", () => {
+    expect(programaDisplayName("Koh Phi Phi", "DeepSpecialty")).toBe(
+      "Deep Specialty (OW cert)",
+    );
+  });
+
+  it("returns null for programs not in the Phi Phi tarifario (RefreshAdv, combos, specialties Miguel hasn't priced)", () => {
+    // These have CATALOG entries in our enum but no price line in
+    // Miguel's tarifario yet. The caller must skip the row + warn.
+    // Posting null would zero out his revenue calc — worse than skipping.
+    expect(programaDisplayName("Koh Phi Phi", "RefreshAdv")).toBeNull();
     expect(programaDisplayName("Koh Phi Phi", "OWAOWCombo")).toBeNull();
+    expect(programaDisplayName("Koh Phi Phi", "OWDeepCombo")).toBeNull();
     expect(programaDisplayName("Koh Phi Phi", "Adventures")).toBeNull();
     expect(programaDisplayName("Koh Phi Phi", "DMT")).toBeNull();
+    expect(programaDisplayName("Koh Phi Phi", "StressRescue")).toBeNull();
   });
 
   it("returns null for sedes without any mapping table", () => {

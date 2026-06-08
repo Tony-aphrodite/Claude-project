@@ -37,34 +37,43 @@ export function agenteCierreFor(sedeNombre: string): string {
  * does an EXACT string match against the tarifario — "OW" returns 0,
  * "OW 18" returns the configured price.
  *
- * Per-sede because different sedes use different display names
- * (e.g. Phi Phi's "OW 18" might be "Open Water" elsewhere). Mapping is
- * partial — incomplete entries return null and the caller surfaces a
+ * Per-sede because different sedes use different display names. Mapping
+ * is partial — incomplete entries return null and the caller surfaces a
  * warning so the operator logs that program manually.
  *
- * Phi Phi entries below are BEST GUESSES from Miguel's example payload
- * (he showed "OW 18" specifically). Treat as provisional until Miguel
- * confirms the complete per-sede list.
+ * Phi Phi entries below come from Miguel's official Phi Phi tarifario
+ * (2026-06-07). See `information/17-information-phi-phi/2026-06-07-tarifario-phi-phi.md`
+ * for the full list including prices + gaps analysis.
  */
 export const PROGRAMA_DISPLAY_NAME: Record<string, Record<string, string>> = {
   "Koh Phi Phi": {
-    // Confirmed by Miguel's example payload 2026-06-07: "OW 18".
-    OW: "OW 18",
-    // Provisional — needs Miguel confirmation. Educated guesses based on
-    // typical SSI / PADI catalog naming + Phi Phi's 24-program catalog
-    // listed in ROSTER_SCRIPT_v2_FULL_ROLLOUT.md.
-    TryScuba: "Try Scuba",
-    ScubaDiver: "Scuba Diver",
-    OW30: "OW 30",
-    AOW: "Advanced",
-    Refresh: "Refresh",
-    RefreshAdv: "Refresh Advanced",
-    FunDive: "Fun Dive",
-    DeepAdvFD: "Deep Adventure",
-    ReactRight: "React Right",
-    DeepSpecialty: "Deep Specialty",
-    RescueDiver: "Rescue",
-    NitroxSpecialty: "Nitrox",
+    // ALL entries below from Miguel's tarifario 2026-06-07. DO NOT
+    // edit casing / spacing / punctuation — his revenue calc compares
+    // verbatim. Any future change must come from Miguel directly.
+    TryScuba: "DSD / Try Scuba", // 3,600 THB
+    ScubaDiver: "Scuba Diver", // 8,500 THB
+    OW: "OW 18", // 12,900 THB
+    OW30: "OW 30", // 18,900 THB
+    AOW: "Advanced (AOW)", // 10,400 THB
+    FunDive: "Fun Dive", // 2,700 THB
+    Refresh: "Refresh", // 3,400 THB
+    DeepAdvFD: "Deep Adventure + Fun Dive", // 3,700 THB
+    ReactRight: "React Right", // 4,500 THB
+    RescueDiver: "Rescue", // 12,500 THB
+    NitroxSpecialty: "Nitrox Specialty", // 9,000 THB
+    // DeepSpecialty has two variants in Miguel's tarifario depending on
+    // the customer's existing certification:
+    //   "Deep Specialty (OW cert)"        — 8,900 THB
+    //   "Deep Specialty (Advanced cert)"  — 7,900 THB
+    // Our enum has a single `DeepSpecialty` value — default to the
+    // OW-cert variant (more common case). When the AI knows the
+    // customer is Advanced-certified, future work would route to the
+    // other variant via a new enum value or context flag.
+    DeepSpecialty: "Deep Specialty (OW cert)",
+    // Programs in our enum without a tarifario line (see the tarifario
+    // memo for the gap analysis): RefreshAdv, Adventures, OWAOWCombo,
+    // OWDeepCombo, StressRescue, DMT. These will SKIP the row with a
+    // warning until Miguel adds them.
   },
   // Other sedes' mappings deferred until those sedes activate.
 };
