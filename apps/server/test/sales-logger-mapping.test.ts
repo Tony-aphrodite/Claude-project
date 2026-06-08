@@ -13,18 +13,28 @@ import {
   splitContactName,
 } from "../src/services/sales-logger-mapping.js";
 
-describe("agenteCierreFor", () => {
-  it("returns 'Francisco Emilio' for Koh Phi Phi (Miguel confirmed)", () => {
-    // Exact string match matters — Miguel's filter is case-sensitive.
+describe("agenteCierreFor — Miguel confirmed all 5 sedes 2026-06-07", () => {
+  // Exact string match matters — Miguel's reporting filters AI rows by
+  // these names and his Config tab lists them with this exact spelling.
+
+  it("Koh Phi Phi → 'Francisco Emilio'", () => {
     expect(agenteCierreFor("Koh Phi Phi")).toBe("Francisco Emilio");
   });
 
-  it("returns empty string for sedes without a registered AI persona yet", () => {
-    // Pending: Miguel needs to confirm AI personas for KT/GT/GA/NP.
-    expect(agenteCierreFor("Koh Tao")).toBe("");
-    expect(agenteCierreFor("Gili Trawangan")).toBe("");
-    expect(agenteCierreFor("Gili Air")).toBe("");
-    expect(agenteCierreFor("Nusa Penida")).toBe("");
+  it("Koh Tao → 'Emma'", () => {
+    expect(agenteCierreFor("Koh Tao")).toBe("Emma");
+  });
+
+  it("Gili Trawangan → 'John'", () => {
+    expect(agenteCierreFor("Gili Trawangan")).toBe("John");
+  });
+
+  it("Gili Air → 'Colomba'", () => {
+    expect(agenteCierreFor("Gili Air")).toBe("Colomba");
+  });
+
+  it("Nusa Penida → 'David'", () => {
+    expect(agenteCierreFor("Nusa Penida")).toBe("David");
   });
 
   it("returns empty string for unknown sede names (defensive)", () => {

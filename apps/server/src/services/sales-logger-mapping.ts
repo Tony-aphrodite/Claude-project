@@ -13,12 +13,16 @@ import type { LeadMetadata } from "@dpm/shared";
  * exactly (capitalization, spacing) or Miguel's reporting can't filter
  * AI vs human rows.
  *
- * Phi Phi is the only confirmed name today (Miguel 2026-06-07). Other
- * sedes' AI personas need to be confirmed before they go to production.
+ * All 5 sedes confirmed by Miguel 2026-06-07. Names match the existing
+ * AI persona prompts (Emma/Francisco/John/Colomba/David — each has its
+ * own system prompt + KB bundle under `information/<n>-information-<sede>/`).
  */
 export const SEDE_AI_AGENTE_CIERRE: Record<string, string> = {
+  "Koh Tao": "Emma",
   "Koh Phi Phi": "Francisco Emilio",
-  // Pending Miguel: Koh Tao, Gili Trawangan, Gili Air, Nusa Penida.
+  "Gili Trawangan": "John",
+  "Gili Air": "Colomba",
+  "Nusa Penida": "David",
 };
 
 /**
