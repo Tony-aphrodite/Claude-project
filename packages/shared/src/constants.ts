@@ -135,11 +135,14 @@ export const REGRESSION = {
 export const PII_RETENTION_DAYS = 365; // 12 months — guide §16 #8
 
 // ── Sede registry (5 pilot sedes, guide §1) ─────────────────────────────────
-// Authoritative names are stored in the `sedes` table; this enum is for
-// type-safety in code paths that branch on sede explicitly.
+// Authoritative names match the `sedes.nombre` column verbatim (which
+// itself matches the Branch custom field value Respond.io workflows
+// write + the sede name in Miguel's DPM_Ventas_Master tarifario). The
+// "Phi Phi" → "Koh Phi Phi" rename happened via seed-content.ts; this
+// constant updated to match 2026-06-07.
 export const SEDE_NAMES = [
   "Koh Tao",
-  "Phi Phi",
+  "Koh Phi Phi",
   "Gili Trawangan",
   "Gili Air",
   "Nusa Penida",
@@ -148,7 +151,7 @@ export type SedeName = (typeof SEDE_NAMES)[number];
 
 export const SEDE_TIMEZONES: Record<SedeName, string> = {
   "Koh Tao": "Asia/Bangkok",
-  "Phi Phi": "Asia/Bangkok",
+  "Koh Phi Phi": "Asia/Bangkok",
   "Gili Trawangan": "Asia/Makassar",
   "Gili Air": "Asia/Makassar",
   "Nusa Penida": "Asia/Makassar",
@@ -156,7 +159,7 @@ export const SEDE_TIMEZONES: Record<SedeName, string> = {
 
 export const SEDE_CURRENCIES: Record<SedeName, { code: string; symbol: string }> = {
   "Koh Tao": { code: "THB", symbol: "฿" },
-  "Phi Phi": { code: "THB", symbol: "฿" },
+  "Koh Phi Phi": { code: "THB", symbol: "฿" },
   "Gili Trawangan": { code: "IDR", symbol: "Rp" },
   "Gili Air": { code: "IDR", symbol: "Rp" },
   "Nusa Penida": { code: "IDR", symbol: "Rp" },
