@@ -22,59 +22,61 @@ below).
 
 ## Bank accounts
 
-### EUR
+### EUR (full details Miguel 2026-06-07)
 - Beneficiary: DPM Diving Phi Phi LLC
 - IBAN: BE90 9050 3751 2432
-- BIC: TRWIBEB1XXX
-- Bank: Wise, Rue du Trône 100, Brussels
+- Swift/BIC: TRWIBEB1XXX
+- Bank: Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium
 
-### AUD
+### GBP (BIC + full address added Miguel 2026-06-07)
 - Beneficiary: DPM Diving Phi Phi LLC
-- BSB: 774001
-- Account: 221638707
-- BIC: PENDING (image doesn't show one)
-
-### GBP
-- Beneficiary: DPM Diving Phi Phi LLC
+- Account number: 29276236
+- Sort code: 23-14-70
 - IBAN: GB55 TRWI 2314 7029 2762 36
-- Sort: 23-14-70
-- Cta: 29276236
-- Bank: Wise, London
+- **Swift/BIC: TRWIGB2LXXX** (was missing in original image)
+- Bank: Wise Payments Limited, 1st Floor, Worship Square, 65 Clifton Street, London, EC2A 4JE, United Kingdom
 
-### USD
-- Beneficiary: **"Francisco Jose Augier"** (personal name — confirmed by
-  Miguel 2026-06-07 to show as-is to customer, option A)
-- Cta: 8313706669
-- Routing: 026073150
-- BIC: CMFGUS33
-- Bank: Community Federal Savings Bank, NY
+### AUD (BIC confirmed Miguel 2026-06-07)
+- Beneficiary: DPM Diving Phi Phi LLC
+- Account number: 221638707
+- BSB code: 774-001 (with hyphen)
+- **Swift/BIC: TRWIAUS1XXX** (confirmed — same as our pre-emptive assumption)
+- Bank: Wise Australia Pty Ltd, Suite 1, Level 11, 66 Goulburn Street, Sydney, NSW, 2000, Australia
 
-### THB (confirmed 2026-06-07 follow-up)
+### USD (account type + full address added Miguel 2026-06-07)
+- Beneficiary: **"Francisco Jose Augier"** (personal name — show as-is, option A)
+- Account number: 8313706669
+- **Account type: Checking**
+- Routing number (wire and ACH): 026073150
+- Swift/BIC: CMFGUS33
+- Bank: Community Federal Savings Bank, 89-16 Jamaica Ave, Woodhaven, NY, 11421, United States
+
+### THB (Miguel 2026-06-07 first follow-up)
 - Bank: SCB (Siam Commercial Bank)
 - Account Holder: Dpm diving koh phiphi
 - Account Number: 5722989108
 - BIC: SICOTHBKXXX
 
-### Stripe
-- Link: https://buy.stripe.com/28E5kC8mXakL3VT3jk4AU47
-- Prices: 1 persona = 40 / 2 personas = 80 / 3 personas = 120 (USD)
-- Note: link explicitly only shows 1/2/3 pax — 4+ behavior undefined
+### Stripe (Miguel 2026-06-07 confirmed logic)
+- **Link**: https://buy.stripe.com/28E5kC8mXakL3VT3jk4AU47
+- **Amount**: **1,000 THB per person** (fixed — note: charges in THB, not USD)
+- **Multi-pax behavior**: customer uses the SAME link N times (one charge per
+  person). For 4 pax → 4 separate Stripe transactions of 1,000 THB each.
+- Note: this is the SAME amount as the THB bank deposit (1,000 THB/pax),
+  so the customer's total deposit cost is identical regardless of method.
 
-## Open questions for Miguel (REMAINING — 2)
+## Open questions for Miguel — ALL ANSWERED ✅
 
-✅ ~~THB amount per person~~ → **1,000 THB confirmed** 2026-06-07
-✅ ~~USD beneficiary name~~ → **"Francisco Jose Augier" as-is** confirmed 2026-06-07
+✅ ~~THB amount per person~~ → **1,000 THB** confirmed 2026-06-07
+✅ ~~USD beneficiary name~~ → **"Francisco Jose Augier"** as-is, option A
+✅ ~~AUD BIC~~ → **TRWIAUS1XXX** confirmed (matches our pre-emptive assumption)
+✅ ~~Stripe logic~~ → **1,000 THB per pax, link reused N times for N pax**
 
-3. **AUD BIC** — still pending. Image doesn't show one for Phi Phi AUD.
-   Pre-emptive ASSUMPTION used in code: `TRWIAUS1XXX` (Wise Australia
-   universal BIC — same one GT uses, both accounts are at Wise based
-   on BSB 774001 pattern). Miguel can correct if wrong. Safe default.
-
-4. **Stripe logic** — still pending. Until Miguel confirms, the AI will
-   NOT offer Stripe — only bank transfers via the 5 supported currencies
-   (EUR/GBP/AUD/USD/THB). Stripe support deferred to a separate piece
-   of work once we know: which currency, behavior for 4+ pax, manual or
-   webhook confirmation.
+Remaining UX detail (NOT blocking, can ask later):
+- Stripe webhook integration for auto-confirmation? Today the AI sends
+  the Stripe link and the operator manually confirms the payment in
+  the panel. If Miguel sets up a Stripe webhook → our server could
+  receive payment_succeeded events and auto-mark deposit_paid. Defer.
 
 ## What to implement when answers arrive
 

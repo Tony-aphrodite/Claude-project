@@ -126,42 +126,47 @@ const BANK_BLOCKS_BY_SEDE: Record<string, SedeBankBlocks> = {
     ],
   },
 
-  // Miguel 2026-06-07 — image + follow-up THB details.
-  // See `information/17-information-phi-phi/2026-06-07-phi-phi-bank-details.md`.
+  // Miguel 2026-06-07 — complete bank details (3 messages: image, THB
+  // follow-up, full address + GBP BIC follow-up). See
+  // `information/17-information-phi-phi/2026-06-07-phi-phi-bank-details.md`
+  // for the canonical reference.
   "Koh Phi Phi": {
     EUR: [
       "Beneficiary: DPM Diving Phi Phi LLC",
       "IBAN: BE90 9050 3751 2432",
       "BIC/SWIFT: TRWIBEB1XXX",
-      "Bank: Wise, Rue du Trône 100, Brussels",
+      "Bank: Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium",
     ],
     GBP: [
       "Beneficiary: DPM Diving Phi Phi LLC",
-      "IBAN: GB55 TRWI 2314 7029 2762 36",
-      "Sort code: 23-14-70",
       "Account number: 29276236",
-      "Bank: Wise, London",
+      "Sort code: 23-14-70",
+      "IBAN: GB55 TRWI 2314 7029 2762 36",
+      // BIC confirmed Miguel 2026-06-07 — was missing in original image,
+      // sent in his follow-up message.
+      "BIC/SWIFT: TRWIGB2LXXX",
+      "Bank: Wise Payments Limited, 1st Floor, Worship Square, 65 Clifton Street, London, EC2A 4JE, UK",
     ],
     AUD: [
       "Beneficiary: DPM Diving Phi Phi LLC",
       "Account number: 221638707",
-      "BSB: 774001",
-      // BIC pending Miguel confirmation — using Wise Australia universal
-      // BIC (same one Gili Trawangan uses since both accounts are at
-      // Wise based on BSB 774001 pattern). Safe assumption; Miguel can
-      // correct via a 1-line edit if wrong.
+      "BSB: 774-001",
+      // BIC confirmed Miguel 2026-06-07 — matches our pre-emptive
+      // assumption (Wise Australia universal BIC).
       "BIC/SWIFT: TRWIAUS1XXX",
-      "Bank: Wise Australia",
+      "Bank: Wise Australia Pty Ltd, Suite 1, Level 11, 66 Goulburn Street, Sydney, NSW, 2000, Australia",
     ],
     USD: [
       // Personal-name account (Miguel confirmed 2026-06-07: show as-is to
-      // the customer). The customer transfers to the named individual,
-      // not to a corporate entity.
+      // the customer). Customer transfers to the named individual, not
+      // to a corporate entity. Account type included so the customer
+      // can fill US-side wire / ACH forms that ask for it.
       "Beneficiary: Francisco Jose Augier",
       "Account number: 8313706669",
+      "Account type: Checking",
       "Routing number: 026073150",
       "BIC/SWIFT: CMFGUS33",
-      "Bank: Community Federal Savings Bank, New York, USA",
+      "Bank: Community Federal Savings Bank, 89-16 Jamaica Ave, Woodhaven, NY, 11421, USA",
     ],
     THB: [
       "Beneficiary: Dpm diving koh phiphi",
@@ -250,4 +255,85 @@ export function buildIbanMismatchWarning(language: string): string {
   return language.toLowerCase().startsWith("es")
     ? "Solo para confirmar — los datos de Gili Trawangan son diferentes a los de Nusa Penida y Gili Air. Acá van los datos correctos:"
     : "Just to confirm — the Gili Trawangan account is different from Nusa Penida and Gili Air. Here are the correct details:";
+}
+
+// ─── Stripe (Miguel 2026-06-07 — Phi Phi only) ──────────────────────────────
+//
+// Stripe is an alternative payment method (credit card) offered alongside
+// bank transfers. Per Miguel: charges 1,000 THB per person (same as the
+// THB bank deposit). Multi-pax: customer uses the SAME link N times
+// (one charge per person). No webhook integration today — operator
+// manually confirms in the panel after the customer reports payment.
+
+/**
+ * Per-sede Stripe payment link. Optional alternative to bank transfer.
+ * Sedes without a link return undefined from `sedeStripeLink()` — caller
+ * knows not to offer Stripe.
+ */
+export const STRIPE_LINK_BY_SEDE: Record<string, string | undefined> = {
+  "Koh Phi Phi": "https://buy.stripe.com/28E5kC8mXakL3VT3jk4AU47",
+  // Other sedes deferred until they activate Stripe.
+};
+
+/** Fixed per-pax amount Miguel's Stripe link charges. Always THB. */
+export const STRIPE_AMOUNT_THB_PER_PAX = 1000;
+
+export function sedeStripeLink(sedeNombre: string): string | undefined {
+  return STRIPE_LINK_BY_SEDE[sedeNombre];
+}
+
+export type BuildStripeInstructionsInput = {
+  sedeNombre: string;
+  language: string;
+  pax: number;
+};
+
+/**
+ * Build the Stripe payment instructions message. Returns null when the
+ * sede has no Stripe link configured (caller should not offer Stripe).
+ *
+ * Multi-pax behavior: per Miguel 2026-06-07, the customer uses the SAME
+ * link N times for N people (one card charge per person). The message
+ * spells this out so the customer doesn't try to pay once for everyone.
+ */
+export function buildStripeInstructions(
+  input: BuildStripeInstructionsInput,
+): string | null {
+  const link = sedeStripeLink(input.sedeNombre);
+  if (!link) return null;
+  const isEnglish = !input.language.toLowerCase().startsWith("es");
+  const pax = Math.max(input.pax, 1);
+  const perPax = STRIPE_AMOUNT_THB_PER_PAX.toLocaleString("en-US");
+  const total = (STRIPE_AMOUNT_THB_PER_PAX * pax).toLocaleString("en-US");
+
+  if (pax === 1) {
+    return isEnglish
+      ? [
+          `Or you can pay ${perPax} THB by credit card via Stripe:`,
+          link,
+          "",
+          "Share the confirmation when done 🙏",
+        ].join("\n")
+      : [
+          `O podés pagar ${perPax} THB con tarjeta por Stripe:`,
+          link,
+          "",
+          "Compartime la confirmación cuando lo hagas 🙏",
+        ].join("\n");
+  }
+  return isEnglish
+    ? [
+        `Or by credit card via Stripe — ${perPax} THB per person (total ${total} THB for ${pax} people).`,
+        `Use this link ${pax} TIMES (one charge per person):`,
+        link,
+        "",
+        "Share each confirmation when done 🙏",
+      ].join("\n")
+    : [
+        `O con tarjeta por Stripe — ${perPax} THB por persona (total ${total} THB para ${pax} personas).`,
+        `Usá este link ${pax} VECES (un cobro por persona):`,
+        link,
+        "",
+        "Compartime cada confirmación cuando lo hagas 🙏",
+      ].join("\n");
 }
