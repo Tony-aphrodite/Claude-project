@@ -938,11 +938,12 @@ export async function processIncomingMessage(
     };
   }
   const incomingAssignee = payload.conversation?.assignee;
+  const aiAssigneeIdForGuard = loadEnv().RESPOND_IO_AI_ASSIGNEE_ID;
   if (incomingAssignee !== undefined && incomingAssignee !== null && incomingAssignee !== "") {
-    const aiAssigneeId = loadEnv().RESPOND_IO_AI_ASSIGNEE_ID;
     // assignee from webhook is a string; coerce both sides to string for compare.
     const isAi =
-      aiAssigneeId !== undefined && String(incomingAssignee) === String(aiAssigneeId);
+      aiAssigneeIdForGuard !== undefined &&
+      String(incomingAssignee) === String(aiAssigneeIdForGuard);
     if (!isAi) {
       log.info(
         {
@@ -968,6 +969,64 @@ export async function processIncomingMessage(
         .where(eq(conversaciones.id, conversation.id))
         .catch((err) =>
           log.warn({ err: (err as Error).message }, "human_took_over flag stamp failed"),
+        );
+      return {
+        ok: false,
+        ignored: true,
+        reason: "ai_silenced_human_assignee",
+        latencyMs: Date.now() - t0,
+      };
+    }
+  } else if (aiAssigneeIdForGuard) {
+    // THIRD defense layer (Miguel test 2026-06-07 — "AI sigue contestando"
+    // even when a human took over).
+    //
+    // The first two checks (persisted flag + inline payload assignee) both
+    // rely on Respond.io reliably sending events:
+    //   • Flag → depends on `conversation.assignee.changed` webhook firing
+    //     AND our handler processing it before the next inbound message.
+    //   • Inline payload → depends on Respond.io including `conversation.
+    //     assignee` in the regular message webhook (which it OMITS in many
+    //     v2 payloads).
+    //
+    // When BOTH fail, the AI used to respond + steal the conversation back.
+    // This 3rd layer actively GETs the current assignee from Respond.io
+    // and silences if a human has it. Cost: +150ms per inbound message
+    // when the inline check didn't already fire. Worth it for trust:
+    // operators MUST be able to take over and have AI shut up.
+    const currentAssignee = await respondIoClient
+      .getConversationAssignee({ contactId: payload.contact.id })
+      .catch(() => null);
+    if (
+      currentAssignee?.assigneeId &&
+      String(currentAssignee.assigneeId) !== String(aiAssigneeIdForGuard)
+    ) {
+      log.info(
+        {
+          conversationId: conversation.id,
+          contactId: payload.contact.id,
+          currentAssigneeId: currentAssignee.assigneeId,
+        },
+        "ai silenced — active GET confirms human assignee (3rd defense layer)",
+      );
+      // Stamp the flag so subsequent messages skip the GET (faster path).
+      void getDb()
+        .update(conversaciones)
+        .set({
+          leadMetadata: {
+            ...((conversation.leadMetadata as LeadMetadata | null) ?? {}),
+            human_took_over: true,
+            human_took_over_at: new Date().toISOString(),
+            human_took_over_by: String(currentAssignee.assigneeId),
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(conversaciones.id, conversation.id))
+        .catch((err) =>
+          log.warn(
+            { err: (err as Error).message },
+            "human_took_over flag stamp failed (after GET)",
+          ),
         );
       return {
         ok: false,
@@ -1298,6 +1357,9 @@ export async function processIncomingMessage(
     const useDbRosterTool =
       (sede.rosterConfig as { use_db_roster?: boolean } | null)
         ?.use_db_roster === true;
+    // Tony perf feedback 2026-06-07: log roster fetch latency to identify
+    // bottleneck (Apps Script call can be 10s+ with 30-day window).
+    const rosterFetchT0 = Date.now();
     let fresh = useDbRosterTool
       ? await rosterDbService
           .fetchAvailability(sede.id, {
@@ -1321,6 +1383,18 @@ export async function processIncomingMessage(
         mode: windowDays > 1 ? "range" : "single",
       });
     }
+    log.info(
+      {
+        sedeId: sede.id,
+        sedeNombre: sede.nombre,
+        programa: input.programa,
+        windowDays,
+        useDbRosterTool,
+        rosterFetchLatencyMs: Date.now() - rosterFetchT0,
+        rosterFetchOk: fresh !== null,
+      },
+      "PERF roster fetch complete",
+    );
     if (!fresh) {
       return {
         ok: false,
@@ -2131,6 +2205,10 @@ export async function processIncomingMessage(
             enviar_catalogo: enviarCatalogoHandler,
           };
 
+  // Tony perf feedback 2026-06-07: "3 minutes to respond". The Claude
+  // call (with up to 2 tool-use round-trips) is usually the dominant
+  // cost. Log explicitly so Railway logs make the bottleneck visible.
+  const claudeT0 = Date.now();
   const claudeResult = await callClaude({
     system,
     messages,
@@ -2141,6 +2219,16 @@ export async function processIncomingMessage(
     expectedLanguage: detectedLanguage,
     incomingMessage: incomingText,
   });
+  log.info(
+    {
+      conversationId: conversation.id,
+      claudeLatencyMs: Date.now() - claudeT0,
+      claudeInternalLatencyMs: claudeResult.latencyMs,
+      toolCalls: claudeResult.toolCalls,
+      totalLatencySoFarMs: Date.now() - t0,
+    },
+    "PERF claude call complete",
+  );
 
   // Step 9: persist AI message with citations
   await conversationService.appendAiMessage(conversation.id, claudeResult.text, {

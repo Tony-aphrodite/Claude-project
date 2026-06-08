@@ -93,8 +93,33 @@ export function validateRequiredSlots(
       allAvailable = false;
       continue;
     }
-    const slotData =
-      req.slot === "AM" ? dayDetail.turno_manana : dayDetail.turno_tarde;
+    // CRITICAL bug fix 2026-06-07 (Miguel test "no lee confinadas"):
+    // previous code did `req.slot === "AM" ? turno_manana : turno_tarde`
+    // which routed BOTH "Confinadas" and "Nocturno" to turno_tarde (PM)
+    // — meaning Confinadas slot checks were silently looking at PM boat
+    // capacity. When PM was full, AI would say "Confinadas no hay lugar"
+    // which was a totally bogus check. Now we map each turno to its
+    // correct AvailabilityDay field.
+    //
+    // Confinadas + Nocturno are optional in AvailabilityDay (Apps Script
+    // doesn't return them, only the DB-backed roster does). When absent,
+    // Miguel's policy is: ALWAYS AVAILABLE (instructor / night-boat
+    // scheduling is managed internally by the office, AI doesn't need
+    // to verify it). Treat as available with "high" espacios so the
+    // check passes.
+    let slotData: typeof dayDetail.turno_manana | undefined;
+    if (req.slot === "AM") slotData = dayDetail.turno_manana;
+    else if (req.slot === "PM") slotData = dayDetail.turno_tarde;
+    else if (req.slot === "Nocturno") slotData = dayDetail.turno_nocturno;
+    else if (req.slot === "Confinadas") slotData = dayDetail.turno_confinadas;
+    if (!slotData) {
+      // Miguel rule: when the roster source doesn't expose this turno
+      // (Apps Script doesn't have Confinadas/Nocturno), trust that
+      // capacity exists. Office manages internally. Surface as
+      // available so the program-day check passes.
+      slots.push({ date, slot: req.slot, available: true, espacios: 99 });
+      continue;
+    }
     const espacios = slotData.espacios ?? 0;
     const bookable = bookableSlots(input.horaActualWita, input.todayWitaStr, date);
     if (!bookable.has(req.slot)) {

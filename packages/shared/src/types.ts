@@ -533,6 +533,16 @@ export type AvailabilityDay = {
    * malformed.
    */
   turno_nocturno?: AvailabilitySlot;
+  /**
+   * Pool / confined-water slot (Miguel rule 2026-06-07). Tracked
+   * separately from boat slots because pool capacity is instructor-based,
+   * not boat-seat based. Apps Script doesn't have this field — only the
+   * DB-backed roster populates it. When absent, slot-validator treats
+   * Confinadas as ALWAYS AVAILABLE (Miguel's stated policy: pool
+   * scheduling is managed internally by the office, the AI doesn't
+   * need to verify it).
+   */
+  turno_confinadas?: AvailabilitySlot;
 };
 
 export type AvailabilityResponse = {

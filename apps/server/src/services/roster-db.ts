@@ -618,10 +618,16 @@ export class RosterDbService {
       const am = slots.find((s) => s.turno === "AM");
       const pm = slots.find((s) => s.turno === "PM");
       const noc = slots.find((s) => s.turno === "Nocturno");
+      // Surface Confinadas in the response so the slot-validator can
+      // check pool capacity directly (Miguel rule 2026-06-07 — before
+      // this the validator routed Confinadas to PM and reported "no hay
+      // lugar" whenever the boat was full, which was nonsense).
+      const conf = slots.find((s) => s.turno === "Confinadas");
       const dayAvailable =
         (am?.available ?? 0) > 0 ||
         (pm?.available ?? 0) > 0 ||
-        (noc?.available ?? 0) > 0;
+        (noc?.available ?? 0) > 0 ||
+        (conf?.available ?? 0) > 0;
       if (dayAvailable && !firstAvailableDate) firstAvailableDate = fecha;
 
       detalle.push({
@@ -647,6 +653,15 @@ export class RosterDbService {
                 disponible: noc.available > 0,
                 espacios: noc.available,
                 capacidad: noc.capacity,
+              },
+            }
+          : {}),
+        ...(conf
+          ? {
+              turno_confinadas: {
+                disponible: conf.available > 0,
+                espacios: conf.available,
+                capacidad: conf.capacity,
               },
             }
           : {}),
