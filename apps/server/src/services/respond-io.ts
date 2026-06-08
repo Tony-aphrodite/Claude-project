@@ -503,55 +503,142 @@ export class RespondIoClient {
   }): Promise<{ assigneeId: string | null } | null> {
     const env = loadEnv();
     const log = getLogger();
-    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/conversation`;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
-    try {
-      const res = await undiciFetch(url, {
-        method: "GET",
-        dispatcher: keepAliveAgent,
-        signal: controller.signal,
-        headers: {
-          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
-        },
-      });
-      if (!res.ok) {
-        log.warn(
-          { contactId: input.contactId, status: res.status },
-          "respond_io get_conversation non-2xx",
+    // Tony 2026-06-07 debug: log shows this returns null on every call,
+    // breaking the 3rd defense layer of the take-over silence flow.
+    // Trying multiple endpoint shapes since Respond.io API has flipped
+    // between styles. Logging full response body so we can see what the
+    // API actually returns and fix the parser.
+    const candidates = [
+      // v2 typical
+      `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/conversation`,
+      // plural variant
+      `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/conversations`,
+    ];
+    for (const url of candidates) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+      try {
+        const res = await undiciFetch(url, {
+          method: "GET",
+          dispatcher: keepAliveAgent,
+          signal: controller.signal,
+          headers: {
+            authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+          },
+        });
+        const bodyText = await res.text().catch(() => "");
+        if (!res.ok) {
+          log.warn(
+            {
+              contactId: input.contactId,
+              url,
+              status: res.status,
+              body: bodyText.slice(0, 500),
+            },
+            "respond_io get_conversation non-2xx (trying next candidate)",
+          );
+          clearTimeout(timer);
+          continue;
+        }
+        // Log raw body so we know what Respond.io actually returns.
+        log.info(
+          {
+            contactId: input.contactId,
+            url,
+            bodyPreview: bodyText.slice(0, 500),
+          },
+          "respond_io get_conversation raw response",
         );
-        return null;
-      }
-      const body = (await res.json().catch(() => null)) as
-        | {
-            assignee?: string | number | null;
-            assigneeId?: string | number | null;
-            assignee_id?: string | number | null;
+        let body: Record<string, unknown> | null = null;
+        try {
+          body = JSON.parse(bodyText) as Record<string, unknown>;
+        } catch {
+          log.warn(
+            { contactId: input.contactId, url },
+            "respond_io get_conversation body not JSON",
+          );
+          clearTimeout(timer);
+          continue;
+        }
+        if (!body) {
+          clearTimeout(timer);
+          continue;
+        }
+        // Try every plausible field name. Respond.io has used:
+        // assignee, assigneeId, assignee_id, assignedTo, etc.
+        // Also try nested: data.assignee, conversation.assignee, etc.
+        // The .changed webhook payload uses `assignee` at the top level
+        // (see contact-state-event.ts) — start with that.
+        const extractAssignee = (obj: unknown): string | number | null => {
+          if (!obj || typeof obj !== "object") return null;
+          const o = obj as Record<string, unknown>;
+          const candidates = [
+            o.assignee,
+            o.assigneeId,
+            o.assignee_id,
+            o.assignedTo,
+            o.assigned_to,
+          ];
+          for (const c of candidates) {
+            if (typeof c === "string" || typeof c === "number") return c;
+            if (c && typeof c === "object") {
+              const inner = c as Record<string, unknown>;
+              const innerId = inner.id ?? inner.userId ?? inner.user_id;
+              if (typeof innerId === "string" || typeof innerId === "number") {
+                return innerId;
+              }
+            }
           }
-        | null;
-      if (!body) return null;
-      // Accept multiple possible field names — Respond.io v2 schema has
-      // flipped between camelCase and snake_case for this field.
-      const raw = body.assignee ?? body.assigneeId ?? body.assignee_id ?? null;
-      return {
-        assigneeId: raw === null || raw === undefined ? null : String(raw),
-      };
-    } catch (err) {
-      if ((err as { name?: string }).name === "AbortError") {
-        log.warn(
-          { contactId: input.contactId },
-          "respond_io get_conversation timed out",
+          return null;
+        };
+        // Try top-level, then nested under common wrappers.
+        let raw = extractAssignee(body);
+        if (raw === null) {
+          // List response — try first item.
+          const list = (body.data ?? body.conversations ?? body.items) as
+            | unknown[]
+            | undefined;
+          if (Array.isArray(list) && list.length > 0) {
+            raw = extractAssignee(list[0]);
+          }
+        }
+        if (raw === null) {
+          // Nested object under common keys.
+          for (const key of ["conversation", "data", "result"]) {
+            const nested = (body as Record<string, unknown>)[key];
+            if (nested && typeof nested === "object") {
+              raw = extractAssignee(nested);
+              if (raw !== null) break;
+            }
+          }
+        }
+        clearTimeout(timer);
+        log.info(
+          {
+            contactId: input.contactId,
+            url,
+            extractedAssigneeId: raw,
+          },
+          "respond_io get_conversation parsed assignee",
         );
-        return null;
+        return {
+          assigneeId: raw === null || raw === undefined ? null : String(raw),
+        };
+      } catch (err) {
+        clearTimeout(timer);
+        const isAbort = (err as { name?: string }).name === "AbortError";
+        log.warn(
+          {
+            contactId: input.contactId,
+            url,
+            err: isAbort ? "timeout" : (err as Error).message,
+          },
+          "respond_io get_conversation threw (trying next candidate)",
+        );
       }
-      log.warn(
-        { contactId: input.contactId, err: (err as Error).message },
-        "respond_io get_conversation threw",
-      );
-      return null;
-    } finally {
-      clearTimeout(timer);
     }
+    // All candidates failed.
+    return null;
   }
 
   /**
