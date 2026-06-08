@@ -34,7 +34,7 @@
 // or a new `roster_default_capacities` table; getCapacity()  reads it.
 // ============================================================================
 
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 
 import {
   conversaciones,
@@ -612,59 +612,114 @@ export class RosterDbService {
     const detalle: import("@dpm/shared").AvailabilityDay[] = [];
     let firstAvailableDate: string | null = null;
 
-    for (let i = 0; i < Math.max(1, opts.days); i++) {
-      const fecha = addDays(opts.date, i);
-      const slots = await this.getAvailability(sedeId, fecha);
-      const am = slots.find((s) => s.turno === "AM");
-      const pm = slots.find((s) => s.turno === "PM");
-      const noc = slots.find((s) => s.turno === "Nocturno");
-      // Surface Confinadas in the response so the slot-validator can
-      // check pool capacity directly (Miguel rule 2026-06-07 — before
-      // this the validator routed Confinadas to PM and reported "no hay
-      // lugar" whenever the boat was full, which was nonsense).
-      const conf = slots.find((s) => s.turno === "Confinadas");
+    // Tony perf fix 2026-06-07: the previous implementation called
+    // `getAvailability(sede, fecha)` in a per-day loop, which itself
+    // queried 1 sede-config + (4 turnos × 2 queries) = 9 queries PER
+    // DAY. For a 17-day window (OW consultar_disponibilidad) that was
+    // 153 sequential queries × ~350ms RTT to Supabase = 54 SECONDS.
+    // Logs showed prefetch=10s, tool=54s — both this code path.
+    //
+    // New implementation: 3 batch queries total regardless of window
+    // size. Sede config (1) + all overrides in date range (1) + all
+    // booking reservations grouped by (fecha, turno) (1). Iterate
+    // locally to build the response. Expected new latency: ~1 second
+    // for ANY window (3-day prefetch or 17-day tool).
+    const db = getDb();
+    const days = Math.max(1, opts.days);
+    const dates: string[] = [];
+    for (let i = 0; i < days; i++) dates.push(addDays(opts.date, i));
+    const lastDate = dates[dates.length - 1]!;
+
+    // Query 1: sede config (for default capacities)
+    const sedeConfig = await this.getSedeRosterConfig(sedeId);
+
+    // Query 2: ALL overrides for sede + date range (1 SQL call)
+    const allOverrides = await db
+      .select()
+      .from(rosterCapacityOverrides)
+      .where(
+        and(
+          eq(rosterCapacityOverrides.sedeId, sedeId),
+          gte(rosterCapacityOverrides.fecha, opts.date),
+          lte(rosterCapacityOverrides.fecha, lastDate),
+        ),
+      );
+    const overrideByKey = new Map<string, RosterCapacityOverride>();
+    for (const o of allOverrides) {
+      overrideByKey.set(`${o.fecha}|${o.turno}`, o);
+    }
+
+    // Query 3: ALL bookings grouped by (fecha, turno) — 1 SQL call
+    const reservedRows = (await db.execute(sql`
+      SELECT ${rosterBookings.fecha} AS fecha,
+             ${rosterBookings.turno} AS turno,
+             COALESCE(SUM(${rosterBookings.pax}), 0)::int AS reserved
+        FROM ${rosterBookings}
+       WHERE ${rosterBookings.sedeId} = ${sedeId}
+         AND ${rosterBookings.fecha} >= ${opts.date}
+         AND ${rosterBookings.fecha} <= ${lastDate}
+         AND ${rosterBookings.status} = 'confirmed'
+       GROUP BY ${rosterBookings.fecha}, ${rosterBookings.turno}
+    `)) as unknown as Array<{ fecha: string; turno: string; reserved: number }>;
+    const reservedByKey = new Map<string, number>();
+    for (const r of reservedRows) {
+      reservedByKey.set(`${r.fecha}|${r.turno}`, Number(r.reserved));
+    }
+
+    // Build response in-memory — no more DB calls.
+    const buildSlot = (
+      fecha: string,
+      turno: Turno,
+    ): {
+      capacity: number;
+      reserved: number;
+      available: number;
+      blocked: boolean;
+    } => {
+      const override = overrideByKey.get(`${fecha}|${turno}`);
+      const capacity =
+        override?.capacity ?? defaultCapacityFor(sedeConfig, turno);
+      const blocked = override?.blocked === true;
+      const reserved = reservedByKey.get(`${fecha}|${turno}`) ?? 0;
+      const available = blocked ? 0 : Math.max(0, capacity - reserved);
+      return { capacity, reserved, available, blocked };
+    };
+
+    for (const fecha of dates) {
+      const am = buildSlot(fecha, "AM");
+      const pm = buildSlot(fecha, "PM");
+      const noc = buildSlot(fecha, "Nocturno");
+      const conf = buildSlot(fecha, "Confinadas");
       const dayAvailable =
-        (am?.available ?? 0) > 0 ||
-        (pm?.available ?? 0) > 0 ||
-        (noc?.available ?? 0) > 0 ||
-        (conf?.available ?? 0) > 0;
+        am.available > 0 ||
+        pm.available > 0 ||
+        noc.available > 0 ||
+        conf.available > 0;
       if (dayAvailable && !firstAvailableDate) firstAvailableDate = fecha;
 
       detalle.push({
         fecha,
         disponible: dayAvailable,
-        turno_manana: am
-          ? {
-              disponible: am.available > 0,
-              espacios: am.available,
-              capacidad: am.capacity,
-            }
-          : { disponible: false, espacios: 0, capacidad: 0 },
-        turno_tarde: pm
-          ? {
-              disponible: pm.available > 0,
-              espacios: pm.available,
-              capacidad: pm.capacity,
-            }
-          : { disponible: false, espacios: 0, capacidad: 0 },
-        ...(noc
-          ? {
-              turno_nocturno: {
-                disponible: noc.available > 0,
-                espacios: noc.available,
-                capacidad: noc.capacity,
-              },
-            }
-          : {}),
-        ...(conf
-          ? {
-              turno_confinadas: {
-                disponible: conf.available > 0,
-                espacios: conf.available,
-                capacidad: conf.capacity,
-              },
-            }
-          : {}),
+        turno_manana: {
+          disponible: am.available > 0,
+          espacios: am.available,
+          capacidad: am.capacity,
+        },
+        turno_tarde: {
+          disponible: pm.available > 0,
+          espacios: pm.available,
+          capacidad: pm.capacity,
+        },
+        turno_nocturno: {
+          disponible: noc.available > 0,
+          espacios: noc.available,
+          capacidad: noc.capacity,
+        },
+        turno_confinadas: {
+          disponible: conf.available > 0,
+          espacios: conf.available,
+          capacidad: conf.capacity,
+        },
       });
     }
 
