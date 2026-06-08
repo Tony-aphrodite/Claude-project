@@ -170,6 +170,35 @@ export async function adminRoutes(app: FastifyInstance) {
       }
     }
 
+    // Tony fix 2026-06-08: reassign the conversation back to the AI
+    // user so the take-over silence flow (which now actively GETs the
+    // current assignee — see process-message.ts 3rd defense layer)
+    // doesn't keep silencing the AI on the next test message.
+    //
+    // Without this, the sequence:
+    //   1. Test 1: human self-assigns to test take-over silence
+    //   2. Reset endpoint (clears DB but Respond.io still has human assignee)
+    //   3. Test 2: customer sends message → 3rd defense layer GETs current
+    //      assignee → human still assigned → AI silenced (correctly!)
+    //
+    // The reset endpoint is for TEST scenarios — we want the AI to be
+    // fully active after reset, so we explicitly reassign to the AI
+    // user. Env-gated: when RESPOND_IO_AI_ASSIGNEE_ID is unset (dev
+    // mode without an AI user configured), skip this step.
+    const aiAssigneeId = loadEnv().RESPOND_IO_AI_ASSIGNEE_ID;
+    if (aiAssigneeId) {
+      for (const cid of contactIds) {
+        await respondIoClient
+          .assignConversation({ contactId: cid, assignee: aiAssigneeId })
+          .catch((err) =>
+            req.log.warn(
+              { err: (err as Error).message, contactId: cid, aiAssigneeId },
+              "admin reset: ai reassign failed (continuing)",
+            ),
+          );
+      }
+    }
+
     req.log.info(
       {
         contactIds,
