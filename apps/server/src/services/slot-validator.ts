@@ -63,6 +63,14 @@ export type ValidateRequiredSlotsInput = {
   todayWitaStr: string;
   /** The candidate start_date being checked. */
   startDate: string;
+  /**
+   * Number of customers on this booking — must fit on EVERY required slot.
+   * Miguel feedback 2026-06-08: a 2-pax OW where Día 3 AM has only 1 spot
+   * was being confirmed as "available", causing the AI to overbook.
+   * Validator now requires `espacios >= pax` (not just `> 0`).
+   * Default 1 keeps legacy callers working.
+   */
+  pax?: number;
 };
 
 export type ValidateRequiredSlotsResult = {
@@ -85,6 +93,7 @@ export function validateRequiredSlots(
 ): ValidateRequiredSlotsResult {
   const slots: SlotCheck[] = [];
   let allAvailable = true;
+  const pax = Math.max(1, input.pax ?? 1);
   for (const req of input.required) {
     const date = addDays(input.startDate, req.dayOffset);
     const dayDetail = input.detalleByDate.get(date);
@@ -124,8 +133,10 @@ export function validateRequiredSlots(
       // Day-1 for OW.
       const am = dayDetail.turno_confinadas_am;
       const pm = dayDetail.turno_confinadas_pm;
-      const amHasSpace = am && am.disponible && (am.espacios ?? 0) > 0;
-      const pmHasSpace = pm && pm.disponible && (pm.espacios ?? 0) > 0;
+      // pax-aware: must fit ALL pax in the same session (can't split
+      // a 2-person OW across morning and afternoon pool).
+      const amHasSpace = am && am.disponible && (am.espacios ?? 0) >= pax;
+      const pmHasSpace = pm && pm.disponible && (pm.espacios ?? 0) >= pax;
       if (amHasSpace) {
         slotData = am;
         pickedSlot = "ConfinadasAM";
@@ -174,7 +185,11 @@ export function validateRequiredSlots(
       allAvailable = false;
       continue;
     }
-    if (!slotData.disponible || espacios <= 0) {
+    // Miguel rule 2026-06-08: pax-aware check. A slot with 1 espacio
+    // and a 2-pax booking is NOT available. The legacy `espacios <= 0`
+    // check allowed overbooking like "OW for 2 but Día 3 AM has 1
+    // libre → AI confirms anyway".
+    if (!slotData.disponible || espacios < pax) {
       slots.push({ date, slot: pickedSlot, available: false, espacios, reason: "full" });
       allAvailable = false;
       continue;
@@ -208,6 +223,8 @@ export function findVerifiedAlternativeStartDates(input: {
   todayWitaStr: string;
   daysForward?: number;
   limit?: number;
+  /** Pax — alternatives must fit the same group size. Default 1. */
+  pax?: number;
 }): string[] {
   const required = getRequiredSlots(input.programa, input.fundiveSlot);
   // Programs without a schedule (Divemaster / Instructor) cannot have
@@ -243,6 +260,7 @@ export function findVerifiedAlternativeStartDates(input: {
       horaActualWita: input.horaActualWita,
       todayWitaStr: input.todayWitaStr,
       startDate: candidate,
+      pax: input.pax,
     });
     if (verdict.allAvailable) results.push(candidate);
   }

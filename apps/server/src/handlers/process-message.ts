@@ -1478,6 +1478,7 @@ export async function processIncomingMessage(
       horaActualWita: fresh.hora_actual_wita,
       todayWitaStr,
       startDate: input.start_date,
+      pax: input.pax,
     });
     const { slots, allAvailable } = validation;
 
@@ -1495,6 +1496,7 @@ export async function processIncomingMessage(
           detalleByDate,
           horaActualWita: fresh.hora_actual_wita,
           todayWitaStr,
+          pax: input.pax,
         });
 
     // Move pipeline forward — the AI is actively proposing dates.
@@ -1650,6 +1652,7 @@ export async function processIncomingMessage(
           horaActualWita: preflightFresh.hora_actual_wita,
           todayWitaStr: todayWita,
           startDate: preflightStartDate,
+          pax: input.pax,
         });
         if (!preflightVerdict.allAvailable) {
           // Re-check failed — either AI proposed a date it never verified
@@ -1662,6 +1665,7 @@ export async function processIncomingMessage(
             detalleByDate: preflightDetalle,
             horaActualWita: preflightFresh.hora_actual_wita,
             todayWitaStr: todayWita,
+            pax: input.pax,
           });
           log.warn(
             {
