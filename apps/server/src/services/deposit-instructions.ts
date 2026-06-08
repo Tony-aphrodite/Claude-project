@@ -1,20 +1,26 @@
 // ============================================================================
-// Deposit payment instruction blocks for Gili Trawangan.
+// Deposit payment instruction blocks — per sede + per currency.
 //
-// Source of truth: information/KB03_payments.md (owner-authored, mayo 2026).
-// Five currency blocks reproduced verbatim with `{{REFERENCE_CODE}}` and
-// `{{AMOUNT}}` placeholders substituted at render time.
+// Sources of truth:
+//   • Gili Trawangan: information/KB03_payments.md (Miguel mayo 2026)
+//   • Koh Phi Phi:    information/17-information-phi-phi/2026-06-07-phi-phi-bank-details.md
+//                     (Miguel 2026-06-07 — image + follow-up THB details)
+//   • Other sedes:    deferred until their AI activates
 //
-// Critical rules from the KB:
+// Critical rules:
 //   • Only the block for the chosen currency is sent — never multiple.
 //   • Bank details ALWAYS in a separate message from price and from the
 //     close-question (the prompt builder enforces this on the AI side).
-//   • Stripe is NOT enabled in Gili Trawangan — every block requires human
-//     verification from the panel after the client transfers.
-//   • IDR amount is 700,000 (not 40); applies only when client has an
-//     Indonesian local bank account.
-//   • USD account is technically a Koh Tao account (we use it for GT clients
-//     who pay in USD); the client never needs to know.
+//   • PER-SEDE accounts (Miguel rule 2026-06-07): Phi Phi customers MUST
+//     receive Phi Phi accounts, NOT Gili Trawangan. Before this refactor
+//     the AI was sending GT bank details to every sede — meaning money
+//     would have gone to the wrong account. CRITICAL bug fix.
+//   • Fallback: sedes without explicit blocks fall through to GT defaults
+//     (preserves legacy behavior for sedes not yet on the AI).
+//   • IDR amount is 700,000 (Indonesia local only — Gili sedes).
+//   • THB amount is 1,000 (Thailand local — Phi Phi). Confirmed Miguel 2026-06-07.
+//   • Stripe is NOT yet wired in code — deferred until Miguel confirms the
+//     flow logic (which currency, 4+ pax behavior, webhook vs manual).
 // ============================================================================
 
 import {
@@ -68,46 +74,133 @@ const TAIL_ANY_ES = "Cuando lo envíes, compartí el comprobante de pago 🙏";
 
 const REFERENCE_LINE = (refCode: string) => `Reference: ${refCode}`;
 
-const BANK_BLOCKS_EN: Record<DepositCurrency, string[]> = {
-  EUR: [
-    "Beneficiary: DPM Diving Gili T LLC",
-    "IBAN: BE93 9050 6891 4867",
-    "BIC/SWIFT: TRWIBEB1XXX",
-    "Bank: Wise, Brussels, Belgium",
-  ],
-  GBP: [
-    "Beneficiary: DPM Diving Gili T LLC",
-    "Account number: 55834953",
-    "Sort code: 23-08-01",
-    "IBAN: GB52 TRWI 2308 0155 8349 53",
-    "BIC/SWIFT: TRWIGB2LXXX",
-    "Bank: Wise Payments Limited, London, UK",
-  ],
-  AUD: [
-    "Beneficiary: DPM Diving Gili T LLC",
-    "Account number: 222625669",
-    "BSB: 774-001",
-    "BIC/SWIFT: TRWIAUS1XXX",
-    "Bank: Wise Australia, Sydney",
-  ],
-  USD: [
-    "Beneficiary: Dpm Diving",
-    "Account number: 822000685807",
-    "Routing number: 026073150",
-    "BIC/SWIFT: CMFGUS33",
-    "Bank: Community Federal Savings Bank, New York, USA",
-  ],
-  IDR: [
-    "Beneficiary: Dalam Professional Menyelam",
-    "Bank: Bank Mandiri",
-    "Account: 1610010570609",
-  ],
+/**
+ * Per-sede bank blocks. Key = sede name (matches `sedes.nombre`).
+ * Value = currency → English-language line list rendered into the WhatsApp
+ * message.
+ *
+ * Sedes without an entry fall back to `Gili Trawangan` (legacy default —
+ * preserves behavior for sedes not yet on the AI).
+ *
+ * Currencies missing from a sede's block fall back to the same currency
+ * in Gili Trawangan. This is intentional for IDR (Gili-only — Phi Phi
+ * shouldn't offer IDR, but if a customer insists, the fallback still
+ * works). Use `sedeSupportsCurrency()` to gate offer-time decisions.
+ */
+type SedeBankBlocks = Partial<Record<DepositCurrency, string[]>>;
+
+const BANK_BLOCKS_BY_SEDE: Record<string, SedeBankBlocks> = {
+  "Gili Trawangan": {
+    EUR: [
+      "Beneficiary: DPM Diving Gili T LLC",
+      "IBAN: BE93 9050 6891 4867",
+      "BIC/SWIFT: TRWIBEB1XXX",
+      "Bank: Wise, Brussels, Belgium",
+    ],
+    GBP: [
+      "Beneficiary: DPM Diving Gili T LLC",
+      "Account number: 55834953",
+      "Sort code: 23-08-01",
+      "IBAN: GB52 TRWI 2308 0155 8349 53",
+      "BIC/SWIFT: TRWIGB2LXXX",
+      "Bank: Wise Payments Limited, London, UK",
+    ],
+    AUD: [
+      "Beneficiary: DPM Diving Gili T LLC",
+      "Account number: 222625669",
+      "BSB: 774-001",
+      "BIC/SWIFT: TRWIAUS1XXX",
+      "Bank: Wise Australia, Sydney",
+    ],
+    USD: [
+      "Beneficiary: Dpm Diving",
+      "Account number: 822000685807",
+      "Routing number: 026073150",
+      "BIC/SWIFT: CMFGUS33",
+      "Bank: Community Federal Savings Bank, New York, USA",
+    ],
+    IDR: [
+      "Beneficiary: Dalam Professional Menyelam",
+      "Bank: Bank Mandiri",
+      "Account: 1610010570609",
+    ],
+  },
+
+  // Miguel 2026-06-07 — image + follow-up THB details.
+  // See `information/17-information-phi-phi/2026-06-07-phi-phi-bank-details.md`.
+  "Koh Phi Phi": {
+    EUR: [
+      "Beneficiary: DPM Diving Phi Phi LLC",
+      "IBAN: BE90 9050 3751 2432",
+      "BIC/SWIFT: TRWIBEB1XXX",
+      "Bank: Wise, Rue du Trône 100, Brussels",
+    ],
+    GBP: [
+      "Beneficiary: DPM Diving Phi Phi LLC",
+      "IBAN: GB55 TRWI 2314 7029 2762 36",
+      "Sort code: 23-14-70",
+      "Account number: 29276236",
+      "Bank: Wise, London",
+    ],
+    AUD: [
+      "Beneficiary: DPM Diving Phi Phi LLC",
+      "Account number: 221638707",
+      "BSB: 774001",
+      // BIC pending Miguel confirmation — using Wise Australia universal
+      // BIC (same one Gili Trawangan uses since both accounts are at
+      // Wise based on BSB 774001 pattern). Safe assumption; Miguel can
+      // correct via a 1-line edit if wrong.
+      "BIC/SWIFT: TRWIAUS1XXX",
+      "Bank: Wise Australia",
+    ],
+    USD: [
+      // Personal-name account (Miguel confirmed 2026-06-07: show as-is to
+      // the customer). The customer transfers to the named individual,
+      // not to a corporate entity.
+      "Beneficiary: Francisco Jose Augier",
+      "Account number: 8313706669",
+      "Routing number: 026073150",
+      "BIC/SWIFT: CMFGUS33",
+      "Bank: Community Federal Savings Bank, New York, USA",
+    ],
+    THB: [
+      "Beneficiary: Dpm diving koh phiphi",
+      "Account number: 5722989108",
+      "BIC/SWIFT: SICOTHBKXXX",
+      "Bank: SCB (Siam Commercial Bank), Thailand",
+    ],
+    // IDR omitted intentionally — Phi Phi is Thailand, not Indonesia.
+    // If a customer requests IDR for some reason, falls back to GT block
+    // (defensive — shouldn't happen in practice).
+  },
 };
+
+const DEFAULT_SEDE_FOR_FALLBACK = "Gili Trawangan" as const;
+
+/**
+ * Resolve the bank block lines for (sede, currency). Falls back to the
+ * default sede (Gili Trawangan) if the sede doesn't have explicit
+ * configuration OR if the sede has no block for that currency.
+ */
+function lookupBankBlock(
+  sedeNombre: string,
+  currency: DepositCurrency,
+): string[] {
+  const sedeBlocks = BANK_BLOCKS_BY_SEDE[sedeNombre];
+  if (sedeBlocks?.[currency]) return sedeBlocks[currency]!;
+  // Fall back to default sede's block.
+  return BANK_BLOCKS_BY_SEDE[DEFAULT_SEDE_FOR_FALLBACK]![currency] ?? [];
+}
 
 function formatAmount(currency: DepositCurrency, pax: number = 1): string {
   const amt = depositAmountFor(currency) * Math.max(pax, 1);
-  // IDR uses thousand separators (700,000); the others stay as plain "40".
-  return currency === "IDR" ? amt.toLocaleString("en-US") : String(amt);
+  // Currencies with naturally large amounts use thousand separators for
+  // readability (700,000 / 1,000 / 2,000); foreign currencies (EUR/GBP/AUD/USD)
+  // stay as plain "40".
+  if (currency === "IDR" || currency === "THB") {
+    return amt.toLocaleString("en-US");
+  }
+  return String(amt);
 }
 
 /**
@@ -125,8 +218,14 @@ export function buildPaymentInstructions(input: BuildInstructionsInput): string 
   const isEnglish = !input.language.toLowerCase().startsWith("es");
   const amt = formatAmount(input.currency, input.pax ?? 1);
   const head = isEnglish ? HEAD_EN(amt, input.currency) : HEAD_ES(amt, input.currency);
-  const lines = BANK_BLOCKS_EN[input.currency];
-  const requiresPdf = input.currency !== "IDR";
+  // Per-sede lookup (Miguel rule 2026-06-07) — falls back to GT when
+  // sede has no explicit block. Critical for Phi Phi, where the wrong
+  // bank account = money lost.
+  const lines = lookupBankBlock(input.sedeNombre, input.currency);
+  // IDR + THB use local-banking apps (Indonesia / Thailand) where
+  // screenshots are more common than PDFs. Foreign currencies require
+  // a PDF confirmation (Wise / international banks emit PDF receipts).
+  const requiresPdf = input.currency !== "IDR" && input.currency !== "THB";
   const tail = isEnglish
     ? requiresPdf ? TAIL_PDF_EN : TAIL_ANY_EN
     : requiresPdf ? TAIL_PDF_ES : TAIL_ANY_ES;

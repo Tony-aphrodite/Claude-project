@@ -129,7 +129,7 @@ describe("parseSolicitarDepositoInput", () => {
     }
   });
 
-  it("accepts AUD (added per owner spec) and rejects THB (removed)", () => {
+  it("accepts AUD (added per owner spec) and accepts THB (added for Phi Phi 2026-06-07)", () => {
     expect(
       parseSolicitarDepositoInput({
         sede_id: "11111111-1111-1111-1111-111111111111",
@@ -138,6 +138,8 @@ describe("parseSolicitarDepositoInput", () => {
         pax: 1,
       }).ok,
     ).toBe(true);
+    // THB was rejected pre-2026-06-07 (Phi Phi wasn't live). Now accepted
+    // for local Thai customers — Miguel confirmed 1,000 THB per person.
     expect(
       parseSolicitarDepositoInput({
         sede_id: "11111111-1111-1111-1111-111111111111",
@@ -145,7 +147,7 @@ describe("parseSolicitarDepositoInput", () => {
         moneda_cliente: "THB",
         pax: 1,
       }).ok,
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("rejects invalid currency", () => {

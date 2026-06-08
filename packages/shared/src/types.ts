@@ -729,19 +729,19 @@ export type SendProductCardResult =
 // existing one), marks the conversation as deposit_pending, and returns
 // sede-specific payment instructions plus the reference.
 //
-// Currency matrix (owner-confirmed 2026-05-04): EUR/GBP/AUD/USD/IDR.
-//   - 40 units of foreign currency for EUR/GBP/AUD/USD
-//   - 700,000 IDR (special — only when the client has an Indonesian bank
-//     account; the rupiah equivalent of 40 EUR is far higher than 40 IDR
-//     would be, so the symbolic "40-unit" rule does not apply)
-//   - THB is NOT used for Gili Trawangan (the only sede in the pilot lives
-//     in Indonesia).
+// Currency matrix (owner-confirmed):
+//   - 40 units of foreign currency for EUR/GBP/AUD/USD (2026-05-04)
+//   - 700,000 IDR (Gili sedes — Indonesian local) (2026-05-04)
+//   - 1,000 THB (Phi Phi local Thai customers) (2026-06-07 — Miguel)
+// THB was added when Phi Phi went live; uses the SCB account configured
+// per-sede in deposit-instructions.ts.
 export const SUPPORTED_DEPOSIT_CURRENCIES = [
   "EUR",
   "GBP",
   "AUD",
   "USD",
   "IDR",
+  "THB",
 ] as const;
 export type DepositCurrency = (typeof SUPPORTED_DEPOSIT_CURRENCIES)[number];
 
@@ -751,6 +751,7 @@ const DEPOSIT_AMOUNTS: Record<DepositCurrency, number> = {
   AUD: 40,
   USD: 40,
   IDR: 700_000,
+  THB: 1_000,
 };
 
 export function depositAmountFor(currency: DepositCurrency): number {
