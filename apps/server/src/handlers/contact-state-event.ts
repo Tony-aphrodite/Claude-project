@@ -254,7 +254,11 @@ export async function handleContactStateEvent(
   //     contact: { id: ... } }
   // We also accept legacy data/payload wrappers + nested `userId` keys.
   // ────────────────────────────────────────────────────────────────────────
-  if (event.startsWith("conversation.assignee.")) {
+  if (
+    event.startsWith("conversation.assignee.") ||
+    event.startsWith("contact.assignee.") ||
+    /assignee/i.test(event)
+  ) {
     const newAssignee = readNumberOrNull(
       payload.assignee ??
         (payload.data as Record<string, unknown> | undefined)?.assignee ??

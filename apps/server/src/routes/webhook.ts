@@ -143,6 +143,18 @@ export async function webhookRoutes(app: FastifyInstance) {
       typeof (normalized as { event?: unknown })?.event === "string"
         ? ((normalized as { event: string }).event)
         : null;
+    // Tony 2026-06-07 debug: log EVERY incoming webhook event name so we
+    // know exactly what Respond.io sends (independent of our routing).
+    // Helps diagnose missing assignee.changed events for the take-over flow.
+    req.log.info(
+      {
+        event: peekedEvent,
+        contactId: (normalized as { contact?: { id?: unknown } })?.contact?.id ?? null,
+        isContactState: peekedEvent ? isContactStateEvent(peekedEvent) : false,
+        isMessage: peekedEvent ? isMessageEvent(peekedEvent) : false,
+      },
+      "WEBHOOK_EVENT received",
+    );
     if (peekedEvent && isContactStateEvent(peekedEvent)) {
       // Operator-side change in Respond.io (lifecycle moved, tag added/
       // removed, conversation assignee changed). The handler reads the
@@ -307,6 +319,14 @@ function isContactStateEvent(event: string): boolean {
   // exact Respond.io event names depend on the workspace settings; we
   // accept the v2 family + a few legacy aliases so the handler doesn't
   // miss the wrong name. Adding a new name here is a one-line change.
+  //
+  // Tony 2026-06-07 debug: Respond.io's UI shows the webhook event as
+  // "Cesionario de contactos actualizado" (Spanish: "Contacts assignee
+  // updated"). The actual event_type sent over the wire is either
+  // `contact.assignee.updated` (matching the Spanish) or
+  // `conversation.assignee.updated` (matching the legacy docs). We
+  // accept BOTH plus a generic prefix match below so we don't miss
+  // whichever Respond.io actually sends.
   return (
     event === "contact.lifecycle.updated" ||
     event === "contact.lifecycle.changed" ||
@@ -314,6 +334,10 @@ function isContactStateEvent(event: string): boolean {
     event === "contact.tag.removed" ||
     event === "contact.tag.updated" ||
     event === "conversation.assignee.changed" ||
-    event === "conversation.assignee.updated"
+    event === "conversation.assignee.updated" ||
+    event === "contact.assignee.changed" ||
+    event === "contact.assignee.updated" ||
+    // Generic prefix catches any future renaming (e.g. assignment.assignee.X).
+    /assignee/i.test(event)
   );
 }
