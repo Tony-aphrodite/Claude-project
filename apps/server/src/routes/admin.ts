@@ -16,11 +16,14 @@
 //   • DELETE every mensajes row for the contact's conversaciones
 //   • UPDATE the conversaciones row(s) → lead_stage='new',
 //     lead_metadata=null, status='active', closed_at=null
-//   • Leave the chat_contacts row alone (identity is preserved)
+//   • Strip server-emitted tags from Respond.io (deposit_paid, ai_escalation)
+//   • Reassign the conversation back to the AI user in Respond.io
+//     (Tony fix 2026-06-08 — required so the take-over silence's 3rd
+//     defense layer doesn't keep silencing the AI after reset).
 //
-// Side effects on Respond.io are out of scope — operators still close the
-// conversation in the Respond.io UI separately if they want a clean
-// conversation thread in the panel.
+// Side effects on Respond.io UI: the operator may still want to close the
+// conversation in the panel separately for a clean conversation thread,
+// but assignment + tags + flags are all reset by this endpoint.
 // ============================================================================
 
 import type { FastifyInstance } from "fastify";
