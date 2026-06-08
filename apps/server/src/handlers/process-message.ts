@@ -1169,9 +1169,19 @@ export async function processIncomingMessage(
   const useDbRoster =
     (sede.rosterConfig as { use_db_roster?: boolean } | null)?.use_db_roster ===
     true;
+  // Tony perf feedback 2026-06-07: prefetch window reduced 7→3 days.
+  // Bloque 4 only needs a few days of snapshot context for Claude to
+  // understand "what's the current state". 7 days was overkill — for
+  // sedes still on Apps Script it meant pulling 7 days of data on EVERY
+  // inbound message even though most messages don't need it. 3-day
+  // window is half the latency while still giving Claude useful
+  // context for short-term suggestions. The tool handler does its
+  // own targeted fetch when AI commits to a specific date, so this
+  // prefetch is purely for prompt context.
+  const PREFETCH_DAYS = 3;
   const rosterPromise = useDbRoster
     ? rosterDbService
-        .fetchAvailability(sede.id, { date: todayWita, days: 7 })
+        .fetchAvailability(sede.id, { date: todayWita, days: PREFETCH_DAYS })
         .then((r) => r)
         .catch((err) => {
           log.warn(
@@ -1180,12 +1190,12 @@ export async function processIncomingMessage(
           );
           return appsScriptService.fetchAvailability(sede, {
             date: todayWita,
-            days: 7,
+            days: PREFETCH_DAYS,
           });
         })
     : appsScriptService.fetchAvailability(sede, {
         date: todayWita,
-        days: 7,
+        days: PREFETCH_DAYS,
       });
 
   // Step 6: dynamic block + 5: 4-block prompt
@@ -1230,7 +1240,17 @@ export async function processIncomingMessage(
   // Resolve deposit currency from phone prefix per INSTRUCCIONES_PAGO §3.
   // null when prefix isn't in the table → AI prompts the client to choose.
   const suggestedCurrency = detectCurrencyFromPhone(contact.phone);
+  const prefetchT0 = Date.now();
   const roster = await rosterPromise;
+  log.info(
+    {
+      conversationId: conversation.id,
+      prefetchLatencyMs: Date.now() - prefetchT0,
+      prefetchDays: PREFETCH_DAYS,
+      useDbRoster,
+    },
+    "PERF prefetch roster complete",
+  );
 
   // Drop the bot's own message from the history we send back to Claude;
   // the new client message becomes the dynamic block input.
