@@ -475,6 +475,86 @@ export class RespondIoClient {
   }
 
   /**
+   * Fetch the current conversation state for a contact — specifically the
+   * `assignee` field (Tony's UX feedback 2026-06-07). Used by the
+   * self-assign path to AVOID overwriting a human who already took over.
+   *
+   * Without this check, the AI's self-assign would keep stealing the
+   * conversation back from a human in a loop:
+   *   1. Customer messages
+   *   2. AI processes, assigns to itself
+   *   3. Human takes over manually in panel
+   *   4. Customer messages again
+   *   5. AI re-assigns to itself (STEALS the conversation)
+   *   ↺ infinite loop
+   *
+   * The webhook-driven `human_took_over` flag was supposed to catch this
+   * but has latency (webhook delivery + handler processing). A direct
+   * GET on the current assignee is the bulletproof check.
+   *
+   * Endpoint: `GET /v2/contact/id:{contactId}/conversation`
+   * Returns `null` on any failure (network / 4xx / missing field) — caller
+   * treats null as "unknown state" and skips the self-assign defensively
+   * (safer to leave a conversation Sin asignar than to steal it from a
+   * human).
+   */
+  async getConversationAssignee(input: {
+    contactId: string;
+  }): Promise<{ assigneeId: string | null } | null> {
+    const env = loadEnv();
+    const log = getLogger();
+    const url = `${env.RESPOND_IO_API_BASE_URL}/contact/id:${encodeURIComponent(input.contactId)}/conversation`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUTS.RESPOND_IO_MS);
+    try {
+      const res = await undiciFetch(url, {
+        method: "GET",
+        dispatcher: keepAliveAgent,
+        signal: controller.signal,
+        headers: {
+          authorization: `Bearer ${env.RESPOND_IO_API_KEY}`,
+        },
+      });
+      if (!res.ok) {
+        log.warn(
+          { contactId: input.contactId, status: res.status },
+          "respond_io get_conversation non-2xx",
+        );
+        return null;
+      }
+      const body = (await res.json().catch(() => null)) as
+        | {
+            assignee?: string | number | null;
+            assigneeId?: string | number | null;
+            assignee_id?: string | number | null;
+          }
+        | null;
+      if (!body) return null;
+      // Accept multiple possible field names — Respond.io v2 schema has
+      // flipped between camelCase and snake_case for this field.
+      const raw = body.assignee ?? body.assigneeId ?? body.assignee_id ?? null;
+      return {
+        assigneeId: raw === null || raw === undefined ? null : String(raw),
+      };
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        log.warn(
+          { contactId: input.contactId },
+          "respond_io get_conversation timed out",
+        );
+        return null;
+      }
+      log.warn(
+        { contactId: input.contactId, err: (err as Error).message },
+        "respond_io get_conversation threw",
+      );
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * Close the active conversation with a specific close category (Miguel
    * rule 2026-06-06). Used by the AI when all close_sale rows have been
    * written so the existing "DPM Ventas Master Logger" workflow can be

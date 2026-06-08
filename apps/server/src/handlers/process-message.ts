@@ -2347,27 +2347,33 @@ export async function processIncomingMessage(
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
   try {
-    for (const segment of segments) {
-      await respondIoClient.sendMessage({
-        conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
-        contactId: payload.contact.id,
-        text: segment,
-      });
-    }
-
-    // Slice 3d (Miguel feedback 2026-06-05): after the AI successfully
-    // replies, claim the conversation as assigned to the AI user so it
-    // doesn't show "Sin asignar" in Respond.io panel. Skip when the lead
-    // is in a terminal/handoff stage — those go to a human team via the
-    // tag-based workflow Miguel maintains, we don't want to fight it.
+    // ─── Self-assign FIRST (Tony's UX feedback 2026-06-07) ─────────────
+    // The assign API call goes out BEFORE the first message so the panel's
+    // websocket receives the "assignee changed" event BEFORE the message
+    // arrives (better UX — no F5 required).
     //
-    // Also skip when a human operator has taken over (Miguel rule
-    // 2026-06-05). The `human_took_over` flag short-circuits this whole
-    // handler much earlier — by the time we'd reach this self-assign
-    // block, the flag has been clear. The extra check is paranoia against
-    // a race where the takeover happened DURING this handler's run.
+    // CRITICAL bug fix 2026-06-07 (Miguel test): the prior implementation
+    // would STEAL the conversation back from a human in an infinite loop:
+    //   1. Customer messages → AI assigns to itself
+    //   2. Human takes over manually in panel
+    //   3. Customer messages → AI re-assigns to itself (steal!)
+    //   ↺ loop
     //
-    // Env-gated: when RESPOND_IO_AI_ASSIGNEE_ID is unset, this is a no-op.
+    // Root cause: the `human_took_over` flag is set by the
+    // `conversation.assignee.changed` webhook, which has latency
+    // (webhook delivery + handler processing). Between the human
+    // assigning and the next customer message, the flag may not be set
+    // yet, so the AI's self-assign fires anyway.
+    //
+    // Bulletproof fix: GET the current assignee from Respond.io BEFORE
+    // assigning. If someone (not us) already has it → leave it alone.
+    // Cost: one extra GET call (~150ms). Worth it to prevent the loop.
+    //
+    // Skip when:
+    //   • RESPOND_IO_AI_ASSIGNEE_ID env unset (no-op mode)
+    //   • lead_stage is terminal/handoff
+    //   • human_took_over flag is set (defensive — earlier guard returns)
+    //   • current assignee is a human (the new check below)
     const aiAssigneeId = loadEnv().RESPOND_IO_AI_ASSIGNEE_ID;
     const handsOffStages: ReadonlyArray<typeof conversation.leadStage> = [
       "handed_off",
@@ -2382,17 +2388,59 @@ export async function processIncomingMessage(
       !handsOffStages.includes(conversation.leadStage) &&
       !humanTookOverNow
     ) {
-      void respondIoClient
-        .assignConversation({
-          contactId: payload.contact.id,
-          assignee: aiAssigneeId,
-        })
-        .catch((err) =>
+      // Fire and forget — but DO the assignee check first.
+      void (async () => {
+        try {
+          const current = await respondIoClient.getConversationAssignee({
+            contactId: payload.contact.id,
+          });
+          // If we can't read the current assignee → don't risk it.
+          // Better to leave it Sin asignar than to steal from a human.
+          if (current === null) {
+            log.warn(
+              { contactId: payload.contact.id },
+              "ai self-assign skipped — could not read current assignee from Respond.io",
+            );
+            return;
+          }
+          // Already assigned to AI → idempotent no-op (skip the POST).
+          if (current.assigneeId !== null && String(current.assigneeId) === String(aiAssigneeId)) {
+            return;
+          }
+          // Assigned to a non-AI human → DO NOT steal. The
+          // assignee.changed webhook handler will set the
+          // human_took_over flag on the next pass.
+          if (current.assigneeId !== null && String(current.assigneeId) !== String(aiAssigneeId)) {
+            log.info(
+              {
+                contactId: payload.contact.id,
+                currentAssigneeId: current.assigneeId,
+                aiAssigneeId,
+              },
+              "ai self-assign skipped — conversation already assigned to a human",
+            );
+            return;
+          }
+          // Unassigned (null) → safe to claim.
+          await respondIoClient.assignConversation({
+            contactId: payload.contact.id,
+            assignee: aiAssigneeId,
+          });
+        } catch (err) {
           log.warn(
             { err: (err as Error).message },
             "ai self-assign failed (non-blocking)",
-          ),
-        );
+          );
+        }
+      })();
+    }
+
+    for (const segment of segments) {
+      await respondIoClient.sendMessage({
+        conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
+        contactId: payload.contact.id,
+        text: segment,
+      });
     }
   } catch (err) {
     log.error({ err }, "respond_io send failed; AI text saved but not delivered");

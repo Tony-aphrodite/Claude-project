@@ -33,12 +33,17 @@ import {
 
 /**
  * Default scan window when looking for viable alternative start dates.
- * 30 days = roughly "next month" — long enough that the AI rarely runs out
- * of options, short enough to keep the roster fetch payload reasonable.
+ * Originally 30 days but reduced to 14 (Tony perf feedback 2026-06-07:
+ * "tardó 3 minutos en contestar"). A 30-day window made each
+ * consultar_disponibilidad call fetch 30+ days of roster from Apps
+ * Script which was the bottleneck. 14 days is still long enough to
+ * find viable alternatives in most cases (Phi Phi rarely fills up
+ * more than 1-2 days a week in a row); if all 14 days are full the
+ * AI escalates to human which is the safer fallback anyway.
  * Returned list is capped by `limit` (default 5) so the AI's outbound
  * message stays readable.
  */
-export const ALT_SCAN_DAYS_FORWARD = 30;
+export const ALT_SCAN_DAYS_FORWARD = 14;
 export const ALT_SCAN_RESULT_LIMIT = 5;
 
 /**
