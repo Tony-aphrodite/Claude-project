@@ -725,24 +725,22 @@ export function SimulatorClient({
         </div>
       </section>
 
-      {/* Diving-themed loading overlay — covers EVERY async op the
-          simulator does so operators always see something is happening
-          (Miguel rule 2026-06-09 PM: no spinners genéricos, tematico). */}
+      {/* Diving-themed loading overlay — covers the slow, click-driven
+          async ops (Comprobante OCR, session rewind/new, grid edit/reset)
+          where the operator otherwise sees nothing happening. Skips chat
+          Enviar on purpose: that already has the inline "Francisco está
+          pensando…" indicator in the header, and a fullscreen overlay
+          per message would be obnoxious (Miguel rule 2026-06-09 PM). */}
       <DivingLoadingOverlay
         visible={
-          status === "sending" ||
-          status === "creating-session" ||
-          ocrUploading ||
-          gridBusy
+          status === "creating-session" || ocrUploading || gridBusy
         }
         label={
           ocrUploading
             ? "Procesando comprobante con OCR…"
-            : status === "sending"
-              ? "Pensando como Francisco…"
-              : status === "creating-session"
-                ? "Preparando sesión nueva…"
-                : gridBusyLabel ?? "Procesando…"
+            : status === "creating-session"
+              ? "Preparando sesión nueva…"
+              : gridBusyLabel ?? "Procesando…"
         }
       />
     </>
