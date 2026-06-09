@@ -1071,8 +1071,25 @@ export async function runSimulatorOcr(input: {
     throw new Error(`simulator: sede ${conv.sedeId} not found`);
   }
 
+  // Helper so EVERY OCR outcome lands as a chat message — operator sees
+  // what happened no matter the verdict (success, mismatch, missing
+  // metadata, fetch failure, etc). Before this, only the validated path
+  // inserted a message and Miguel reported "subo PDF y no pasa nada".
+  const appendOcrMessage = async (content: string, source: string) => {
+    await db.insert(mensajes).values({
+      conversacionId: conv.id,
+      sender: "ai",
+      content,
+      metadata: { synthetic: true, source },
+      origin: "simulator",
+    });
+  };
+
   const meta = (conv.leadMetadata as LeadMetadata | null) ?? {};
   if (!meta.deposit_currency || typeof meta.deposit_amount_total !== "number" || !meta.ref_code) {
+    const msg =
+      "❌ Sandbox OCR rechazado: la AI todavía no llamó solicitar_deposito. Hacé que el cliente pida la seña primero.";
+    await appendOcrMessage(msg, "simulator_ocr_no_metadata");
     return {
       verdict: {
         ok: false,
@@ -1082,8 +1099,7 @@ export async function runSimulatorOcr(input: {
       },
       bookings: [],
       rowsConfirmed: 0,
-      message:
-        "❌ Sandbox OCR rechazado: la AI todavía no llamó solicitar_deposito. Hacé que el cliente pida la seña primero.",
+      message: msg,
     };
   }
 
@@ -1129,19 +1145,37 @@ export async function runSimulatorOcr(input: {
 
   // Reject paths: not auto-confirmable, surface as a chat message.
   if (!verdict.ok) {
+    const msg = `❌ Sandbox OCR falló (${verdict.reason}). ${
+      verdict.reason === "no_anthropic_key"
+        ? "Falta ANTHROPIC_API_KEY en el server."
+        : verdict.reason === "model_failed"
+          ? "Vision no pudo extraer datos del comprobante."
+          : verdict.reason === "fetch_failed"
+            ? "No se pudo procesar el archivo subido (mime no soportado o corrupto)."
+            : ""
+    }`.trim();
+    await appendOcrMessage(msg, "simulator_ocr_failed");
     return {
       verdict,
       bookings: [],
       rowsConfirmed: 0,
-      message: `❌ Sandbox OCR falló (${verdict.reason}).`,
+      message: msg,
     };
   }
   if (!verdict.validated) {
+    const extractionLine = `Vision leyó: ${verdict.extraction.amount ?? "?"} ${
+      verdict.extraction.currency ?? "?"
+    }, ref ${verdict.extraction.refCode ?? "?"}`;
+    const expectedLine = `Esperado: ${expected.amount} ${expected.currency}, ref ${expected.refCode}`;
+    const msg = `⚠️ Sandbox OCR procesó el comprobante pero NO validó.\nMotivos: ${verdict.mismatches.join(
+      ", ",
+    )}\n${extractionLine}\n${expectedLine}`;
+    await appendOcrMessage(msg, "simulator_ocr_mismatch");
     return {
       verdict,
       bookings: [],
       rowsConfirmed: 0,
-      message: `⚠️ Sandbox OCR leyó el comprobante pero no validó: ${verdict.mismatches.join(", ")}.`,
+      message: msg,
     };
   }
 
@@ -1210,16 +1244,13 @@ export async function runSimulatorOcr(input: {
     );
 
   // Drop a system message into the chat so the operator sees what happened.
-  const summary = `✅ Sandbox OCR validó. Reservas confirmadas: ${bookings
-    .map((b) => `${b.fecha} ${b.turno}`)
-    .join(", ")}.`;
-  await db.insert(mensajes).values({
-    conversacionId: conv.id,
-    sender: "ai",
-    content: summary,
-    metadata: { synthetic: true, source: "simulator_ocr" },
-    origin: "simulator",
-  });
+  const summary =
+    bookings.length > 0
+      ? `✅ Sandbox OCR validó. Reservas confirmadas: ${bookings
+          .map((b) => `${b.fecha} ${b.turno}`)
+          .join(", ")}.`
+      : `✅ Sandbox OCR validó el comprobante. (No había holds pendientes para confirmar — la AI no terminó solicitar_deposito antes del comprobante.)`;
+  await appendOcrMessage(summary, "simulator_ocr_validated");
 
   return {
     verdict,

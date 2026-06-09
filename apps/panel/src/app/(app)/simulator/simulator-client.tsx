@@ -19,6 +19,7 @@ import {
   type SimulatorSede,
 } from "./actions";
 import { SandboxRosterGrid } from "./sandbox-roster-grid";
+import { DivingLoadingOverlay } from "./diving-loading-overlay";
 
 type Status = "idle" | "loading-prompts" | "creating-session" | "sending" | "error";
 
@@ -110,6 +111,11 @@ export function SimulatorClient({
   // refreshes (sandbox state may have changed). Operator manual edits
   // refresh inside the grid component itself.
   const [rosterRefreshNonce, setRosterRefreshNonce] = useState(0);
+  // Surfaces grid-side async ops (cell edit, reset) so the diving
+  // overlay can cover them too — without this, Reset/cell-edit waits
+  // looked frozen to the operator (Miguel feedback 2026-06-09 PM).
+  const [gridBusy, setGridBusy] = useState(false);
+  const [gridBusyLabel, setGridBusyLabel] = useState<string | undefined>(undefined);
 
   const refreshSavedSessions = useCallback(async () => {
     try {
@@ -706,6 +712,10 @@ export function SimulatorClient({
             <SandboxRosterGrid
               sedeId={selectedSedeId}
               refreshNonce={rosterRefreshNonce}
+              onBusyChange={(busy, label) => {
+                setGridBusy(busy);
+                setGridBusyLabel(busy ? label : undefined);
+              }}
             />
           ) : (
             <div className="text-xs text-ink-500 p-3">
@@ -714,6 +724,27 @@ export function SimulatorClient({
           )}
         </div>
       </section>
+
+      {/* Diving-themed loading overlay — covers EVERY async op the
+          simulator does so operators always see something is happening
+          (Miguel rule 2026-06-09 PM: no spinners genéricos, tematico). */}
+      <DivingLoadingOverlay
+        visible={
+          status === "sending" ||
+          status === "creating-session" ||
+          ocrUploading ||
+          gridBusy
+        }
+        label={
+          ocrUploading
+            ? "Procesando comprobante con OCR…"
+            : status === "sending"
+              ? "Pensando como Francisco…"
+              : status === "creating-session"
+                ? "Preparando sesión nueva…"
+                : gridBusyLabel ?? "Procesando…"
+        }
+      />
     </>
   );
 }

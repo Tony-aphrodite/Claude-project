@@ -84,9 +84,12 @@ type Props = {
   sedeId: string;
   /** Bump this number to force a refresh — used by parent after AI turns. */
   refreshNonce: number;
+  /** Optional callback so the parent can show the diving overlay while
+   *  grid operations are inflight (cell edit, full reset). */
+  onBusyChange?: (busy: boolean, label?: string) => void;
 };
 
-export function SandboxRosterGrid({ sedeId, refreshNonce }: Props) {
+export function SandboxRosterGrid({ sedeId, refreshNonce, onBusyChange }: Props) {
   const [rows, setRows] = useState<SandboxRosterRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,6 +161,7 @@ export function SandboxRosterGrid({ sedeId, refreshNonce }: Props) {
 
   const handleSaveEdit = async (pax: number) => {
     if (!editing) return;
+    onBusyChange?.(true, "Guardando celda…");
     try {
       await setSimulatorRosterCell({
         sedeId,
@@ -169,6 +173,8 @@ export function SandboxRosterGrid({ sedeId, refreshNonce }: Props) {
       void refresh();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      onBusyChange?.(false);
     }
   };
 
@@ -180,11 +186,14 @@ export function SandboxRosterGrid({ sedeId, refreshNonce }: Props) {
     ) {
       return;
     }
+    onBusyChange?.(true, "Vaciando el roster sandbox…");
     try {
       await resetSimulatorRosterGrid({ sedeId });
       void refresh();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      onBusyChange?.(false);
     }
   };
 
