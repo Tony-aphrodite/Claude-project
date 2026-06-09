@@ -75,6 +75,7 @@ function buildReplayToolHandlers(): ToolHandlers {
       return {
         ok: true,
         ref_code: ref,
+        ref_codes_by_pax: Array.from({ length: pax }, () => ref),
         monto,
         monto_total: monto * pax,
         pax,

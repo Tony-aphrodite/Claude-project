@@ -803,16 +803,35 @@ export const solicitarDepositoInputSchema = z.object({
   // 2-pax booking that should have required 80 EUR).
   pax: z.number().int().min(1).max(20),
   /**
-   * Optional list of CatalogProgram keys when the booking is multi-program
-   * (Miguel rule 2026-06-06 — one ref code per program). When omitted, the
-   * server falls back to `leadMetadata.programa` (the singular field
-   * stamped by consultar_disponibilidad) and generates 1 code. Examples:
-   *   - 1 person 1 program → omit (or pass ["OW"])
-   *   - 3 people same program → omit (single code for the row, pax=3)
-   *   - 1 person 2 programs → pass ["OW", "AOW"] → 2 codes
-   *   - 3 people 3 different programs → pass ["TryScuba","Refresh","AOW"]
+   * Legacy field — list of programs across the whole booking.
+   * @deprecated 2026-06-09 (Miguel rule): use `pax_programs` instead.
+   * Kept temporarily so the AI's previous tool-use shape doesn't break
+   * mid-conversation; new code paths should always pass `pax_programs`.
    */
   programas: z.array(z.string()).min(1).max(10).optional(),
+  /**
+   * Per-person program assignment (Miguel rule 2026-06-09).
+   * Outer index = person (length must equal `pax`).
+   * Inner array = programs that specific person is enrolled in.
+   *
+   * The server generates ONE ref code PER PERSON (length = pax codes total).
+   * Each person's code is repeated across all their enrollments in the
+   * master sheet — one row per (person × program).
+   *
+   * Examples:
+   *   - "2 people, both doing OW"      → [["OW"], ["OW"]]                 → 2 codes
+   *   - "1 person doing OW + AOW"      → [["OW","AOW"]]                   → 1 code
+   *   - "2 people, 1 OW + 1 AOW"       → [["OW"], ["AOW"]]                → 2 codes
+   *   - "3 people all doing OW + AOW"  → [["OW","AOW"]×3]                 → 3 codes
+   *
+   * If omitted, the server falls back to assuming each person does ALL
+   * programs in `programas` (or the singular `leadMetadata.programa`).
+   */
+  pax_programs: z
+    .array(z.array(z.string()).min(1).max(5))
+    .min(1)
+    .max(20)
+    .optional(),
 });
 
 export type SolicitarDepositoInput = z.infer<typeof solicitarDepositoInputSchema>;
@@ -821,17 +840,26 @@ export type SolicitarDepositoResult =
   | {
       ok: true;
       /**
-       * Primary ref code. For single-program bookings this is THE code.
-       * For multi-program, it's the FIRST code generated, kept for
-       * backward compat with callers that expect a single string.
+       * Primary ref code. The FIRST person's code, kept for backwards
+       * compatibility with single-pax callers that expect a string.
        */
       ref_code: string;
       /**
-       * Multi-program ref code mapping (Miguel rule 2026-06-06). Present
-       * when the booking includes >1 distinct program. Key = program
-       * (CatalogProgram), value = the program-specific ref code. The AI
-       * must surface ALL entries to the customer so each row of the
-       * sales master sheet reconciles 1:1 with a bank transfer concept.
+       * Per-person ref codes (Miguel rule 2026-06-09 — one code per
+       * person, repeated across that person's enrollments). Length
+       * equals `pax`. Index N = person N+1's code. The AI MUST surface
+       * ALL codes to the customer — one per line — so each pax can
+       * pay individually OR pay together with all codes in the
+       * transfer reference.
+       */
+      ref_codes_by_pax: string[];
+      /**
+       * @deprecated Pre-2026-06-09 multi-program mapping. Kept on the
+       * response shape so downstream consumers that haven't migrated
+       * yet keep compiling. New code paths should read `ref_codes_by_pax`.
+       * For backwards compat: this map flattens the per-pax codes
+       * across the union of programs (first pax doing that program
+       * wins the code slot).
        */
       ref_codes_by_program?: Record<string, string>;
       /** Per-person amount (e.g. 40 EUR). */
@@ -911,19 +939,33 @@ export type LeadMetadata = {
    */
   ref_code?: string;
   /**
-   * Multi-program ref code mapping (Miguel rule 2026-06-06). Key is the
-   * `CatalogProgram` enum value (e.g. "OW", "AOW", "TryScuba"), value is
-   * the program-specific ref code. Each row in DPM_Ventas_Master holds
-   * one of these codes so deposits reconcile 1:1 with rows. Absent for
-   * single-program bookings where `ref_code` is sufficient.
+   * Per-person ref codes (Miguel rule 2026-06-09). Length equals
+   * `pax`. Each person's code is reused across all their program
+   * enrollments — so person 1's code appears in every master-sheet
+   * row for person 1, regardless of how many programs they booked.
+   */
+  ref_codes_by_pax?: string[];
+  /**
+   * Per-person program assignment (Miguel rule 2026-06-09). Outer
+   * length equals `pax`. Inner array = the programs that specific
+   * person is enrolled in. Used by sales-logger to write one row
+   * per (person × program) pairing, each row carrying that person's
+   * code from `ref_codes_by_pax[index]`.
+   */
+  pax_programs?: string[][];
+  /**
+   * @deprecated Pre-2026-06-09 multi-program mapping. Old conversations
+   * still in flight may carry this — readers should prefer the
+   * pax-based fields above when present.
    */
   ref_codes_by_program?: Record<string, string>;
   /**
    * Idempotency map for the close_sale auto-fire path (Miguel rule
-   * 2026-06-06). Key = CatalogProgram, value = ISO timestamp of when the
+   * 2026-06-06, updated 2026-06-09 to be per-(pax_idx, program)).
+   * Key = `${pax_idx}:${program}`, value = ISO timestamp of when that
    * row was written to DPM_Ventas_Master. Set by the OCR-validated →
-   * deposit_paid hook. A re-OCR / re-validation re-runs the hook but
-   * skips any program already in this map — no double-write.
+   * deposit_paid hook. A re-OCR re-runs the hook but skips any
+   * (person × program) already in this map.
    */
   sale_logged_at_by_program?: Record<string, string>;
   /**

@@ -1759,29 +1759,63 @@ export async function processIncomingMessage(
     // program key, then mint new codes for any program without one.
     // Miguel 2026-06-06: pass sede.nombre so the code carries the correct
     // 2-letter sede prefix (PP/GT/GA/KT/NP) instead of legacy "GT".
-    let refCode: string;
-    let refCodesByProgram: Record<string, string> | undefined;
-    if (programaList.length > 1) {
-      const map: Record<string, string> = { ...(existingRefCodesByProgram ?? {}) };
-      for (const p of programaList) {
-        if (!map[p]) map[p] = generateRefCode(sede.nombre);
-      }
-      refCodesByProgram = map;
-      // Primary code = first program's code (backward compat for callers
-      // that expect a single string). Stable across retries because
-      // programaList order is preserved.
-      refCode = map[programaList[0]!]!;
-    } else if (programaList.length === 1) {
-      // Single-program booking — reuse existing code or mint one. Also
-      // populate ref_codes_by_program so downstream paths (close_sale,
-      // panel) see the same shape regardless of program count.
-      const prog = programaList[0]!;
-      const existingForProg = existingRefCodesByProgram?.[prog] ?? existingRefCode;
-      refCode = existingForProg ?? generateRefCode(sede.nombre);
-      refCodesByProgram = { [prog]: refCode };
+    //
+    // Miguel rule 2026-06-09 (PIVOT from 06-06): ONE CODE PER PERSON, not
+    // per program. The same person reuses their code across all the
+    // courses they're taking ("2 people, 1 OW + 1 AOW" = 2 codes, not 3).
+    //
+    // Resolution order for per-pax programs:
+    //   1. input.pax_programs (explicit, recommended) — outer length =
+    //      pax, inner = programs for that person
+    //   2. Existing leadMetadata.pax_programs (idempotency on retry)
+    //   3. Fallback: assume each person does ALL programs in programaList
+    //      (covers single-program case + the old `programas` input shape)
+    const existingRefCodesByPax = existingMeta?.ref_codes_by_pax ?? null;
+    const existingPaxPrograms = existingMeta?.pax_programs ?? null;
+    let paxPrograms: string[][];
+    if (input.pax_programs && input.pax_programs.length > 0) {
+      paxPrograms = input.pax_programs;
+    } else if (existingPaxPrograms && existingPaxPrograms.length === pax) {
+      paxPrograms = existingPaxPrograms;
     } else {
-      // Unknown program — legacy single-code path. Don't populate the map.
-      refCode = existingRefCode ?? generateRefCode(sede.nombre);
+      // Each person does all listed programs (or none if programaList empty).
+      paxPrograms = Array.from({ length: pax }, () => [...programaList]);
+    }
+    // Sanity: trim or pad paxPrograms to match `pax` exactly so downstream
+    // code can iterate without bounds checks.
+    if (paxPrograms.length > pax) {
+      paxPrograms = paxPrograms.slice(0, pax);
+    } else if (paxPrograms.length < pax) {
+      const fillPrograms = programaList.length > 0 ? [...programaList] : [];
+      while (paxPrograms.length < pax) paxPrograms.push([...fillPrograms]);
+    }
+
+    // Mint one code per person, reusing existing codes when present
+    // (never-mint-twice rule scoped to pax index).
+    const refCodesByPax: string[] = [];
+    for (let i = 0; i < pax; i++) {
+      const existing = existingRefCodesByPax?.[i];
+      refCodesByPax.push(
+        existing && isValidRefCode(existing)
+          ? existing
+          : generateRefCode(sede.nombre),
+      );
+    }
+    // Primary `ref_code` for backwards compat = first person's code.
+    let refCode: string = refCodesByPax[0] ?? existingRefCode ?? generateRefCode(sede.nombre);
+
+    // Backwards-compat flat map (`ref_codes_by_program`): for each
+    // program, pick the code of the FIRST pax doing it. Old consumers
+    // that expect a single code per program still get a sensible value.
+    let refCodesByProgram: Record<string, string> | undefined;
+    if (programaList.length > 0) {
+      const map: Record<string, string> = {};
+      for (let i = 0; i < pax; i++) {
+        for (const p of paxPrograms[i] ?? []) {
+          if (!map[p]) map[p] = refCodesByPax[i]!;
+        }
+      }
+      if (Object.keys(map).length > 0) refCodesByProgram = map;
     }
 
     const requiresHumanVerification = !sedeHasAutomaticGateway(
@@ -1794,6 +1828,7 @@ export async function processIncomingMessage(
       currency,
       refCode,
       pax,
+      refCodesByPax,
     });
 
     // Only transition to deposit_pending the first time the tool is
@@ -1808,6 +1843,8 @@ export async function processIncomingMessage(
         : `solicitar_deposito ${refCode} ${currency}`,
       metadataPatch: {
         ref_code: refCode,
+        ref_codes_by_pax: refCodesByPax,
+        pax_programs: paxPrograms,
         ...(refCodesByProgram ? { ref_codes_by_program: refCodesByProgram } : {}),
         deposit_amount: monto, // per-person, kept for backward compat
         deposit_amount_total: montoTotal, // pax × per-person — OCR target
@@ -1881,9 +1918,11 @@ export async function processIncomingMessage(
     return {
       ok: true,
       ref_code: refCode,
-      // Surface the per-program mapping only when multi-program. Single-
-      // program callers and the AI prompt see the same legacy `ref_code`
-      // string and don't have to branch on the optional field.
+      // Per-person codes (Miguel rule 2026-06-09). Always present, length = pax.
+      ref_codes_by_pax: refCodesByPax,
+      // Legacy multi-program mapping kept on the response only when more
+      // than one program is involved — old callers branching on this
+      // field keep working.
       ...(refCodesByProgram && Object.keys(refCodesByProgram).length > 1
         ? { ref_codes_by_program: refCodesByProgram }
         : {}),
@@ -2645,17 +2684,47 @@ async function logSaleRowsForBooking(input: {
   const { sede, conversation, contact, log } = input;
   const meta = (conversation.leadMetadata as LeadMetadata | null) ?? {};
 
-  // Build the (programa → refCode) entries to log.
-  const entries: Array<{ programa: string; refCode: string }> = [];
+  // Build the per-(pax × programa) entries to log (Miguel rule 2026-06-09:
+  // one row per enrollment, code repeated when one person takes multiple
+  // courses). Resolution priority:
+  //   1. NEW shape: meta.pax_programs (outer = pax, inner = programs) +
+  //      meta.ref_codes_by_pax (1 code per pax)
+  //   2. LEGACY shape: meta.ref_codes_by_program → 1 row per program,
+  //      pax=1 (covers in-flight conversations from before the 06-09 split)
+  //   3. SINGLE: meta.programa + meta.ref_code, repeat per pax with the
+  //      same shared code (pre-2026-06-09 behavior — kept so existing
+  //      pending bookings finish cleanly)
+  type RowEntry = { paxIdx: number; programa: string; refCode: string };
+  const entries: RowEntry[] = [];
+  const paxPrograms = meta.pax_programs;
+  const refCodesByPax = meta.ref_codes_by_pax;
   if (
+    Array.isArray(paxPrograms) &&
+    Array.isArray(refCodesByPax) &&
+    paxPrograms.length > 0 &&
+    refCodesByPax.length === paxPrograms.length
+  ) {
+    paxPrograms.forEach((programs, paxIdx) => {
+      const refCode = refCodesByPax[paxIdx];
+      if (!refCode) return;
+      for (const programa of programs) {
+        entries.push({ paxIdx, programa, refCode });
+      }
+    });
+  } else if (
     meta.ref_codes_by_program &&
     Object.keys(meta.ref_codes_by_program).length > 0
   ) {
+    // Legacy: one row per program, paxIdx=0 (no per-person tracking).
+    let i = 0;
     for (const [programa, refCode] of Object.entries(meta.ref_codes_by_program)) {
-      entries.push({ programa, refCode });
+      entries.push({ paxIdx: i++, programa, refCode });
     }
   } else if (meta.programa && meta.ref_code) {
-    entries.push({ programa: meta.programa, refCode: meta.ref_code });
+    const totalPax = meta.pax ?? 1;
+    for (let i = 0; i < totalPax; i++) {
+      entries.push({ paxIdx: i, programa: meta.programa, refCode: meta.ref_code });
+    }
   } else {
     log.warn(
       { convId: conversation.id },
@@ -2664,7 +2733,6 @@ async function logSaleRowsForBooking(input: {
     return;
   }
 
-  const totalPax = meta.pax ?? 1;
   const currency = meta.deposit_currency;
   if (!currency) {
     log.warn(
@@ -2674,13 +2742,10 @@ async function logSaleRowsForBooking(input: {
     return;
   }
   const perPersonAmount = depositAmountFor(currency);
-
-  // Per-row pax: single-program shares the total; multi-program defaults
-  // to 1 per row (Miguel's typical case: each person picks their own
-  // program). If Miguel later wants explicit per-program pax breakdown,
-  // we add it as a new metadata field.
-  const isMulti = entries.length > 1;
-  const perRowPax = isMulti ? 1 : totalPax;
+  // Each row = ONE person × ONE program. Pax is always 1, amount is the
+  // per-person deposit. The customer's total transfer is still captured
+  // elsewhere (lead_metadata.deposit_amount_total + OCR validation).
+  const perRowPax = 1;
 
   // Resolve all sede-scoped + once-per-call values OUTSIDE the loop.
   const { firstName, lastName } = splitContactName(contact.name);
@@ -2694,15 +2759,34 @@ async function logSaleRowsForBooking(input: {
     );
   }
 
+  // Idempotency key now includes pax_idx (Miguel rule 2026-06-09 —
+  // multiple pax can do the same program in one booking, each is its
+  // own row). Key format: `${paxIdx}:${programa}`. Legacy keys
+  // (just `programa`) are still honored on first read so partial
+  // pre-06-09 retries don't double-write.
   const alreadyLogged = meta.sale_logged_at_by_program ?? {};
   const newlyLogged: Record<string, string> = { ...alreadyLogged };
-  const failures: Array<{ programa: string; reason: string; message: string }> = [];
+  const failures: Array<{
+    paxIdx: number;
+    programa: string;
+    reason: string;
+    message: string;
+  }> = [];
 
-  for (const { programa, refCode } of entries) {
-    if (alreadyLogged[programa]) {
+  for (const { paxIdx, programa, refCode } of entries) {
+    const idemKey = `${paxIdx}:${programa}`;
+    const legacyKey = programa;
+    const previouslyLoggedAt = alreadyLogged[idemKey] ?? alreadyLogged[legacyKey];
+    if (previouslyLoggedAt) {
       log.info(
-        { programa, convId: conversation.id, loggedAt: alreadyLogged[programa] },
-        "sales_logger: skip — programa already logged for this conversation",
+        {
+          idemKey,
+          paxIdx,
+          programa,
+          convId: conversation.id,
+          loggedAt: previouslyLoggedAt,
+        },
+        "sales_logger: skip — (paxIdx, programa) already logged for this conversation",
       );
       continue;
     }
@@ -2714,12 +2798,13 @@ async function logSaleRowsForBooking(input: {
     const programaForSheet = programaDisplayName(sede.nombre, programa);
     if (!programaForSheet) {
       failures.push({
+        paxIdx,
         programa,
         reason: "no_program_mapping",
         message: `No display name mapping for (${sede.nombre}, ${programa}) — operator must log manually. Miguel: please add to PROGRAMA_DISPLAY_NAME table.`,
       });
       log.warn(
-        { sede: sede.nombre, programa, convId: conversation.id },
+        { sede: sede.nombre, paxIdx, programa, convId: conversation.id },
         "sales_logger: skip row — no programa display-name mapping",
       );
       continue;
@@ -2771,15 +2856,17 @@ async function logSaleRowsForBooking(input: {
 
     const result = await salesLoggerService.logSale(row);
     if (result.ok) {
-      newlyLogged[programa] = new Date().toISOString();
+      newlyLogged[idemKey] = new Date().toISOString();
     } else {
       failures.push({
+        paxIdx,
         programa,
         reason: result.reason,
         message: result.message,
       });
       log.warn(
         {
+          paxIdx,
           programa,
           refCode,
           reason: result.reason,
@@ -2831,7 +2918,12 @@ async function logSaleRowsForBooking(input: {
   //
   // Idempotent via ai_closed_at — a second pass through this code path
   // (re-OCR, manual re-validation) will see the flag and skip.
-  const allLogged = entries.every((e) => newlyLogged[e.programa]);
+  // Idempotency key matches the per-(pax × programa) format we wrote
+  // above. Every entry must be present in `newlyLogged` (either freshly
+  // written this run OR carried over from `alreadyLogged`).
+  const allLogged = entries.every(
+    (e) => newlyLogged[`${e.paxIdx}:${e.programa}`],
+  );
   const alreadyClosed = !!meta.ai_closed_at;
   if (allLogged && !alreadyClosed && failures.length === 0) {
     const closeResult = await respondIoClient.closeConversation({

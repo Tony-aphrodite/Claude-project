@@ -57,6 +57,13 @@ export type BuildInstructionsInput = {
    * SHOULD always pass the real pax captured from `solicitar_deposito`.
    */
   pax?: number;
+  /**
+   * Per-person ref codes (Miguel rule 2026-06-09). When present and
+   * length > 1, the reference line lists every code one per line so
+   * each person's deposit reconciles individually. When absent or
+   * length 1, falls back to the legacy single `refCode`.
+   */
+  refCodesByPax?: string[];
 };
 
 const HEAD_EN = (amt: string, ccy: string) =>
@@ -73,6 +80,31 @@ const TAIL_ANY_EN = "Once sent, please share the payment confirmation 🙏";
 const TAIL_ANY_ES = "Cuando lo envíes, compartí el comprobante de pago 🙏";
 
 const REFERENCE_LINE = (refCode: string) => `Reference: ${refCode}`;
+
+/**
+ * Per-person reference block (Miguel rule 2026-06-09). Each person's
+ * code on its own line so the customer can include all of them in a
+ * single transfer reference OR pay separately. Falls back to the
+ * legacy single-line format when only one code is provided.
+ */
+function referenceBlock(
+  refCode: string,
+  refCodesByPax: string[] | undefined,
+  language: string,
+): string[] {
+  const codes = refCodesByPax && refCodesByPax.length > 0 ? refCodesByPax : [refCode];
+  if (codes.length === 1) {
+    return [REFERENCE_LINE(codes[0]!)];
+  }
+  const isEs = language.toLowerCase().startsWith("es");
+  const header = isEs
+    ? "Referencias (una por persona):"
+    : "References (one per person):";
+  return [
+    header,
+    ...codes.map((c, i) => `${i + 1}. ${c}`),
+  ];
+}
 
 /**
  * Per-sede bank blocks. Key = sede name (matches `sedes.nombre`).
@@ -234,12 +266,13 @@ export function buildPaymentInstructions(input: BuildInstructionsInput): string 
   const tail = isEnglish
     ? requiresPdf ? TAIL_PDF_EN : TAIL_ANY_EN
     : requiresPdf ? TAIL_PDF_ES : TAIL_ANY_ES;
+  const refLines = referenceBlock(input.refCode, input.refCodesByPax, input.language);
   return [
     head,
     "",
     ...lines,
     "",
-    REFERENCE_LINE(input.refCode),
+    ...refLines,
     "",
     tail,
   ].join("\n");
