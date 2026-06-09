@@ -164,7 +164,7 @@ export function SandboxRosterGrid({ sedeId, refreshNonce }: Props) {
   const handleResetGrid = async () => {
     if (
       !window.confirm(
-        "Borrar TODAS las celdas seteadas a mano en el sandbox (reservas de chat NO se tocan). ¿Continuar?",
+        "Borrar TODO el roster sandbox para esta sede (celdas a mano + reservas creadas por la AI en el chat). ¿Continuar?",
       )
     ) {
       return;

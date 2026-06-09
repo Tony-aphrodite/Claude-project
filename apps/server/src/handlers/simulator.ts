@@ -1443,9 +1443,14 @@ export async function setSandboxRosterCell(input: {
 }
 
 /**
- * Clear the entire grid-seed state for a sede — bulk reset for when an
- * operator wants to start a fresh test board. Does NOT touch chat
- * bookings (rows without the GRID_SEED_NOTES marker).
+ * Wipe the entire sandbox roster for a sede — grid edits AND chat-driven
+ * holds. Intuitive "nuke" semantics so the operator can always start
+ * from a known-empty board.
+ *
+ * Earlier design preserved chat bookings (only deleted GRID_SEED_NOTES
+ * rows). Miguel reported it as confusing 2026-06-09 PM ("Reset no
+ * limpia las celdas que vinieron del chat anterior") — switched to
+ * full-sede wipe to match operator expectation.
  */
 export async function resetSandboxRosterGrid(input: {
   sedeId: string;
@@ -1454,16 +1459,11 @@ export async function resetSandboxRosterGrid(input: {
   const db = getDb();
   const cleared = await db
     .delete(rosterBookingsSandbox)
-    .where(
-      and(
-        eq(rosterBookingsSandbox.sedeId, input.sedeId),
-        eq(rosterBookingsSandbox.notes, GRID_SEED_NOTES),
-      ),
-    )
+    .where(eq(rosterBookingsSandbox.sedeId, input.sedeId))
     .returning({ id: rosterBookingsSandbox.id });
   log.info(
     { sedeId: input.sedeId, clearedRows: cleared.length },
-    "[sim] sandbox grid reset",
+    "[sim] sandbox grid reset (full wipe)",
   );
   return { ok: true, cleared: cleared.length };
 }
