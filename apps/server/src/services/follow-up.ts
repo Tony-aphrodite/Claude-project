@@ -47,6 +47,7 @@ import { getLogger } from "../logger.js";
 import { leadStageService } from "./lead-stage.js";
 import { detectNegativeIntent } from "./negative-intent.js";
 import { respondIoClient } from "./respond-io.js";
+import { rosterDbService } from "./roster-db.js";
 import {
   DEFAULT_BEHAVIOR,
   getSedeBehavior,
@@ -228,6 +229,63 @@ export async function expireStaleDepositPending(): Promise<{ expired: number }> 
   return { expired };
 }
 
+/**
+ * Miguel rule 2026-06-09: pending roster holds older than 4 hours are
+ * released and the contact is flagged so the office can chase.
+ *
+ * Flow per expired group of rows (1 conversation = N pending rows
+ * across N program-days):
+ *   1. `rosterDbService.expirePendingBookings` updates status='expired'
+ *      (capacity released — future availability queries ignore them).
+ *   2. We group expired rows by conversacionId and add a `deposit_expired`
+ *      tag to each affected contact in Respond.io. The office can configure
+ *      a Respond.io workflow that picks up this tag.
+ *   3. Audit log per group so the panel can surface "expired hold, chase"
+ *      in operator views (future work — for now just structured logs).
+ */
+const ROSTER_PENDING_TTL_MINUTES = 240; // 4 hours — Miguel rule 2026-06-09
+
+export async function expireRosterPendingHolds(): Promise<{
+  expired: number;
+  taggedContacts: number;
+}> {
+  const log = getLogger();
+  const { expired } = await rosterDbService.expirePendingBookings({
+    ttlMinutes: ROSTER_PENDING_TTL_MINUTES,
+  });
+  if (expired.length === 0) {
+    return { expired: 0, taggedContacts: 0 };
+  }
+  // Group by contactId so we add the tag once per contact even if the
+  // booking spanned multiple program-days.
+  const contactIds = new Set<string>();
+  for (const row of expired) {
+    if (row.contactId) contactIds.add(row.contactId);
+  }
+  let taggedContacts = 0;
+  for (const cid of contactIds) {
+    const result = await respondIoClient
+      .addContactTag({ contactId: cid, tag: "deposit_expired" })
+      .catch((err) => {
+        log.warn(
+          { err: (err as Error).message, contactId: cid },
+          "deposit_expired tag add failed (continuing)",
+        );
+        return null;
+      });
+    if (result) taggedContacts += 1;
+  }
+  log.info(
+    {
+      expiredRows: expired.length,
+      uniqueContacts: contactIds.size,
+      taggedContacts,
+    },
+    "roster pending holds expired + contacts flagged (Miguel 4h TTL)",
+  );
+  return { expired: expired.length, taggedContacts };
+}
+
 export class FollowUpScheduler {
   /**
    * Scan active conversations and schedule the next-applicable follow-up
@@ -248,6 +306,14 @@ export class FollowUpScheduler {
     // expiry pass transitions them to handed_off when the window ends.
     await expirePostPurchaseGrace().catch((err) =>
       log.warn({ err }, "expirePostPurchaseGrace failed"),
+    );
+    // Side-effect: enforce 4h TTL on roster pending holds (Miguel rule
+    // 2026-06-09). Pending rows created by solicitar_deposito but
+    // never OCR-confirmed are released after 4h so capacity isn't
+    // permanently locked by abandoned reservations. The expiry pass
+    // also tags the contact in Respond.io so the office can chase.
+    await expireRosterPendingHolds().catch((err) =>
+      log.warn({ err }, "expireRosterPendingHolds failed"),
     );
 
     // Load per-sede behavior configs once per pass so the per-conversation

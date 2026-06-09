@@ -39,6 +39,7 @@ import type {
   SlotVerdict,
   SolicitarDepositoInput,
   SolicitarDepositoResult,
+  TurnoKey,
 } from "@dpm/shared";
 import { depositAmountFor } from "@dpm/shared";
 
@@ -1830,6 +1831,102 @@ export async function processIncomingMessage(
       pax,
       refCodesByPax,
     });
+
+    // ─── Roster hold (Miguel rule 2026-06-09) ────────────────────────
+    // Reserve the slots as `pending` in roster_bookings so concurrent
+    // customers see fewer spots while this customer is paying. Held
+    // for 4 hours by default; the expiry sweep (rosterDbService.
+    // expirePendingBookings) releases capacity if the customer doesn't
+    // OCR-confirm in time.
+    //
+    // Race condition: someone else may have just taken the last seat
+    // between our `preflight` re-check above and now. The hold creates
+    // its own SERIALIZABLE check so the race is closed at the database
+    // level — if we lose, return `slot_unavailable` to the AI.
+    //
+    // Idempotent on retry: holdPendingBookings looks up existing
+    // pending rows for this conversation first and reuses them, so an
+    // AI tool retry doesn't create duplicate holds.
+    const startDateForHold = existingMeta?.start_date;
+    const requiredSlotsForHold = existingMeta?.required_slots ?? [];
+    const programaForHold = existingMeta?.programa;
+    if (
+      startDateForHold &&
+      programaForHold &&
+      Array.isArray(requiredSlotsForHold) &&
+      requiredSlotsForHold.length > 0
+    ) {
+      const slotsForHold = requiredSlotsForHold.map((s) => ({
+        fecha: addDays(startDateForHold, s.dayOffset),
+        turno: s.slot as TurnoKey as unknown as Parameters<
+          typeof rosterDbService.holdPendingBookings
+        >[0]["slots"][number]["turno"],
+        programa: programaForHold,
+        pax,
+      }));
+      const holdResult = await rosterDbService.holdPendingBookings({
+        sedeId: sede.id,
+        conversacionId: conversation.id,
+        contactId: payload.contact.id,
+        slots: slotsForHold,
+        notes: `pending hold for ${refCode} (${currency} × ${pax})`,
+      });
+      if (!holdResult.ok) {
+        if (holdResult.reason === "overbooked") {
+          log.warn(
+            {
+              conversationId: conversation.id,
+              failingSlot: holdResult.failingSlot,
+            },
+            "solicitar_deposito rejected — pending hold raced (Miguel 2026-06-09 4h hold)",
+          );
+          return {
+            ok: false,
+            reason: "slot_unavailable",
+            message:
+              "Justo cuando iba a generar la seña re-verifiqué y se llenó un cupo. Ofrecé una fecha alternativa al cliente.",
+            failingSlots: [
+              {
+                date: holdResult.failingSlot.fecha,
+                slot: holdResult.failingSlot.turno as TurnoKey,
+                available: false,
+                espacios: holdResult.failingSlot.available,
+                reason: "full",
+              },
+            ],
+          };
+        }
+        // invalid_input — defensive, shouldn't happen since validators
+        // run earlier. Treat as internal_error so the AI escalates.
+        log.error(
+          { conversationId: conversation.id, holdResult },
+          "solicitar_deposito hold failed with invalid_input — escalating",
+        );
+        return {
+          ok: false,
+          reason: "internal_error",
+          message:
+            "No pude generar la reserva interna. Pasalo al equipo manualmente — Miguel revisa hoy mismo.",
+        };
+      }
+      log.info(
+        {
+          conversationId: conversation.id,
+          heldRows: holdResult.holds.length,
+          heldIds: holdResult.holds.map((h) => h.id),
+        },
+        "solicitar_deposito: pending holds created (Miguel 4h TTL)",
+      );
+    } else {
+      // No required_slots in metadata — legacy / programs without
+      // a schedule (Divemaster, specialties). Skip the hold; the
+      // booking still needs office attention so capacity isn't an
+      // automated concern.
+      log.info(
+        { conversationId: conversation.id },
+        "solicitar_deposito: skipping pending hold — required_slots empty (program without schedule)",
+      );
+    }
 
     // Only transition to deposit_pending the first time the tool is
     // invoked. Subsequent reuses are no-ops on the state machine but still

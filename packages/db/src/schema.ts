@@ -531,16 +531,29 @@ export const rosterCapacityOverrides = pgTable(
 //   capacity - SUM(pax WHERE status='confirmed')  =  available spaces
 //
 // Status lifecycle:
-//   confirmed  — booked + deposit OCR-validated (default after insert)
-//   cancelled  — Patrick/Tony cancelled (frees the space)
+//   pending    — hold created by solicitar_deposito (Miguel rule 2026-06-09).
+//                Reserves capacity for 4 hours while the customer pays.
+//                Auto-expires to `expired` if no OCR confirms in time.
+//   confirmed  — deposit OCR-validated. Transitions from `pending` (or direct
+//                insert in pre-2026-06-09 conversations).
+//   expired    — pending hold that timed out (Miguel TTL 4h). Capacity is
+//                released (availability queries ignore `expired` rows). Row
+//                is kept for audit + so the office can chase the customer.
+//   cancelled  — Patrick/Tony cancelled (frees the space).
 //   no_show    — customer didn't show up; tracked for ops analytics but
-//                does NOT auto-free the space (it was held that day)
+//                does NOT auto-free the space (it was held that day).
 //
-// Inserted atomically by services/roster-db.ts confirmBooking() inside a
-// SERIALIZABLE transaction that re-checks capacity. Prevents the race-condition
-// overbooking scenario that the read-only Apps Script integration couldn't.
+// Availability math (capacity − reserved):
+//   reserved = SUM(pax WHERE status IN ('pending', 'confirmed'))
+// Pending counts as taken so concurrent customers don't all see the same
+// availability while the first one is mid-payment.
+//
+// Inserted atomically by services/roster-db.ts inside a SERIALIZABLE
+// transaction that re-checks capacity. Prevents race-condition overbooking
+// the read-only Apps Script integration couldn't catch.
 //
 // Added 2026-06-04 — Phase 2 roster. See companion rosterCapacityOverrides.
+// Pending/expired states added 2026-06-09 — Miguel hold-on-request rule.
 export const rosterBookings = pgTable(
   "roster_bookings",
   {

@@ -320,7 +320,7 @@ export class RosterDbService {
            WHERE ${rosterBookings.sedeId} = ${input.sedeId}
              AND ${rosterBookings.fecha} = ${input.fecha}
              AND ${rosterBookings.turno} = ${input.turno}
-             AND ${rosterBookings.status} = 'confirmed'
+             AND ${rosterBookings.status} IN ('pending', 'confirmed')
         `)) as unknown as Array<{ reserved: number }>;
         const reserved = Number(reservedRow?.reserved ?? 0);
         const available = Math.max(0, capacity - reserved);
@@ -346,6 +346,52 @@ export class RosterDbService {
           contactId: input.contactId ?? null,
           notes: input.notes ?? null,
         };
+        // Miguel rule 2026-06-09: if a `pending` hold already exists for
+        // this (conversacionId, fecha, turno), upgrade it to `confirmed`
+        // instead of inserting a duplicate row. The hold was created at
+        // solicitar_deposito time; OCR success just promotes it.
+        if (input.conversacionId) {
+          const [existingPending] = await tx
+            .select()
+            .from(rosterBookings)
+            .where(
+              and(
+                eq(rosterBookings.conversacionId, input.conversacionId),
+                eq(rosterBookings.fecha, input.fecha),
+                eq(rosterBookings.turno, input.turno),
+                eq(rosterBookings.status, "pending"),
+              ),
+            )
+            .limit(1);
+          if (existingPending) {
+            const [upgraded] = await tx
+              .update(rosterBookings)
+              .set({
+                status: "confirmed",
+                pax: input.pax, // re-stamp in case pax changed between hold and OCR
+                programa: input.programa,
+                notes: input.notes ?? existingPending.notes,
+                updatedAt: new Date(),
+              })
+              .where(eq(rosterBookings.id, existingPending.id))
+              .returning();
+            if (!upgraded) {
+              throw new Error("confirmBooking upgrade returned no row");
+            }
+            log.info(
+              {
+                sedeId: input.sedeId,
+                fecha: input.fecha,
+                turno: input.turno,
+                pax: input.pax,
+                conversacionId: input.conversacionId,
+                upgradedFromPending: true,
+              },
+              "roster_db pending hold upgraded to confirmed",
+            );
+            return { ok: true as const, booking: upgraded };
+          }
+        }
         const [booking] = await tx
           .insert(rosterBookings)
           .values(values)
@@ -372,6 +418,233 @@ export class RosterDbService {
       },
       { isolationLevel: "serializable" },
     );
+  }
+
+  /**
+   * Hold capacity as `pending` while the customer is paying their deposit
+   * (Miguel rule 2026-06-09 — "no descuenta en el roster las plazas
+   * disponibles lo cual generaría over booking").
+   *
+   * Insert one row per (fecha, turno) at status='pending'. From now on,
+   * `getAvailability()` counts these against capacity, so concurrent
+   * customers see fewer spots while the first one is paying.
+   *
+   * Idempotent: if pending rows for this (conversacionId, fecha, turno)
+   * tuple already exist, return them without inserting duplicates. Lets
+   * `solicitar_deposito` retry safely (re-OCR, multi-program iteration,
+   * AI retrying after a tool error).
+   *
+   * Capacity check inside SERIALIZABLE txn — race-safe vs concurrent
+   * holds + confirmations. If the slot is already full, returns
+   * `ok:false reason:overbooked` so the caller can return the existing
+   * `slot_unavailable` error to the AI prompt.
+   *
+   * The 4-hour expiry is enforced by `expirePendingBookings()` — this
+   * method just plants the hold; a separate process sweeps the timeouts.
+   */
+  async holdPendingBookings(input: {
+    sedeId: string;
+    conversacionId: string;
+    contactId?: string | null;
+    slots: ReadonlyArray<{
+      fecha: string;
+      turno: Turno;
+      programa: string;
+      pax: number;
+    }>;
+    notes?: string | null;
+  }): Promise<
+    | { ok: true; holds: RosterBooking[] }
+    | {
+        ok: false;
+        reason: "overbooked";
+        failingSlot: { fecha: string; turno: Turno; available: number; pax: number };
+      }
+    | { ok: false; reason: "invalid_input"; message: string }
+  > {
+    const log = getLogger();
+    if (input.slots.length === 0) {
+      return { ok: false, reason: "invalid_input", message: "empty slots[]" };
+    }
+    for (const s of input.slots) {
+      if (!isValidTurno(s.turno)) {
+        return {
+          ok: false,
+          reason: "invalid_input",
+          message: `Invalid turno: ${s.turno}`,
+        };
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s.fecha)) {
+        return {
+          ok: false,
+          reason: "invalid_input",
+          message: `Invalid fecha: ${s.fecha}`,
+        };
+      }
+      if (!Number.isInteger(s.pax) || s.pax < 1) {
+        return {
+          ok: false,
+          reason: "invalid_input",
+          message: `Invalid pax: ${s.pax}`,
+        };
+      }
+    }
+    const db = getDb();
+    const sedeConfig = await this.getSedeRosterConfig(input.sedeId);
+    return await db.transaction(
+      async (tx) => {
+        const holds: RosterBooking[] = [];
+        for (const s of input.slots) {
+          // Idempotent re-check: do we already have a pending hold for
+          // this exact slot tied to this conversation? If yes, reuse.
+          const [existing] = await tx
+            .select()
+            .from(rosterBookings)
+            .where(
+              and(
+                eq(rosterBookings.conversacionId, input.conversacionId),
+                eq(rosterBookings.fecha, s.fecha),
+                eq(rosterBookings.turno, s.turno),
+                eq(rosterBookings.status, "pending"),
+              ),
+            )
+            .limit(1);
+          if (existing) {
+            holds.push(existing);
+            continue;
+          }
+          // Confirm this conversation hasn't already CONFIRMED this slot —
+          // if so, the hold would be a duplicate of the same booking.
+          const [confirmedRow] = await tx
+            .select()
+            .from(rosterBookings)
+            .where(
+              and(
+                eq(rosterBookings.conversacionId, input.conversacionId),
+                eq(rosterBookings.fecha, s.fecha),
+                eq(rosterBookings.turno, s.turno),
+                eq(rosterBookings.status, "confirmed"),
+              ),
+            )
+            .limit(1);
+          if (confirmedRow) {
+            holds.push(confirmedRow);
+            continue;
+          }
+          // Capacity check: count pending + confirmed reserved already.
+          const [overrideRow] = await tx
+            .select()
+            .from(rosterCapacityOverrides)
+            .where(
+              and(
+                eq(rosterCapacityOverrides.sedeId, input.sedeId),
+                eq(rosterCapacityOverrides.fecha, s.fecha),
+                eq(rosterCapacityOverrides.turno, s.turno),
+              ),
+            )
+            .limit(1);
+          const capacity =
+            overrideRow?.capacity ?? defaultCapacityFor(sedeConfig, s.turno);
+          if (overrideRow?.blocked === true) {
+            return {
+              ok: false as const,
+              reason: "overbooked" as const,
+              failingSlot: { fecha: s.fecha, turno: s.turno, available: 0, pax: s.pax },
+            };
+          }
+          const [reservedRow] = (await tx.execute(sql`
+            SELECT COALESCE(SUM(${rosterBookings.pax}), 0)::int AS reserved
+              FROM ${rosterBookings}
+             WHERE ${rosterBookings.sedeId} = ${input.sedeId}
+               AND ${rosterBookings.fecha} = ${s.fecha}
+               AND ${rosterBookings.turno} = ${s.turno}
+               AND ${rosterBookings.status} IN ('pending', 'confirmed')
+          `)) as unknown as Array<{ reserved: number }>;
+          const reserved = Number(reservedRow?.reserved ?? 0);
+          const available = Math.max(0, capacity - reserved);
+          if (available < s.pax) {
+            return {
+              ok: false as const,
+              reason: "overbooked" as const,
+              failingSlot: { fecha: s.fecha, turno: s.turno, available, pax: s.pax },
+            };
+          }
+          const [inserted] = await tx
+            .insert(rosterBookings)
+            .values({
+              sedeId: input.sedeId,
+              fecha: s.fecha,
+              turno: s.turno,
+              programa: s.programa,
+              pax: s.pax,
+              status: "pending",
+              conversacionId: input.conversacionId,
+              contactId: input.contactId ?? null,
+              notes: input.notes ?? "pending — solicitar_deposito hold",
+            })
+            .returning();
+          if (!inserted) {
+            throw new Error("holdPendingBookings insert returned no row");
+          }
+          holds.push(inserted);
+        }
+        log.info(
+          {
+            sedeId: input.sedeId,
+            conversacionId: input.conversacionId,
+            held: holds.length,
+            slots: input.slots.map((s) => `${s.fecha}|${s.turno}|${s.pax}`),
+          },
+          "roster_db pending holds created",
+        );
+        return { ok: true as const, holds };
+      },
+      { isolationLevel: "serializable" },
+    );
+  }
+
+  /**
+   * Sweep pending holds older than `ttlMinutes` (Miguel TTL = 240 minutes
+   * = 4 hours). Mark them `expired` so their capacity is released and
+   * the office can chase the customer (caller stamps the tag in
+   * Respond.io — this method just updates the DB).
+   *
+   * Returns the rows that transitioned so the caller can iterate and
+   * fire the tag / panel notification per affected conversation.
+   */
+  async expirePendingBookings(input: {
+    ttlMinutes?: number;
+    /** Limit per sweep — defensive guard against massive sweeps. */
+    limit?: number;
+  } = {}): Promise<{ expired: RosterBooking[] }> {
+    const ttlMinutes = input.ttlMinutes ?? 240;
+    const limit = input.limit ?? 200;
+    const log = getLogger();
+    const db = getDb();
+    // pg interval syntax; we'd use createdAt < (now - interval).
+    const cutoffMinutes = sql`(NOW() - (${ttlMinutes} || ' minutes')::interval)`;
+    const expired = (await db.execute(sql`
+      UPDATE ${rosterBookings}
+         SET status = 'expired', updated_at = NOW()
+       WHERE id IN (
+         SELECT id FROM ${rosterBookings}
+          WHERE status = 'pending'
+            AND created_at < ${cutoffMinutes}
+          LIMIT ${limit}
+       )
+       RETURNING *
+    `)) as unknown as RosterBooking[];
+    if (expired.length > 0) {
+      log.info(
+        {
+          expiredCount: expired.length,
+          ttlMinutes,
+          ids: expired.map((r) => r.id),
+        },
+        "roster_db expired pending holds (Miguel 4h TTL)",
+      );
+    }
+    return { expired };
   }
 
   /**
@@ -700,7 +973,7 @@ export class RosterDbService {
        WHERE ${rosterBookings.sedeId} = ${sedeId}
          AND ${rosterBookings.fecha} >= ${opts.date}
          AND ${rosterBookings.fecha} <= ${lastDate}
-         AND ${rosterBookings.status} = 'confirmed'
+         AND ${rosterBookings.status} IN ('pending', 'confirmed')
        GROUP BY ${rosterBookings.fecha}, ${rosterBookings.turno}
     `)) as unknown as Array<{ fecha: string; turno: string; reserved: number }>;
     const reservedByKey = new Map<string, number>();
@@ -924,7 +1197,7 @@ export class RosterDbService {
        WHERE ${rosterBookings.sedeId} = ${sedeId}
          AND ${rosterBookings.fecha} = ${fecha}
          AND ${rosterBookings.turno} = ${turno}
-         AND ${rosterBookings.status} = 'confirmed'
+         AND ${rosterBookings.status} IN ('pending', 'confirmed')
     `)) as unknown as Array<{ reserved: number }>;
     return Number(result[0]?.reserved ?? 0);
   }
