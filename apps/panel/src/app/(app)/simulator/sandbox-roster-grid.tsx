@@ -23,7 +23,17 @@ import {
 // the AI rejects the booking (correct) or confirms based on day-1 alone
 // (the bug Miguel cares about catching).
 
-const TURNOS = ["AM", "PM", "Nocturno", "ConfinadasAM", "ConfinadasPM"] as const;
+const TURNOS = [
+  "AM",
+  "PM",
+  "Nocturno",
+  "ConfinadasAM",
+  "ConfinadasPM",
+  // Legacy single "Confinadas" bucket — OW's Día 1 holds land here in
+  // current production prompts (the AM/PM split is newer, 2026-06-07).
+  // Surface as its own column so operators can see and edit those holds.
+  "Confinadas",
+] as const;
 type Turno = (typeof TURNOS)[number];
 
 const TURNO_LABEL: Record<Turno, string> = {
@@ -32,6 +42,7 @@ const TURNO_LABEL: Record<Turno, string> = {
   Nocturno: "Noc",
   ConfinadasAM: "Conf AM",
   ConfinadasPM: "Conf PM",
+  Confinadas: "Conf",
 };
 
 /** YYYY-MM-DD for today (server timezone — close enough for the panel). */
@@ -138,7 +149,7 @@ export function SandboxRosterGrid({ sedeId, refreshNonce }: Props) {
       // Try to infer capacity from any same-turno row of any date.
       const fallbackCapacity =
         rows.find((r) => r.turno === turno)?.capacidad ??
-        (turno.startsWith("Confinadas") ? 30 : 22);
+        (turno === "Confinadas" ? 60 : turno.startsWith("Confinadas") ? 30 : 22);
       setEditing({ fecha, turno, capacity: fallbackCapacity, current: 0 });
       return;
     }
@@ -256,7 +267,7 @@ export function SandboxRosterGrid({ sedeId, refreshNonce }: Props) {
                 {TURNOS.map((turno) => {
                   const row = byKey.get(`${fecha}|${turno}`);
                   const reserved = row?.reservado ?? 0;
-                  const capacity = row?.capacidad ?? (turno.startsWith("Confinadas") ? 30 : 22);
+                  const capacity = row?.capacidad ?? (turno === "Confinadas" ? 60 : turno.startsWith("Confinadas") ? 30 : 22);
                   const isFull = reserved >= capacity;
                   const isPartial = reserved > 0 && !isFull;
                   return (

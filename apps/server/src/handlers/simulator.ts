@@ -1368,6 +1368,13 @@ export async function fetchSandboxRoster(input: {
     push("Nocturno", day.turno_nocturno);
     push("ConfinadasAM", day.turno_confinadas_am);
     push("ConfinadasPM", day.turno_confinadas_pm);
+    // Legacy single "Confinadas" turno — fetchAvailability only emits
+    // this when there's actual booking data against it (Miguel
+    // 2026-06-07 split). OW's required_slots still target the legacy
+    // bucket for Día 1 in production prompts, so without this push the
+    // grid hides those holds and the operator thinks the booking
+    // didn't land.
+    push("Confinadas", day.turno_confinadas);
   }
   return { ok: true, sedeId: input.sedeId, fromDate: input.fromDate, days, rows };
 }
@@ -1391,7 +1398,17 @@ export async function setSandboxRosterCell(input: {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.fecha)) {
     throw new Error(`setSandboxRosterCell: bad fecha ${input.fecha}`);
   }
-  const VALID_TURNOS = ["AM", "PM", "Nocturno", "ConfinadasAM", "ConfinadasPM"] as const;
+  // "Confinadas" (legacy single bucket) is allowed so operators can
+  // sculpt the same slot OW's Día 1 holds land on. See the comment in
+  // fetchSandboxRoster's push() for context.
+  const VALID_TURNOS = [
+    "AM",
+    "PM",
+    "Nocturno",
+    "ConfinadasAM",
+    "ConfinadasPM",
+    "Confinadas",
+  ] as const;
   if (!(VALID_TURNOS as readonly string[]).includes(input.turno)) {
     throw new Error(`setSandboxRosterCell: bad turno ${input.turno}`);
   }
