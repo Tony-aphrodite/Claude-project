@@ -18,6 +18,7 @@ import {
   type SimulatorSavedSession,
   type SimulatorSede,
 } from "./actions";
+import { SandboxRosterGrid } from "./sandbox-roster-grid";
 
 type Status = "idle" | "loading-prompts" | "creating-session" | "sending" | "error";
 
@@ -105,6 +106,10 @@ export function SimulatorClient({
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const ocrInputRef = useRef<HTMLInputElement>(null);
   const [ocrUploading, setOcrUploading] = useState(false);
+  // Bumped after every AI turn / OCR / rewind so the SandboxRosterGrid
+  // refreshes (sandbox state may have changed). Operator manual edits
+  // refresh inside the grid component itself.
+  const [rosterRefreshNonce, setRosterRefreshNonce] = useState(0);
 
   const refreshSavedSessions = useCallback(async () => {
     try {
@@ -227,6 +232,9 @@ export function SimulatorClient({
         const fresh = await fetchSimulatorHistory(conversacionId);
         setMessages(fresh);
         setStatus("idle");
+        // AI may have placed sandbox holds via consultar/solicitar —
+        // refresh the grid so the operator sees what changed.
+        setRosterRefreshNonce((n) => n + 1);
         console.debug("simulator turn", res);
       } catch (err) {
         setStatus("error");
@@ -312,6 +320,8 @@ export function SimulatorClient({
       await rewindSimulatorSession({ conversacionId });
       setMessages([]);
       setStatus("idle");
+      // Rewind cleared this conv's sandbox holds — reflect in grid.
+      setRosterRefreshNonce((n) => n + 1);
     } catch (err) {
       setStatus("error");
       setErrorMsg((err as Error).message);
@@ -352,6 +362,8 @@ export function SimulatorClient({
         // synthetic AI message so the operator sees what happened.
         const fresh = await fetchSimulatorHistory(conversacionId);
         setMessages(fresh);
+        // OCR validate=true upgrades pending → confirmed in sandbox; refresh grid.
+        setRosterRefreshNonce((n) => n + 1);
       } catch (err) {
         setErrorMsg((err as Error).message);
       } finally {
@@ -625,61 +637,81 @@ export function SimulatorClient({
         </div>
       )}
 
-      {/* ── Chat surface ──────────────────────────────────────────── */}
-      <section className="card !p-0 overflow-hidden">
-        <div className="flex h-[65vh] flex-col">
-          <div className="flex-1 overflow-y-auto p-5 space-y-3 scrollbar-thin">
-            {messages.length === 0 ? (
-              <EmptyState
-                onPick={handleStarter}
-                disabled={isBusy || !conversacionId}
-              />
-            ) : (
-              messages.map((m) => <SimulatorBubble key={m.id} msg={m} />)
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Composer — dark glass surface matching the rest of the panel */}
-          <div className="border-t border-ink-300/40 bg-ink-100/40 p-3 backdrop-blur-sm">
-            <div className="flex items-end gap-2">
-              <textarea
-                ref={composerRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={onKeyDown}
-                placeholder="Escribí como cliente…"
-                rows={2}
-                className="input flex-1 resize-none font-sans"
-                disabled={isBusy || !conversacionId}
-              />
-              <button
-                type="button"
-                onClick={() => void handleSend()}
-                disabled={isBusy || !conversacionId || !input.trim()}
-                className="btn-primary self-stretch px-5"
-              >
-                Enviar
-              </button>
-            </div>
-            <div className="mt-1.5 flex items-center justify-between text-[10px] text-ink-400">
-              <span>
-                <kbd className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[10px]">
-                  Enter
-                </kbd>{" "}
-                enviar ·{" "}
-                <kbd className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[10px]">
-                  Shift+Enter
-                </kbd>{" "}
-                nueva línea
-              </span>
-              {selectedPrompt && (
-                <span className="font-mono">
-                  prompt v{selectedPrompt.versionNumber}
-                </span>
+      {/* ── Chat + Sandbox Roster split view ────────────────────────
+          Left: WhatsApp-style conversation.
+          Right: editable 15-day sandbox roster grid (Miguel 2026-06-09 PM).
+          On narrow screens the grid stacks below — both surfaces still
+          fully functional, just less ergonomic. */}
+      <section className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(360px,400px)]">
+        <div className="card !p-0 overflow-hidden">
+          <div className="flex h-[65vh] flex-col">
+            <div className="flex-1 overflow-y-auto p-5 space-y-3 scrollbar-thin">
+              {messages.length === 0 ? (
+                <EmptyState
+                  onPick={handleStarter}
+                  disabled={isBusy || !conversacionId}
+                />
+              ) : (
+                messages.map((m) => <SimulatorBubble key={m.id} msg={m} />)
               )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Composer — dark glass surface matching the rest of the panel */}
+            <div className="border-t border-ink-300/40 bg-ink-100/40 p-3 backdrop-blur-sm">
+              <div className="flex items-end gap-2">
+                <textarea
+                  ref={composerRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  placeholder="Escribí como cliente…"
+                  rows={2}
+                  className="input flex-1 resize-none font-sans"
+                  disabled={isBusy || !conversacionId}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSend()}
+                  disabled={isBusy || !conversacionId || !input.trim()}
+                  className="btn-primary self-stretch px-5"
+                >
+                  Enviar
+                </button>
+              </div>
+              <div className="mt-1.5 flex items-center justify-between text-[10px] text-ink-400">
+                <span>
+                  <kbd className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[10px]">
+                    Enter
+                  </kbd>{" "}
+                  enviar ·{" "}
+                  <kbd className="rounded bg-ink-100 px-1 py-0.5 font-mono text-[10px]">
+                    Shift+Enter
+                  </kbd>{" "}
+                  nueva línea
+                </span>
+                {selectedPrompt && (
+                  <span className="font-mono">
+                    prompt v{selectedPrompt.versionNumber}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
+        </div>
+
+        {/* Right column — editable sandbox roster grid */}
+        <div className="card !p-3 h-[65vh] overflow-hidden">
+          {selectedSedeId ? (
+            <SandboxRosterGrid
+              sedeId={selectedSedeId}
+              refreshNonce={rosterRefreshNonce}
+            />
+          ) : (
+            <div className="text-xs text-ink-500 p-3">
+              Elegí una sede para ver el roster sandbox.
+            </div>
+          )}
         </div>
       </section>
     </>

@@ -1301,3 +1301,169 @@ export async function resetSimulatorSession(input: {
     deletedBookings: deletedBookings.length,
   };
 }
+
+// ─── Sandbox roster grid (Miguel 2026-06-09 PM) ──────────────────────────
+//
+// Miguel needs to sculpt arbitrary occupancy boards to test the AI's
+// multi-day availability logic (e.g. OW spans 3 days — if day N+1 is
+// full, the AI must reject a start on day N even if N and N+2 are free).
+// Chat-only fill can't produce these states (cargar 22 personas una
+// fecha a la vez es inviable, y el OW ocupa varios días seguidos).
+//
+// Approach: grid cells map 1:1 to `roster_bookings_sandbox` rows tagged
+// with a `[grid-seed]` notes marker. Setting a cell deletes all
+// grid-seed rows for that (sede, fecha, turno) and inserts a fresh row
+// with the requested pax. Real chat bookings (notes without that
+// marker) are left untouched so the grid + chat compose cleanly.
+//
+// Block semantics: there is no separate "blocked" flag in the sandbox.
+// Setting pax = sede capacity (default 22 for boat / 30 for confined)
+// fills the cell — the AI sees 0 available, which is functionally the
+// same as a block for testing purposes.
+
+const GRID_SEED_NOTES = "[grid-seed]";
+const GRID_SEED_PROGRAMA = "_grid_seed";
+
+export type SandboxRosterRow = {
+  fecha: string;
+  turno: string;
+  capacidad: number;
+  reservado: number;
+  disponible: number;
+};
+
+export async function fetchSandboxRoster(input: {
+  sedeId: string;
+  fromDate: string; // YYYY-MM-DD
+  days: number;
+}): Promise<{ ok: true; sedeId: string; fromDate: string; days: number; rows: SandboxRosterRow[] }> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.fromDate)) {
+    throw new Error(`fetchSandboxRoster: bad fromDate ${input.fromDate}`);
+  }
+  const days = Math.max(1, Math.min(31, input.days)); // hard cap for safety
+  const availability = await rosterDbService.fetchAvailability(
+    input.sedeId,
+    { date: input.fromDate, days },
+    { sandbox: true },
+  );
+  // Flatten the AvailabilityResponse `detalle` into one row per
+  // (fecha, turno) for the grid renderer.
+  const rows: SandboxRosterRow[] = [];
+  for (const day of availability.detalle) {
+    const push = (turnoKey: string, slot: { disponible: boolean; espacios: number; capacidad: number } | undefined) => {
+      if (!slot) return;
+      rows.push({
+        fecha: day.fecha,
+        turno: turnoKey,
+        capacidad: slot.capacidad,
+        // `espacios` from fetchAvailability is already `available`
+        // (capacity − reserved). Reverse to compute reserved for the
+        // grid header so operators see how many slots are taken.
+        reservado: Math.max(0, slot.capacidad - slot.espacios),
+        disponible: slot.espacios,
+      });
+    };
+    push("AM", day.turno_manana);
+    push("PM", day.turno_tarde);
+    push("Nocturno", day.turno_nocturno);
+    push("ConfinadasAM", day.turno_confinadas_am);
+    push("ConfinadasPM", day.turno_confinadas_pm);
+  }
+  return { ok: true, sedeId: input.sedeId, fromDate: input.fromDate, days, rows };
+}
+
+/**
+ * Set the occupancy of a single (fecha, turno) cell in the sandbox.
+ *
+ * pax = 0 → clear the cell (delete grid-seed rows for that slot).
+ * pax > 0 → wipe existing grid-seed rows + insert one row with the new pax.
+ *
+ * Real chat-driven bookings (notes != GRID_SEED_NOTES) are NOT touched —
+ * grid edits and chat reservations live side-by-side in the same table.
+ */
+export async function setSandboxRosterCell(input: {
+  sedeId: string;
+  fecha: string;
+  turno: string;
+  pax: number;
+}): Promise<{ ok: true; cleared: number; inserted: boolean; pax: number }> {
+  const log = getLogger();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.fecha)) {
+    throw new Error(`setSandboxRosterCell: bad fecha ${input.fecha}`);
+  }
+  const VALID_TURNOS = ["AM", "PM", "Nocturno", "ConfinadasAM", "ConfinadasPM"] as const;
+  if (!(VALID_TURNOS as readonly string[]).includes(input.turno)) {
+    throw new Error(`setSandboxRosterCell: bad turno ${input.turno}`);
+  }
+  if (!Number.isInteger(input.pax) || input.pax < 0 || input.pax > 200) {
+    throw new Error(`setSandboxRosterCell: bad pax ${input.pax}`);
+  }
+  const db = getDb();
+  // 1. Delete prior grid-seed rows for this exact cell.
+  const cleared = await db
+    .delete(rosterBookingsSandbox)
+    .where(
+      and(
+        eq(rosterBookingsSandbox.sedeId, input.sedeId),
+        eq(rosterBookingsSandbox.fecha, input.fecha),
+        eq(rosterBookingsSandbox.turno, input.turno),
+        eq(rosterBookingsSandbox.notes, GRID_SEED_NOTES),
+      ),
+    )
+    .returning({ id: rosterBookingsSandbox.id });
+
+  // 2. Insert a fresh seed row if pax > 0.
+  let inserted = false;
+  if (input.pax > 0) {
+    await db.insert(rosterBookingsSandbox).values({
+      sedeId: input.sedeId,
+      fecha: input.fecha,
+      turno: input.turno,
+      programa: GRID_SEED_PROGRAMA,
+      pax: input.pax,
+      status: "confirmed",
+      contactId: null,
+      conversacionId: null,
+      notes: GRID_SEED_NOTES,
+    });
+    inserted = true;
+  }
+  log.info(
+    {
+      sedeId: input.sedeId,
+      fecha: input.fecha,
+      turno: input.turno,
+      pax: input.pax,
+      clearedRows: cleared.length,
+      inserted,
+    },
+    "[sim] sandbox grid cell set",
+  );
+  return { ok: true, cleared: cleared.length, inserted, pax: input.pax };
+}
+
+/**
+ * Clear the entire grid-seed state for a sede — bulk reset for when an
+ * operator wants to start a fresh test board. Does NOT touch chat
+ * bookings (rows without the GRID_SEED_NOTES marker).
+ */
+export async function resetSandboxRosterGrid(input: {
+  sedeId: string;
+}): Promise<{ ok: true; cleared: number }> {
+  const log = getLogger();
+  const db = getDb();
+  const cleared = await db
+    .delete(rosterBookingsSandbox)
+    .where(
+      and(
+        eq(rosterBookingsSandbox.sedeId, input.sedeId),
+        eq(rosterBookingsSandbox.notes, GRID_SEED_NOTES),
+      ),
+    )
+    .returning({ id: rosterBookingsSandbox.id });
+  log.info(
+    { sedeId: input.sedeId, clearedRows: cleared.length },
+    "[sim] sandbox grid reset",
+  );
+  return { ok: true, cleared: cleared.length };
+}

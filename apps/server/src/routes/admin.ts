@@ -48,14 +48,17 @@ import {
 import {
   createSimulatorSession,
   deleteSimulatorSession,
+  fetchSandboxRoster,
   listSimulatorPromptVersions,
   listSimulatorSedes,
   listSimulatorSessions,
   loadSimulatorHistory,
+  resetSandboxRosterGrid,
   resetSimulatorSession,
   runSimulatorMessage,
   runSimulatorOcr,
   saveSimulatorSession,
+  setSandboxRosterCell,
 } from "../handlers/simulator.js";
 import { leadStageService } from "../services/lead-stage.js";
 import { respondIoClient } from "../services/respond-io.js";
@@ -1195,6 +1198,102 @@ export async function adminRoutes(app: FastifyInstance) {
     } catch (err) {
       return reply.status(500).send({
         error: { code: "reset_failed", message: (err as Error).message },
+      });
+    }
+  });
+
+  // GET /admin/simulator/roster?sedeId=&fromDate=&days= — read the
+  // sandbox roster as a flat (fecha, turno) grid. Miguel rule 2026-06-09
+  // PM: operators need a visible 15-day window to test multi-day course
+  // footprints (OW spans 3-4 days, etc).
+  app.get("/admin/simulator/roster", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const q = (req.query ?? {}) as {
+      sedeId?: string;
+      fromDate?: string;
+      days?: string;
+    };
+    if (!q.sedeId || !q.fromDate) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "Provide sedeId and fromDate." },
+      });
+    }
+    const days = q.days ? Math.max(1, Math.min(31, parseInt(q.days, 10) || 15)) : 15;
+    try {
+      const res = await fetchSandboxRoster({
+        sedeId: q.sedeId,
+        fromDate: q.fromDate,
+        days,
+      });
+      return reply.send(res);
+    } catch (err) {
+      req.log.warn(
+        { err: (err as Error).message, sedeId: q.sedeId, fromDate: q.fromDate },
+        "simulator roster fetch failed",
+      );
+      return reply.status(500).send({
+        error: { code: "roster_failed", message: (err as Error).message },
+      });
+    }
+  });
+
+  // POST /admin/simulator/roster/set-cell — set occupancy on one cell.
+  // body: { sedeId, fecha (YYYY-MM-DD), turno, pax }
+  // pax=0 clears the cell. Real chat bookings are NEVER touched — only
+  // rows with notes='[grid-seed]' are mutated.
+  app.post("/admin/simulator/roster/set-cell", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const body = (req.body ?? {}) as {
+      sedeId?: string;
+      fecha?: string;
+      turno?: string;
+      pax?: number;
+    };
+    if (!body.sedeId || !body.fecha || !body.turno || typeof body.pax !== "number") {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "Provide sedeId, fecha (YYYY-MM-DD), turno, pax (number).",
+        },
+      });
+    }
+    try {
+      const res = await setSandboxRosterCell({
+        sedeId: body.sedeId,
+        fecha: body.fecha,
+        turno: body.turno,
+        pax: body.pax,
+      });
+      return reply.send(res);
+    } catch (err) {
+      return reply.status(400).send({
+        error: { code: "set_cell_failed", message: (err as Error).message },
+      });
+    }
+  });
+
+  // POST /admin/simulator/roster/reset — wipe ALL grid-seed rows for a
+  // sede (manual setup only — chat bookings preserved).
+  app.post("/admin/simulator/roster/reset", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const body = (req.body ?? {}) as { sedeId?: string };
+    if (!body.sedeId) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "Provide sedeId." },
+      });
+    }
+    try {
+      const res = await resetSandboxRosterGrid({ sedeId: body.sedeId });
+      return reply.send(res);
+    } catch (err) {
+      return reply.status(500).send({
+        error: { code: "reset_grid_failed", message: (err as Error).message },
       });
     }
   });

@@ -231,3 +231,60 @@ export async function rewindSimulatorSession(input: {
     deletedBookings: number;
   }>("/admin/simulator/reset", { method: "POST", json: input });
 }
+
+// ── Phase 3 — sandbox roster grid (Miguel 2026-06-09 PM) ─────────────────
+//
+// Editable 15-day grid embedded next to the chat. Operator can sculpt
+// arbitrary occupancy boards to test the AI's multi-day availability
+// logic (e.g. fill day N+1, leave N and N+2 free → OW starting N must
+// be rejected because day N+1 is full).
+
+export type SandboxRosterRow = {
+  fecha: string; // YYYY-MM-DD
+  turno: string; // AM | PM | Nocturno | ConfinadasAM | ConfinadasPM
+  capacidad: number;
+  reservado: number;
+  disponible: number;
+};
+
+export async function fetchSimulatorRoster(input: {
+  sedeId: string;
+  fromDate: string;
+  days?: number;
+}): Promise<{ rows: SandboxRosterRow[]; fromDate: string; days: number }> {
+  const days = input.days ?? 15;
+  const q = new URLSearchParams({
+    sedeId: input.sedeId,
+    fromDate: input.fromDate,
+    days: String(days),
+  }).toString();
+  const data = await adminFetch<{
+    ok: boolean;
+    sedeId: string;
+    fromDate: string;
+    days: number;
+    rows: SandboxRosterRow[];
+  }>(`/admin/simulator/roster?${q}`, { method: "GET" });
+  return { rows: data.rows, fromDate: data.fromDate, days: data.days };
+}
+
+export async function setSimulatorRosterCell(input: {
+  sedeId: string;
+  fecha: string;
+  turno: string;
+  pax: number;
+}): Promise<{ ok: true; cleared: number; inserted: boolean; pax: number }> {
+  return adminFetch<{ ok: true; cleared: number; inserted: boolean; pax: number }>(
+    "/admin/simulator/roster/set-cell",
+    { method: "POST", json: input },
+  );
+}
+
+export async function resetSimulatorRosterGrid(input: {
+  sedeId: string;
+}): Promise<{ ok: true; cleared: number }> {
+  return adminFetch<{ ok: true; cleared: number }>(
+    "/admin/simulator/roster/reset",
+    { method: "POST", json: input },
+  );
+}
