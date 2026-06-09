@@ -29,6 +29,13 @@
       "when": 1780623014078,
       "tag": "0003_common_wilson_fisk",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780998945885,
+      "tag": "0004_sandbox_roster",
+      "breakpoints": true
     }
   ]
 }

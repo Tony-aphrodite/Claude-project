@@ -188,3 +188,46 @@ export async function deleteSimulatorSavedSession(id: string): Promise<void> {
     { method: "DELETE" },
   );
 }
+
+// ── Phase 2 — sandbox OCR + rewind ────────────────────────────────────────
+//
+// Miguel rule 2026-06-09 PM: simulator runs against a sandbox copy of the
+// roster. The panel can upload comprobantes through the same OCR path
+// production uses (Vision → reconcile → confirmBooking) and reset the
+// scenario between test runs.
+
+export type SimulatorOcrResponse = {
+  ok: true;
+  verdict: unknown;
+  bookings: Array<{
+    fecha: string;
+    turno: string;
+    programa: string;
+    pax: number;
+    upgradedFromPending: boolean;
+  }>;
+  rowsConfirmed: number;
+  message: string;
+};
+
+export async function uploadSimulatorOcr(input: {
+  conversacionId: string;
+  base64: string;
+  mimeType: string;
+  fileName?: string;
+}): Promise<SimulatorOcrResponse> {
+  return adminFetch<SimulatorOcrResponse>("/admin/simulator/ocr", {
+    method: "POST",
+    json: input,
+  });
+}
+
+export async function rewindSimulatorSession(input: {
+  conversacionId: string;
+}): Promise<{ ok: true; deletedMessages: number; deletedBookings: number }> {
+  return adminFetch<{
+    ok: true;
+    deletedMessages: number;
+    deletedBookings: number;
+  }>("/admin/simulator/reset", { method: "POST", json: input });
+}

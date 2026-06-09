@@ -9,8 +9,10 @@ import {
   fetchSimulatorSavedSessions,
   fetchSimulatorSedes,
   resetSimulatorSession,
+  rewindSimulatorSession,
   saveSimulatorSession,
   sendSimulatorMessage,
+  uploadSimulatorOcr,
   type SimulatorMessage,
   type SimulatorPromptVersion,
   type SimulatorSavedSession,
@@ -101,6 +103,8 @@ export function SimulatorClient({
   );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const ocrInputRef = useRef<HTMLInputElement>(null);
+  const [ocrUploading, setOcrUploading] = useState(false);
 
   const refreshSavedSessions = useCallback(async () => {
     try {
@@ -289,6 +293,75 @@ export function SimulatorClient({
     [],
   );
 
+  // Rewind a sandbox session — clears sandbox roster bookings, lead
+  // metadata, and message history without creating a new conversation
+  // row (Miguel rule 2026-06-09 PM: same conv = next scenario, clean
+  // slate). Distinct from handleReset (which creates a fresh conv).
+  const handleRewind = useCallback(async () => {
+    if (!conversacionId) return;
+    if (
+      !window.confirm(
+        "¿Borrar mensajes + reservas sandbox de esta sesión y reiniciarla limpia?",
+      )
+    ) {
+      return;
+    }
+    try {
+      setStatus("creating-session");
+      setErrorMsg(null);
+      await rewindSimulatorSession({ conversacionId });
+      setMessages([]);
+      setStatus("idle");
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg((err as Error).message);
+    }
+  }, [conversacionId]);
+
+  // OCR upload — send the comprobante image to the sandbox OCR endpoint.
+  // On validate=true the server upgrades the sandbox pending holds to
+  // confirmed + appends a system message that we refetch via history.
+  const handleOcrUpload = useCallback(
+    async (file: File) => {
+      if (!conversacionId) return;
+      setOcrUploading(true);
+      setErrorMsg(null);
+      try {
+        // Read as base64 (no data: prefix — the server strips it anyway,
+        // but cleaner to send raw bytes).
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result;
+            if (typeof result !== "string") {
+              reject(new Error("FileReader did not return a string"));
+              return;
+            }
+            resolve(result.replace(/^data:[^;]+;base64,/, ""));
+          };
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+        await uploadSimulatorOcr({
+          conversacionId,
+          base64,
+          mimeType: file.type || "application/octet-stream",
+          fileName: file.name,
+        });
+        // Refresh history — the server appends the OCR result as a
+        // synthetic AI message so the operator sees what happened.
+        const fresh = await fetchSimulatorHistory(conversacionId);
+        setMessages(fresh);
+      } catch (err) {
+        setErrorMsg((err as Error).message);
+      } finally {
+        setOcrUploading(false);
+        if (ocrInputRef.current) ocrInputRef.current.value = "";
+      }
+    },
+    [conversacionId],
+  );
+
   const handleDeleteSession = useCallback(
     async (id: string) => {
       if (!window.confirm("¿Eliminar esta sesión guardada?")) return;
@@ -419,12 +492,40 @@ export function SimulatorClient({
           </button>
           <button
             type="button"
+            onClick={() => ocrInputRef.current?.click()}
+            className="btn-ghost"
+            disabled={isBusy || !conversacionId || ocrUploading}
+            title="Subí un comprobante (imagen / PDF) — se procesa con OCR real y confirma el booking en el sandbox"
+          >
+            {ocrUploading ? "📎 OCR…" : "📎 Comprobante"}
+          </button>
+          <input
+            ref={ocrInputRef}
+            type="file"
+            accept="image/*,application/pdf"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleOcrUpload(file);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => void handleRewind()}
+            className="btn-ghost"
+            disabled={isBusy || !conversacionId || messages.length === 0}
+            title="Borra mensajes + reservas sandbox de ESTA sesión, dejándola lista para otro escenario"
+          >
+            🧹 Limpiar
+          </button>
+          <button
+            type="button"
             onClick={() => void handleReset()}
             className="btn-ghost"
             disabled={isBusy}
             title="Limpia el contexto y arranca una conversación nueva"
           >
-            ↻ Reset
+            ↻ Nueva sesión
           </button>
         </span>
       </section>
@@ -468,38 +569,37 @@ export function SimulatorClient({
         </section>
       )}
 
-      {/* ── Stubbed-tools advisory ─────────────────────────────────
-          2026-05-18 Miguel feedback (Phi Phi): the simulator stub for
-          consultar_disponibilidad always returns "available", so when an
-          operator tests with a sede where the real boat is full, the AI
-          confidently says "yes there's space" and the operator thinks
-          the AI is broken. This banner makes the stub behavior explicit
-          so testers know availability output here doesn't reflect the
-          real Apps Script roster. */}
+      {/* ── Sandbox advisory ──────────────────────────────────────
+          Miguel rule 2026-06-09 PM: simulator runs against a sandbox copy
+          of the roster (`roster_bookings_sandbox`). Reads + writes for
+          consultar_disponibilidad, solicitar_deposito, and OCR uploads
+          target the sandbox table; production capacity is untouched.
+          enviar_catalogo / send_product_card are still simulated (no
+          Respond.io outbound — the simulator-shared contact is synthetic). */}
       <div
-        className="card flex items-start gap-3 ring-1 ring-inset ring-warn-500/30 bg-warn-500/10 !py-3"
+        className="card flex items-start gap-3 ring-1 ring-inset ring-brand-500/30 bg-brand-500/5 !py-3"
         role="note"
       >
-        <span className="mt-0.5 shrink-0 text-warn-700">
+        <span className="mt-0.5 shrink-0 text-brand-300">
           <svg viewBox="0 0 20 20" fill="none" className="h-5 w-5">
-            <path
-              d="M10 3l8 14H2L10 3z"
+            <circle
+              cx="10"
+              cy="10"
+              r="8"
               stroke="currentColor"
               strokeWidth="1.6"
-              strokeLinejoin="round"
             />
             <path
-              d="M10 9v3"
+              d="M10 6v4l2.5 2.5"
               stroke="currentColor"
               strokeWidth="1.6"
               strokeLinecap="round"
             />
-            <circle cx="10" cy="14.5" r="0.7" fill="currentColor" />
           </svg>
         </span>
         <div className="text-sm leading-relaxed">
           <p className="font-semibold text-ink-900">
-            Las herramientas están stubeadas — la AI no toca datos reales
+            Modo sandbox — la AI toca una copia del roster, no el real
           </p>
           <p className="text-ink-700">
             <code className="font-mono text-brand-300">
@@ -507,14 +607,13 @@ export function SimulatorClient({
             </code>
             ,{" "}
             <code className="font-mono text-brand-300">solicitar_deposito</code>
-            ,{" "}
-            <code className="font-mono text-brand-300">enviar_catalogo</code> y{" "}
-            <code className="font-mono text-brand-300">send_product_card</code>{" "}
-            devuelven respuestas ficticias para que la AI pueda razonar y
-            responderte como si hubiera datos reales. Eso significa que la
-            disponibilidad <strong>siempre da OK</strong> aunque el barco esté
-            lleno en la operación real. Para validar capacidad real probá en
-            producción (WhatsApp piloto) o consultá con la sede.
+            {" "}y los comprobantes que subas con{" "}
+            <strong>📎 Comprobante</strong> van contra una tabla aparte
+            (<code className="font-mono">roster_bookings_sandbox</code>). Es la
+            misma lógica que producción — pending hold, OCR Vision real,
+            confirmBooking idempotente — pero sin tocar capacidad real ni
+            disparar Respond.io. Usá <strong>🧹 Limpiar</strong> entre
+            escenarios para empezar de cero.
           </p>
         </div>
       </div>

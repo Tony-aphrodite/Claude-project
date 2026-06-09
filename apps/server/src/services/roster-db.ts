@@ -40,6 +40,7 @@ import {
   conversaciones,
   getDb,
   rosterBookings,
+  rosterBookingsSandbox,
   rosterCapacityOverrides,
   sedes,
   type NewRosterBooking,
@@ -49,6 +50,24 @@ import {
 
 import { getLogger } from "../logger.js";
 import { addDays } from "./program-schedule.js";
+
+/**
+ * Sandbox switch. When `sandbox === true` the caller wants writes/reads to
+ * land on `roster_bookings_sandbox` instead of the production
+ * `roster_bookings` table. Sandbox mode also IGNORES
+ * `roster_capacity_overrides` — sandbox uses the sede's default capacities
+ * so production blocks (weather, charter, festivo) don't leak into a test
+ * scenario. Wired in 2026-06-09 PM after Miguel rule "no hace falta que
+ * toque el roster real que tenga una copia con eso estamos bien".
+ */
+export type RosterScope = { sandbox?: boolean | undefined };
+
+function bookingsTable(scope: RosterScope | undefined): typeof rosterBookings {
+  // Both tables share the same TS row shape, so the cast is safe — the
+  // sandbox is a structural mirror. Drizzle treats them as separate
+  // identifiers but the column inference matches.
+  return (scope?.sandbox ? rosterBookingsSandbox : rosterBookings) as typeof rosterBookings;
+}
 
 /**
  * Days between two YYYY-MM-DD strings. Positive when `to` is after `from`.
@@ -225,16 +244,20 @@ export class RosterDbService {
     sedeId: string,
     fecha: string,
     turno?: Turno,
+    scope?: RosterScope,
   ): Promise<AvailabilitySlot[]> {
     const turnos = turno ? [turno] : ([...VALID_TURNOS] as Turno[]);
     const sedeConfig = await this.getSedeRosterConfig(sedeId);
     const result: AvailabilitySlot[] = [];
     for (const t of turnos) {
-      const override = await this.getOverride(sedeId, fecha, t);
+      // Sandbox ignores production overrides (weather blocks, charter,
+      // festivos) — operators must be able to test against a clean
+      // sede-default capacity regardless of real-world ops state.
+      const override = scope?.sandbox ? undefined : await this.getOverride(sedeId, fecha, t);
       const capacity =
         override?.capacity ?? defaultCapacityFor(sedeConfig, t);
       const blocked = override?.blocked === true;
-      const reserved = await this.getReserved(sedeId, fecha, t);
+      const reserved = await this.getReserved(sedeId, fecha, t, scope);
       const full = reserved >= capacity;
       // Effective availability: manual block forces 0; otherwise clamp at 0.
       const available = blocked ? 0 : Math.max(0, capacity - reserved);
@@ -260,8 +283,12 @@ export class RosterDbService {
    *   • ok:false reason:blocked when the turno is marked blocked (capacity 0)
    *   • ok:false reason:invalid_input on validation failure
    */
-  async confirmBooking(input: ConfirmBookingInput): Promise<ConfirmBookingResult> {
+  async confirmBooking(
+    input: ConfirmBookingInput,
+    scope?: RosterScope,
+  ): Promise<ConfirmBookingResult> {
     const log = getLogger();
+    const tbl = bookingsTable(scope);
 
     // Input validation — defensive, since some call sites stamp from
     // free-form AI tool input.
@@ -293,17 +320,22 @@ export class RosterDbService {
       async (tx) => {
         // Re-read capacity + reserved inside the transaction. SERIALIZABLE
         // isolation makes both queries see a consistent snapshot.
-        const [overrideRow] = await tx
-          .select()
-          .from(rosterCapacityOverrides)
-          .where(
-            and(
-              eq(rosterCapacityOverrides.sedeId, input.sedeId),
-              eq(rosterCapacityOverrides.fecha, input.fecha),
-              eq(rosterCapacityOverrides.turno, input.turno),
-            ),
-          )
-          .limit(1);
+        // Sandbox skips production overrides — see RosterScope comment.
+        const overrideRow = scope?.sandbox
+          ? undefined
+          : (
+              await tx
+                .select()
+                .from(rosterCapacityOverrides)
+                .where(
+                  and(
+                    eq(rosterCapacityOverrides.sedeId, input.sedeId),
+                    eq(rosterCapacityOverrides.fecha, input.fecha),
+                    eq(rosterCapacityOverrides.turno, input.turno),
+                  ),
+                )
+                .limit(1)
+            )[0];
         const capacity =
           overrideRow?.capacity ?? defaultCapacityFor(sedeConfig, input.turno);
         if (overrideRow?.blocked === true) {
@@ -315,12 +347,12 @@ export class RosterDbService {
         }
 
         const [reservedRow] = (await tx.execute(sql`
-          SELECT COALESCE(SUM(${rosterBookings.pax}), 0)::int AS reserved
-            FROM ${rosterBookings}
-           WHERE ${rosterBookings.sedeId} = ${input.sedeId}
-             AND ${rosterBookings.fecha} = ${input.fecha}
-             AND ${rosterBookings.turno} = ${input.turno}
-             AND ${rosterBookings.status} IN ('pending', 'confirmed')
+          SELECT COALESCE(SUM(${tbl.pax}), 0)::int AS reserved
+            FROM ${tbl}
+           WHERE ${tbl.sedeId} = ${input.sedeId}
+             AND ${tbl.fecha} = ${input.fecha}
+             AND ${tbl.turno} = ${input.turno}
+             AND ${tbl.status} IN ('pending', 'confirmed')
         `)) as unknown as Array<{ reserved: number }>;
         const reserved = Number(reservedRow?.reserved ?? 0);
         const available = Math.max(0, capacity - reserved);
@@ -353,19 +385,19 @@ export class RosterDbService {
         if (input.conversacionId) {
           const [existingPending] = await tx
             .select()
-            .from(rosterBookings)
+            .from(tbl)
             .where(
               and(
-                eq(rosterBookings.conversacionId, input.conversacionId),
-                eq(rosterBookings.fecha, input.fecha),
-                eq(rosterBookings.turno, input.turno),
-                eq(rosterBookings.status, "pending"),
+                eq(tbl.conversacionId, input.conversacionId),
+                eq(tbl.fecha, input.fecha),
+                eq(tbl.turno, input.turno),
+                eq(tbl.status, "pending"),
               ),
             )
             .limit(1);
           if (existingPending) {
             const [upgraded] = await tx
-              .update(rosterBookings)
+              .update(tbl)
               .set({
                 status: "confirmed",
                 pax: input.pax, // re-stamp in case pax changed between hold and OCR
@@ -373,7 +405,7 @@ export class RosterDbService {
                 notes: input.notes ?? existingPending.notes,
                 updatedAt: new Date(),
               })
-              .where(eq(rosterBookings.id, existingPending.id))
+              .where(eq(tbl.id, existingPending.id))
               .returning();
             if (!upgraded) {
               throw new Error("confirmBooking upgrade returned no row");
@@ -393,7 +425,7 @@ export class RosterDbService {
           }
         }
         const [booking] = await tx
-          .insert(rosterBookings)
+          .insert(tbl)
           .values(values)
           .returning();
         if (!booking) {
@@ -453,7 +485,7 @@ export class RosterDbService {
       pax: number;
     }>;
     notes?: string | null;
-  }): Promise<
+  }, scope?: RosterScope): Promise<
     | { ok: true; holds: RosterBooking[] }
     | {
         ok: false;
@@ -490,6 +522,7 @@ export class RosterDbService {
       }
     }
     const db = getDb();
+    const tbl = bookingsTable(scope);
     const sedeConfig = await this.getSedeRosterConfig(input.sedeId);
     return await db.transaction(
       async (tx) => {
@@ -499,13 +532,13 @@ export class RosterDbService {
           // this exact slot tied to this conversation? If yes, reuse.
           const [existing] = await tx
             .select()
-            .from(rosterBookings)
+            .from(tbl)
             .where(
               and(
-                eq(rosterBookings.conversacionId, input.conversacionId),
-                eq(rosterBookings.fecha, s.fecha),
-                eq(rosterBookings.turno, s.turno),
-                eq(rosterBookings.status, "pending"),
+                eq(tbl.conversacionId, input.conversacionId),
+                eq(tbl.fecha, s.fecha),
+                eq(tbl.turno, s.turno),
+                eq(tbl.status, "pending"),
               ),
             )
             .limit(1);
@@ -517,13 +550,13 @@ export class RosterDbService {
           // if so, the hold would be a duplicate of the same booking.
           const [confirmedRow] = await tx
             .select()
-            .from(rosterBookings)
+            .from(tbl)
             .where(
               and(
-                eq(rosterBookings.conversacionId, input.conversacionId),
-                eq(rosterBookings.fecha, s.fecha),
-                eq(rosterBookings.turno, s.turno),
-                eq(rosterBookings.status, "confirmed"),
+                eq(tbl.conversacionId, input.conversacionId),
+                eq(tbl.fecha, s.fecha),
+                eq(tbl.turno, s.turno),
+                eq(tbl.status, "confirmed"),
               ),
             )
             .limit(1);
@@ -532,17 +565,22 @@ export class RosterDbService {
             continue;
           }
           // Capacity check: count pending + confirmed reserved already.
-          const [overrideRow] = await tx
-            .select()
-            .from(rosterCapacityOverrides)
-            .where(
-              and(
-                eq(rosterCapacityOverrides.sedeId, input.sedeId),
-                eq(rosterCapacityOverrides.fecha, s.fecha),
-                eq(rosterCapacityOverrides.turno, s.turno),
-              ),
-            )
-            .limit(1);
+          // Sandbox skips production overrides — see RosterScope comment.
+          const overrideRow = scope?.sandbox
+            ? undefined
+            : (
+                await tx
+                  .select()
+                  .from(rosterCapacityOverrides)
+                  .where(
+                    and(
+                      eq(rosterCapacityOverrides.sedeId, input.sedeId),
+                      eq(rosterCapacityOverrides.fecha, s.fecha),
+                      eq(rosterCapacityOverrides.turno, s.turno),
+                    ),
+                  )
+                  .limit(1)
+              )[0];
           const capacity =
             overrideRow?.capacity ?? defaultCapacityFor(sedeConfig, s.turno);
           if (overrideRow?.blocked === true) {
@@ -553,12 +591,12 @@ export class RosterDbService {
             };
           }
           const [reservedRow] = (await tx.execute(sql`
-            SELECT COALESCE(SUM(${rosterBookings.pax}), 0)::int AS reserved
-              FROM ${rosterBookings}
-             WHERE ${rosterBookings.sedeId} = ${input.sedeId}
-               AND ${rosterBookings.fecha} = ${s.fecha}
-               AND ${rosterBookings.turno} = ${s.turno}
-               AND ${rosterBookings.status} IN ('pending', 'confirmed')
+            SELECT COALESCE(SUM(${tbl.pax}), 0)::int AS reserved
+              FROM ${tbl}
+             WHERE ${tbl.sedeId} = ${input.sedeId}
+               AND ${tbl.fecha} = ${s.fecha}
+               AND ${tbl.turno} = ${s.turno}
+               AND ${tbl.status} IN ('pending', 'confirmed')
           `)) as unknown as Array<{ reserved: number }>;
           const reserved = Number(reservedRow?.reserved ?? 0);
           const available = Math.max(0, capacity - reserved);
@@ -570,7 +608,7 @@ export class RosterDbService {
             };
           }
           const [inserted] = await tx
-            .insert(rosterBookings)
+            .insert(tbl)
             .values({
               sedeId: input.sedeId,
               fecha: s.fecha,
@@ -616,18 +654,20 @@ export class RosterDbService {
     ttlMinutes?: number;
     /** Limit per sweep — defensive guard against massive sweeps. */
     limit?: number;
+    scope?: RosterScope;
   } = {}): Promise<{ expired: RosterBooking[] }> {
     const ttlMinutes = input.ttlMinutes ?? 240;
     const limit = input.limit ?? 200;
     const log = getLogger();
     const db = getDb();
+    const tbl = bookingsTable(input.scope);
     // pg interval syntax; we'd use createdAt < (now - interval).
     const cutoffMinutes = sql`(NOW() - (${ttlMinutes} || ' minutes')::interval)`;
     const expired = (await db.execute(sql`
-      UPDATE ${rosterBookings}
+      UPDATE ${tbl}
          SET status = 'expired', updated_at = NOW()
        WHERE id IN (
-         SELECT id FROM ${rosterBookings}
+         SELECT id FROM ${tbl}
           WHERE status = 'pending'
             AND created_at < ${cutoffMinutes}
           LIMIT ${limit}
@@ -819,7 +859,7 @@ export class RosterDbService {
     pax: number;
     notes?: string | undefined;
     contactId?: string | undefined;
-  }): Promise<ConfirmBookingResult> {
+  }, scope?: RosterScope): Promise<ConfirmBookingResult> {
     return this.confirmBooking({
       sedeId: input.sedeId,
       fecha: input.fecha,
@@ -828,7 +868,7 @@ export class RosterDbService {
       pax: input.pax,
       notes: input.notes ?? "seeded",
       contactId: input.contactId,
-    });
+    }, scope);
   }
 
   /**
@@ -841,23 +881,24 @@ export class RosterDbService {
     conversacionId?: string | undefined;
     by?: string | undefined;
     reason?: string | undefined;
-  }): Promise<{ cancelled: number }> {
+  }, scope?: RosterScope): Promise<{ cancelled: number }> {
     if (!input.bookingId && !input.conversacionId) {
       throw new Error("cancelBooking: provide bookingId or conversacionId");
     }
     const db = getDb();
+    const tbl = bookingsTable(scope);
     const now = new Date();
     const where = input.bookingId
       ? and(
-          eq(rosterBookings.id, input.bookingId),
-          eq(rosterBookings.status, "confirmed"),
+          eq(tbl.id, input.bookingId),
+          eq(tbl.status, "confirmed"),
         )
       : and(
-          eq(rosterBookings.conversacionId, input.conversacionId!),
-          eq(rosterBookings.status, "confirmed"),
+          eq(tbl.conversacionId, input.conversacionId!),
+          eq(tbl.status, "confirmed"),
         );
     const updated = await db
-      .update(rosterBookings)
+      .update(tbl)
       .set({
         status: "cancelled",
         cancelledAt: now,
@@ -866,7 +907,7 @@ export class RosterDbService {
         updatedAt: now,
       })
       .where(where)
-      .returning({ id: rosterBookings.id });
+      .returning({ id: tbl.id });
     return { cancelled: updated.length };
   }
 
@@ -878,15 +919,16 @@ export class RosterDbService {
     sedeId: string;
     fechaFrom: string;
     fechaTo: string;
-  }): Promise<RosterBooking[]> {
+  }, scope?: RosterScope): Promise<RosterBooking[]> {
     const db = getDb();
+    const tbl = bookingsTable(scope);
     const rows = await db.execute<RosterBooking>(sql`
       SELECT *
-        FROM ${rosterBookings}
-       WHERE ${rosterBookings.sedeId} = ${input.sedeId}
-         AND ${rosterBookings.fecha} BETWEEN ${input.fechaFrom} AND ${input.fechaTo}
-         AND ${rosterBookings.status} = 'confirmed'
-       ORDER BY ${rosterBookings.fecha} ASC, ${rosterBookings.turno} ASC, ${rosterBookings.createdAt} ASC
+        FROM ${tbl}
+       WHERE ${tbl.sedeId} = ${input.sedeId}
+         AND ${tbl.fecha} BETWEEN ${input.fechaFrom} AND ${input.fechaTo}
+         AND ${tbl.status} = 'confirmed'
+       ORDER BY ${tbl.fecha} ASC, ${tbl.turno} ASC, ${tbl.createdAt} ASC
     `);
     return rows as unknown as RosterBooking[];
   }
@@ -923,6 +965,7 @@ export class RosterDbService {
       date: string;
       days: number;
     },
+    scope?: RosterScope,
   ): Promise<import("@dpm/shared").AvailabilityResponse> {
     const detalle: import("@dpm/shared").AvailabilityDay[] = [];
     let firstAvailableDate: string | null = null;
@@ -948,33 +991,37 @@ export class RosterDbService {
     // Query 1: sede config (for default capacities)
     const sedeConfig = await this.getSedeRosterConfig(sedeId);
 
-    // Query 2: ALL overrides for sede + date range (1 SQL call)
-    const allOverrides = await db
-      .select()
-      .from(rosterCapacityOverrides)
-      .where(
-        and(
-          eq(rosterCapacityOverrides.sedeId, sedeId),
-          gte(rosterCapacityOverrides.fecha, opts.date),
-          lte(rosterCapacityOverrides.fecha, lastDate),
-        ),
-      );
+    // Query 2: ALL overrides for sede + date range (1 SQL call). Sandbox
+    // mode skips this query entirely — see RosterScope.
+    const allOverrides = scope?.sandbox
+      ? ([] as RosterCapacityOverride[])
+      : await db
+          .select()
+          .from(rosterCapacityOverrides)
+          .where(
+            and(
+              eq(rosterCapacityOverrides.sedeId, sedeId),
+              gte(rosterCapacityOverrides.fecha, opts.date),
+              lte(rosterCapacityOverrides.fecha, lastDate),
+            ),
+          );
     const overrideByKey = new Map<string, RosterCapacityOverride>();
     for (const o of allOverrides) {
       overrideByKey.set(`${o.fecha}|${o.turno}`, o);
     }
 
     // Query 3: ALL bookings grouped by (fecha, turno) — 1 SQL call
+    const tbl = bookingsTable(scope);
     const reservedRows = (await db.execute(sql`
-      SELECT ${rosterBookings.fecha} AS fecha,
-             ${rosterBookings.turno} AS turno,
-             COALESCE(SUM(${rosterBookings.pax}), 0)::int AS reserved
-        FROM ${rosterBookings}
-       WHERE ${rosterBookings.sedeId} = ${sedeId}
-         AND ${rosterBookings.fecha} >= ${opts.date}
-         AND ${rosterBookings.fecha} <= ${lastDate}
-         AND ${rosterBookings.status} IN ('pending', 'confirmed')
-       GROUP BY ${rosterBookings.fecha}, ${rosterBookings.turno}
+      SELECT ${tbl.fecha} AS fecha,
+             ${tbl.turno} AS turno,
+             COALESCE(SUM(${tbl.pax}), 0)::int AS reserved
+        FROM ${tbl}
+       WHERE ${tbl.sedeId} = ${sedeId}
+         AND ${tbl.fecha} >= ${opts.date}
+         AND ${tbl.fecha} <= ${lastDate}
+         AND ${tbl.status} IN ('pending', 'confirmed')
+       GROUP BY ${tbl.fecha}, ${tbl.turno}
     `)) as unknown as Array<{ fecha: string; turno: string; reserved: number }>;
     const reservedByKey = new Map<string, number>();
     for (const r of reservedRows) {
@@ -1189,15 +1236,17 @@ export class RosterDbService {
     sedeId: string,
     fecha: string,
     turno: Turno,
+    scope?: RosterScope,
   ): Promise<number> {
     const db = getDb();
+    const tbl = bookingsTable(scope);
     const result = (await db.execute(sql`
-      SELECT COALESCE(SUM(${rosterBookings.pax}), 0)::int AS reserved
-        FROM ${rosterBookings}
-       WHERE ${rosterBookings.sedeId} = ${sedeId}
-         AND ${rosterBookings.fecha} = ${fecha}
-         AND ${rosterBookings.turno} = ${turno}
-         AND ${rosterBookings.status} IN ('pending', 'confirmed')
+      SELECT COALESCE(SUM(${tbl.pax}), 0)::int AS reserved
+        FROM ${tbl}
+       WHERE ${tbl.sedeId} = ${sedeId}
+         AND ${tbl.fecha} = ${fecha}
+         AND ${tbl.turno} = ${turno}
+         AND ${tbl.status} IN ('pending', 'confirmed')
     `)) as unknown as Array<{ reserved: number }>;
     return Number(result[0]?.reserved ?? 0);
   }

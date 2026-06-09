@@ -243,6 +243,14 @@ export async function runOcrOnAttachment(input: {
    *  beneficiary+amount+currency match in case the ref code is missing
    *  or wasn't typed in the bank's Libellé/Concept field. */
   expectedBeneficiary?: string;
+  /**
+   * Pre-fetched attachment bytes. When provided, skip the URL fetch step
+   * and send these straight to Vision. Used by the simulator OCR endpoint
+   * (operator uploads the image to the panel — there is no Respond.io
+   * CDN URL to download from). The `attachmentUrl` is still required as
+   * an identifier for logs but won't be hit.
+   */
+  prefetchedBytes?: { base64: string; mimeType: string };
 }): Promise<OcrVerdict> {
   const log = getLogger();
 
@@ -278,18 +286,23 @@ export async function runOcrOnAttachment(input: {
 
   let bytes: string;
   let mimeType: string;
-  try {
-    const fetched = await fetchAttachmentAsBase64(input.attachmentUrl);
-    bytes = fetched.bytes;
-    mimeType = fetched.mimeType;
-  } catch (err) {
-    log.warn({ err: (err as Error).message }, "ocr_comprobante: attachment fetch failed");
-    return {
-      ok: false,
-      reason: "fetch_failed",
-      message: (err as Error).message,
-      attachmentMime: input.attachmentMime,
-    };
+  if (input.prefetchedBytes) {
+    bytes = input.prefetchedBytes.base64;
+    mimeType = input.prefetchedBytes.mimeType;
+  } else {
+    try {
+      const fetched = await fetchAttachmentAsBase64(input.attachmentUrl);
+      bytes = fetched.bytes;
+      mimeType = fetched.mimeType;
+    } catch (err) {
+      log.warn({ err: (err as Error).message }, "ocr_comprobante: attachment fetch failed");
+      return {
+        ok: false,
+        reason: "fetch_failed",
+        message: (err as Error).message,
+        attachmentMime: input.attachmentMime,
+      };
+    }
   }
 
   // Anthropic accepts two media-block flavors:

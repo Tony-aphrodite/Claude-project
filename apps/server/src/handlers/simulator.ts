@@ -1,22 +1,29 @@
 // ============================================================================
-// Simulator handler (Phase 1, 2026-05-14, Miguel spec).
+// Simulator handler. Lets Miguel chat with the AI from the panel as a fake
+// client to iterate the system prompt + test end-to-end flows without
+// burning a real WhatsApp lead.
 //
-// Lets Miguel chat with John from the panel as a fake client so he can
-// iterate the system prompt without burning a real WhatsApp lead and
-// without polluting the production dashboard metrics.
+// Production-parity sandbox (Miguel rule 2026-06-09 PM, "que el simulador
+// haga lo mismo que va a hacer cuando este en produccion real"):
+//   • Tool handlers now run REAL logic — not stubs.
+//   • Roster reads/writes go to `roster_bookings_sandbox` (NOT the
+//     production `roster_bookings`), threaded via `{sandbox: true}`
+//     through rosterDbService. Capacity blocks (weather/charter/festivo)
+//     from production are IGNORED so test scenarios run against clean
+//     sede defaults.
+//   • OCR uploads land on /admin/simulator/ocr which calls the SAME
+//     `runOcrOnAttachment` + `rosterDbService.confirmBooking` path the
+//     production webhook uses, only with sandbox routing.
+//   • Reset endpoint /admin/simulator/reset clears the sandbox table for
+//     this conversation + rewinds the lead stage so an operator can run a
+//     fresh scenario without restarting the server.
 //
-// Differences from processIncomingMessage (the real-customer handler):
-//   • No Respond.io webhook in front — invoked from the panel via
-//     /admin/simulator/message, bearer-auth'd.
-//   • No outbound Respond.io sendMessage / customField update /
-//     lifecycle webhook fire / tag apply.
-//   • No pilot gate / ai-test tag check (auth is the gate).
+// What still differs from `processIncomingMessage`:
+//   • No Respond.io outbound calls (sendMessage / customField update /
+//     tags / lifecycle webhook). The simulator-shared contact is
+//     synthetic — pushing to Respond.io would either no-op or error.
 //   • No follow-up scheduling.
-//   • Tools (consultar_disponibilidad, solicitar_deposito, enviar_catalogo)
-//     are STUBBED — they return realistic-shape responses so Claude can
-//     reason about them, but they don't hit Apps Script, don't generate
-//     real ref codes, don't call the Respond.io catalog API. Side-effect-
-//     free.
+//   • No pilot gate / ai-test tag check (auth is the gate).
 //   • conversaciones + mensajes rows are written with origin='simulator'
 //     so the dashboard / lifecycle webhook code filters them out.
 //
@@ -24,6 +31,9 @@
 //   • createSimulatorSession({sedeId?}) -> {conversacionId, sedeId}
 //   • runSimulatorMessage({conversacionId, text, promptVersionId?})
 //       -> {aiText, sources, toolCalls, costUsd, ...}
+//   • runSimulatorOcr({conversacionId, base64, mimeType, fileName})
+//       -> {verdict, confirmedBookings}
+//   • resetSimulatorSession({conversacionId}) -> {ok: true}
 //   • listSimulatorPromptVersions() -> prompt version list
 //
 // The 2-row chat_contact + conversaciones bootstrapping (synthetic
@@ -41,22 +51,75 @@ import {
   getDb,
   mensajes,
   promptsVersiones,
+  rosterBookingsSandbox,
   sedes,
   simulatorSessions,
 } from "@dpm/db";
 import type { Sede } from "@dpm/db";
-import type {
-  ConsultarDisponibilidadResult,
-  EnviarCatalogoResult,
-  SendProductCardResult,
-  SolicitarDepositoResult,
+import {
+  depositAmountFor,
+  type AvailabilityProgram,
+  type ConsultarDisponibilidadInput,
+  type ConsultarDisponibilidadResult,
+  type DepositCurrency,
+  type EnviarCatalogoInput,
+  type EnviarCatalogoResult,
+  type LeadMetadata,
+  type SendProductCardInput,
+  type SendProductCardResult,
+  type SolicitarDepositoInput,
+  type SolicitarDepositoResult,
+  type TurnoKey,
 } from "@dpm/shared";
 
 import { callClaude, type ToolHandlers } from "../services/anthropic.js";
-import { promptsService } from "../services/prompts.js";
-import { buildFourBlockPrompt } from "../services/prompt-builder.js";
+import {
+  describeMissingCatalog,
+  getCatalogEntry,
+} from "../services/catalog-registry.js";
+import {
+  buildPaymentInstructions,
+  sedeHasAutomaticGateway,
+  type SedeKey,
+} from "../services/deposit-instructions.js";
 import { detectLanguage } from "../services/language.js";
+import { leadStageService } from "../services/lead-stage.js";
+import {
+  ExpectedDeposit,
+  runOcrOnAttachment,
+  type OcrVerdict,
+} from "../services/ocr-comprobante.js";
+import {
+  addDays,
+  getRequiredSlots,
+  maxDayOffset,
+} from "../services/program-schedule.js";
+import { buildFourBlockPrompt } from "../services/prompt-builder.js";
+import { promptsService } from "../services/prompts.js";
+import { rosterDbService } from "../services/roster-db.js";
+import {
+  ALT_SCAN_DAYS_FORWARD,
+  buildDetalleMap,
+  findVerifiedAlternativeStartDates,
+  validateRequiredSlots,
+} from "../services/slot-validator.js";
+import {
+  generateRefCode,
+  isValidRefCode,
+} from "../tools/solicitar-deposito.js";
+import { validateProductCardIds } from "../tools/send-product-card.js";
 import { getLogger } from "../logger.js";
+
+/** Local copy of process-message's WITA-today helper — small enough to
+ *  inline rather than export from that 3k-line module. */
+function wITAYmd(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Makassar",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
 
 // The synthetic chat_contact every simulator session points at. We use a
 // single shared contact so we don't litter chat_contacts with one row
@@ -168,75 +231,481 @@ async function loadPromptForSimulator(
   return { text: content, versionId: version?.id ?? null };
 }
 
-/** Stub the production tools so the simulator can show how John reacts
- *  to a tool call without producing real side effects. Each stub returns
- *  a minimally-valid result of the production type so callClaude's
- *  downstream logic doesn't choke. */
-function buildStubbedToolHandlers(): ToolHandlers {
-  return {
-    consultar_disponibilidad: async (
-      input,
-    ): Promise<ConsultarDisponibilidadResult> => {
-      // Simulator-mode availability: assume the requested day + course is
-      // available. The operator iterating the prompt isn't trying to
-      // validate the Apps Script roster — they're testing wording.
-      //
-      // 2026-05-18 Miguel feedback (Phi Phi): "dice que hay espacio en el
-      // barco pero está lleno". The fake "always-available" outcome is
-      // misleading when the operator forgets the tool is stubbed. The
-      // chat UI now carries an explicit "tools stubeadas" banner so the
-      // operator can read the AI's "yes, available" response in context.
-      // The stub itself stays optimistic so the AI can exercise the
-      // happy-path wording it would use in production with a real boat
-      // open.
-      const startDate = input.start_date;
+/** Production-parity tool handlers routed to the sandbox roster table.
+ *
+ * Mirrors `process-message.ts` handler logic but:
+ *   • `{sandbox: true}` is threaded through every rosterDbService call so
+ *     reads/writes hit `roster_bookings_sandbox` instead of production.
+ *   • All Respond.io outbound calls are SKIPPED (the simulator-shared
+ *     contact is synthetic — pushing custom fields / catalog payloads
+ *     would error or no-op).
+ *   • `leadStageService` transitions still run on the simulator's
+ *     conversaciones row so the deposit handler can read the
+ *     `proposed`-stage `leadMetadata` (programa, start_date,
+ *     required_slots) that consultar_disponibilidad stamped, exactly
+ *     like production.
+ */
+function buildSandboxToolHandlers(input: {
+  sede: Sede;
+  conversation: { id: string; leadMetadata: unknown; sedeId: string };
+  contactId: string;
+  detectedLanguage: string | undefined;
+}): ToolHandlers {
+  const { sede, conversation, contactId } = input;
+  const log = getLogger();
+  const sandbox = { sandbox: true } as const;
+
+  const reloadLeadMetadata = async (): Promise<LeadMetadata> => {
+    const db = getDb();
+    const [row] = await db
+      .select({ leadMetadata: conversaciones.leadMetadata })
+      .from(conversaciones)
+      .where(eq(conversaciones.id, conversation.id))
+      .limit(1);
+    return (row?.leadMetadata as LeadMetadata | null) ?? {};
+  };
+
+  const consultarDisponibilidadHandler = async (
+    toolInput: ConsultarDisponibilidadInput,
+  ): Promise<ConsultarDisponibilidadResult> => {
+    const required = getRequiredSlots(toolInput.programa, toolInput.fundive_slot);
+    if (!required) {
+      return {
+        ok: false,
+        reason: "program_not_scheduled",
+        message: `${toolInput.programa} no tiene un patrón de barco definido — derivar a humano para confirmar disponibilidad.`,
+      };
+    }
+
+    // Programs without boat capacity (e.g. ReactRight, theory-only).
+    if (required.length === 0) {
+      void leadStageService
+        .transition({
+          conversacionId: conversation.id,
+          to: "proposed",
+          by: "ai",
+          note: `[sim] consultar_disponibilidad ${toolInput.programa} ${toolInput.start_date} (no boat)`,
+          metadataPatch: {
+            programa: toolInput.programa,
+            start_date: toolInput.start_date,
+            pax: toolInput.pax,
+          },
+        })
+        .catch(() => {});
       return {
         ok: true,
-        programa: input.programa,
-        startDate,
+        programa: toolInput.programa,
+        startDate: toolInput.start_date,
         available: true,
-        slots: [
-          { date: startDate, slot: "AM", available: true, espacios: 8 },
-          { date: startDate, slot: "PM", available: true, espacios: 8 },
-        ],
+        slots: [],
         notes:
-          "[SIMULADOR — disponibilidad simulada, no es el roster real. Para validar capacidad real consultá con la sede.]",
+          "Programa sin requerimiento de barco — cualquier fecha funciona, confirmá horario con la sede.",
       };
-    },
-    solicitar_deposito: async (input): Promise<SolicitarDepositoResult> => {
-      const ref = `DPM-SIM-${randomUUID().slice(0, 8).toUpperCase()}`;
-      const monto = input.moneda_cliente === "IDR" ? 700_000 : 40;
-      const pax = input.pax ?? 1;
+    }
+
+    const baseWindow = maxDayOffset(required) + 1;
+    const windowDays = baseWindow + ALT_SCAN_DAYS_FORWARD;
+    const fresh = await rosterDbService
+      .fetchAvailability(sede.id, { date: toolInput.start_date, days: windowDays }, sandbox)
+      .catch((err) => {
+        log.warn(
+          { err: (err as Error).message, sede: sede.nombre },
+          "[sim] roster_db fetchAvailability failed",
+        );
+        return null;
+      });
+    if (!fresh) {
       return {
-        ok: true,
-        ref_code: ref,
-        ref_codes_by_pax: Array.from({ length: pax }, () => ref),
-        monto,
-        monto_total: monto * pax,
+        ok: false,
+        reason: "timeout",
+        message:
+          "El sistema de disponibilidad sandbox no respondió. Reintentá en unos segundos.",
+      };
+    }
+
+    const detalleByDate = buildDetalleMap(fresh);
+    const todayWitaStr = wITAYmd();
+    const validation = validateRequiredSlots({
+      required,
+      detalleByDate,
+      horaActualWita: fresh.hora_actual_wita,
+      todayWitaStr,
+      startDate: toolInput.start_date,
+      pax: toolInput.pax,
+    });
+    const { slots, allAvailable } = validation;
+
+    const verifiedAlternativeStartDates = allAvailable
+      ? []
+      : findVerifiedAlternativeStartDates({
+          programa: toolInput.programa,
+          fundiveSlot: toolInput.fundive_slot,
+          fromDate: toolInput.start_date,
+          detalleByDate,
+          horaActualWita: fresh.hora_actual_wita,
+          todayWitaStr,
+          pax: toolInput.pax,
+        });
+
+    void leadStageService
+      .transition({
+        conversacionId: conversation.id,
+        to: "proposed",
+        by: "ai",
+        note: `[sim] consultar_disponibilidad ${toolInput.programa} ${toolInput.start_date}`,
+        metadataPatch: {
+          programa: toolInput.programa,
+          start_date: toolInput.start_date,
+          pax: toolInput.pax,
+          required_slots: required.map((r) => ({
+            dayOffset: r.dayOffset,
+            slot: r.slot,
+          })),
+        },
+      })
+      .catch(() => {});
+
+    const failingSlots = validation.failingSlots;
+    return {
+      ok: true,
+      programa: toolInput.programa,
+      startDate: toolInput.start_date,
+      horaActualWita: fresh.hora_actual_wita,
+      available: allAvailable,
+      slots,
+      ...(failingSlots.length > 0 ? { failingSlots } : {}),
+      ...(verifiedAlternativeStartDates.length > 0
+        ? { verifiedAlternativeStartDates }
+        : {}),
+      ...(fresh.primer_dia_disponible &&
+      fresh.primer_dia_disponible !== toolInput.start_date
+        ? { alternativeStartDate: fresh.primer_dia_disponible }
+        : {}),
+      ...(typeof fresh.offset_dias === "number" && fresh.offset_dias > 0
+        ? { offsetDias: fresh.offset_dias }
+        : {}),
+    };
+  };
+
+  const solicitarDepositoHandler = async (
+    toolInput: SolicitarDepositoInput,
+  ): Promise<SolicitarDepositoResult> => {
+    const meta = await reloadLeadMetadata();
+    const preflightPrograma = meta.programa;
+    const preflightStartDate = meta.start_date;
+    if (!preflightPrograma || !preflightStartDate) {
+      return {
+        ok: false,
+        reason: "booking_not_finalized",
+        message:
+          "El AI no completó consultar_disponibilidad antes de pedir el depósito. Llamá esa tool primero con el programa y fecha de inicio del cliente.",
+      };
+    }
+
+    const preflightRequired = getRequiredSlots(
+      preflightPrograma as AvailabilityProgram,
+      undefined,
+    );
+    if (preflightRequired && preflightRequired.length > 0) {
+      const preflightWindow = maxDayOffset(preflightRequired) + 1 + ALT_SCAN_DAYS_FORWARD;
+      const preflightFresh = await rosterDbService
+        .fetchAvailability(
+          sede.id,
+          { date: preflightStartDate, days: preflightWindow },
+          sandbox,
+        )
+        .catch(() => null);
+      if (!preflightFresh) {
+        return {
+          ok: false,
+          reason: "slot_unavailable",
+          message:
+            "No pude re-verificar disponibilidad sandbox. Volvé a llamar consultar_disponibilidad antes de pedir la seña.",
+        };
+      }
+      const preflightDetalle = buildDetalleMap(preflightFresh);
+      const todayWita = wITAYmd();
+      const preflightVerdict = validateRequiredSlots({
+        required: preflightRequired,
+        detalleByDate: preflightDetalle,
+        horaActualWita: preflightFresh.hora_actual_wita,
+        todayWitaStr: todayWita,
+        startDate: preflightStartDate,
+        pax: toolInput.pax,
+      });
+      if (!preflightVerdict.allAvailable) {
+        const verifiedAlternativeStartDates = findVerifiedAlternativeStartDates({
+          programa: preflightPrograma as AvailabilityProgram,
+          fundiveSlot: undefined,
+          fromDate: preflightStartDate,
+          detalleByDate: preflightDetalle,
+          horaActualWita: preflightFresh.hora_actual_wita,
+          todayWitaStr: todayWita,
+          pax: toolInput.pax,
+        });
+        return {
+          ok: false,
+          reason: "slot_unavailable",
+          message:
+            "Re-verifiqué la disponibilidad y uno o más días del programa ya no tienen lugar. Ofrecé una fecha alternativa de la lista verificada.",
+          failingSlots: preflightVerdict.failingSlots,
+          ...(verifiedAlternativeStartDates.length > 0
+            ? { verifiedAlternativeStartDates }
+            : {}),
+        };
+      }
+    }
+
+    const currency = toolInput.moneda_cliente as DepositCurrency;
+    const monto = depositAmountFor(currency);
+    const pax = toolInput.pax;
+    const montoTotal = monto * pax;
+
+    const existingRefCode =
+      meta.ref_code && isValidRefCode(meta.ref_code) ? meta.ref_code : null;
+    const reused = existingRefCode !== null;
+
+    // Resolve program list (same precedence as production handler).
+    let programaList: string[] = [];
+    if (toolInput.programas && toolInput.programas.length > 0) {
+      const seen = new Set<string>();
+      for (const p of toolInput.programas) {
+        if (!seen.has(p)) {
+          seen.add(p);
+          programaList.push(p);
+        }
+      }
+    } else if (meta.ref_codes_by_program) {
+      programaList = Object.keys(meta.ref_codes_by_program);
+    } else if (meta.programa) {
+      programaList = [meta.programa];
+    }
+
+    // Per-pax programs (Miguel 2026-06-09).
+    let paxPrograms: string[][];
+    if (toolInput.pax_programs && toolInput.pax_programs.length > 0) {
+      paxPrograms = toolInput.pax_programs;
+    } else if (meta.pax_programs && meta.pax_programs.length === pax) {
+      paxPrograms = meta.pax_programs;
+    } else {
+      paxPrograms = Array.from({ length: pax }, () => [...programaList]);
+    }
+    if (paxPrograms.length > pax) paxPrograms = paxPrograms.slice(0, pax);
+    while (paxPrograms.length < pax) {
+      paxPrograms.push([...programaList]);
+    }
+
+    // Mint per-pax codes (reuse if already on this lead).
+    const existingRefCodesByPax = meta.ref_codes_by_pax ?? null;
+    const refCodesByPax: string[] = [];
+    for (let i = 0; i < pax; i++) {
+      const existing = existingRefCodesByPax?.[i];
+      refCodesByPax.push(
+        existing && isValidRefCode(existing) ? existing : generateRefCode(sede.nombre),
+      );
+    }
+    const refCode = refCodesByPax[0] ?? existingRefCode ?? generateRefCode(sede.nombre);
+
+    let refCodesByProgram: Record<string, string> | undefined;
+    if (programaList.length > 0) {
+      const map: Record<string, string> = {};
+      for (let i = 0; i < pax; i++) {
+        for (const p of paxPrograms[i] ?? []) {
+          if (!map[p]) map[p] = refCodesByPax[i]!;
+        }
+      }
+      if (Object.keys(map).length > 0) refCodesByProgram = map;
+    }
+
+    const requiresHumanVerification = !sedeHasAutomaticGateway(
+      sede.nombre as SedeKey,
+    );
+
+    const instrucciones = buildPaymentInstructions({
+      sedeNombre: sede.nombre,
+      language: toolInput.cliente_idioma,
+      currency,
+      refCode,
+      pax,
+      refCodesByPax,
+    });
+
+    // Sandbox pending hold (Miguel 4h TTL — release sweep targets prod
+    // bookings by default, sandbox holds linger until /reset).
+    const requiredSlotsForHold = meta.required_slots ?? [];
+    if (
+      preflightStartDate &&
+      preflightPrograma &&
+      Array.isArray(requiredSlotsForHold) &&
+      requiredSlotsForHold.length > 0
+    ) {
+      const slotsForHold = requiredSlotsForHold.map((s) => ({
+        fecha: addDays(preflightStartDate, s.dayOffset),
+        turno: s.slot as TurnoKey as unknown as Parameters<
+          typeof rosterDbService.holdPendingBookings
+        >[0]["slots"][number]["turno"],
+        programa: preflightPrograma,
         pax,
-        moneda: input.moneda_cliente,
-        instrucciones:
-          "[simulator stub] Transferencia ficticia a una cuenta de prueba. " +
-          "Ref: " + ref + ". No corresponde a un pago real.",
-        requires_human_verification: true,
-        reused_existing: false,
-      };
-    },
-    enviar_catalogo: async (input): Promise<EnviarCatalogoResult> => {
+      }));
+      const holdResult = await rosterDbService.holdPendingBookings(
+        {
+          sedeId: sede.id,
+          conversacionId: conversation.id,
+          contactId,
+          slots: slotsForHold,
+          notes: `[sim] pending hold for ${refCode} (${currency} × ${pax})`,
+        },
+        sandbox,
+      );
+      if (!holdResult.ok) {
+        if (holdResult.reason === "overbooked") {
+          return {
+            ok: false,
+            reason: "slot_unavailable",
+            message:
+              "Sandbox roster: el cupo se llenó justo al generar la seña. Ofrecé otra fecha.",
+            failingSlots: [
+              {
+                date: holdResult.failingSlot.fecha,
+                slot: holdResult.failingSlot.turno as TurnoKey,
+                available: false,
+                espacios: holdResult.failingSlot.available,
+                reason: "full",
+              },
+            ],
+          };
+        }
+        log.error(
+          { conversationId: conversation.id, holdResult },
+          "[sim] solicitar_deposito hold failed with invalid_input",
+        );
+        return {
+          ok: false,
+          reason: "internal_error",
+          message:
+            "Sandbox no pudo reservar el cupo. Reseteá la sesión desde el panel y reintentá.",
+        };
+      }
+      log.info(
+        {
+          conversationId: conversation.id,
+          heldRows: holdResult.holds.length,
+        },
+        "[sim] sandbox pending holds created",
+      );
+    }
+
+    await leadStageService
+      .transition({
+        conversacionId: conversation.id,
+        to: "deposit_pending",
+        by: "ai",
+        note: reused
+          ? `[sim] solicitar_deposito reuse ${refCode} ${currency}`
+          : `[sim] solicitar_deposito ${refCode} ${currency}`,
+        metadataPatch: {
+          ref_code: refCode,
+          ref_codes_by_pax: refCodesByPax,
+          pax_programs: paxPrograms,
+          ...(refCodesByProgram ? { ref_codes_by_program: refCodesByProgram } : {}),
+          deposit_amount: monto,
+          deposit_amount_total: montoTotal,
+          deposit_currency: currency,
+          pax,
+          programa: meta.programa,
+          start_date: meta.start_date,
+          payment_instructions_snapshot: instrucciones,
+          requires_human_verification: requiresHumanVerification,
+        },
+      })
+      .catch((err) =>
+        log.warn({ err }, "[sim] solicitar_deposito transition failed"),
+      );
+
+    return {
+      ok: true,
+      ref_code: refCode,
+      ref_codes_by_pax: refCodesByPax,
+      ...(refCodesByProgram && Object.keys(refCodesByProgram).length > 1
+        ? { ref_codes_by_program: refCodesByProgram }
+        : {}),
+      monto,
+      monto_total: montoTotal,
+      pax,
+      moneda: currency,
+      instrucciones,
+      requires_human_verification: requiresHumanVerification,
+      reused_existing: reused,
+    };
+  };
+
+  const enviarCatalogoHandler = async (
+    toolInput: EnviarCatalogoInput,
+  ): Promise<EnviarCatalogoResult> => {
+    const entry = getCatalogEntry(sede.nombre, toolInput.programa, input.detectedLanguage);
+    if (!entry) {
+      const message = describeMissingCatalog(sede.nombre, toolInput.programa);
       return {
-        ok: true,
-        sent: true,
-        programa: input.programa,
-        catalogRef: "simulator-stub",
+        ok: false,
+        reason: "not_configured",
+        message,
+        programa: toolInput.programa,
       };
-    },
-    // Colomba/GA — stub the Meta product card send so the prompt flow
-    // doesn't trip. We assume allowlist + delivery success unconditionally
-    // (the operator iterating the prompt isn't validating Meta).
-    send_product_card: async (input): Promise<SendProductCardResult> => {
-      const ids = Array.isArray(input.card_id) ? input.card_id : [input.card_id];
-      return { ok: true, sent: ids };
-    },
+    }
+    void leadStageService
+      .transition({
+        conversacionId: conversation.id,
+        to: "proposed",
+        by: "ai",
+        note: `[sim] enviar_catalogo ${toolInput.programa}`,
+      })
+      .catch(() => {});
+    log.info(
+      { conversationId: conversation.id, programa: toolInput.programa, catalogRef: entry.label },
+      "[sim] enviar_catalogo — simulated send (no Respond.io outbound)",
+    );
+    return {
+      ok: true,
+      sent: true,
+      programa: toolInput.programa,
+      catalogRef: entry.label,
+    };
+  };
+
+  const sendProductCardHandler = async (
+    toolInput: SendProductCardInput,
+  ): Promise<SendProductCardResult> => {
+    const validated = validateProductCardIds(toolInput);
+    if (!validated.ok) return validated;
+    void leadStageService
+      .transition({
+        conversacionId: conversation.id,
+        to: "proposed",
+        by: "ai",
+        note: `[sim] send_product_card ${validated.ids.join(",")}`,
+      })
+      .catch(() => {});
+    log.info(
+      { conversationId: conversation.id, ids: validated.ids },
+      "[sim] send_product_card — simulated send (no Respond.io outbound)",
+    );
+    return { ok: true, sent: validated.ids };
+  };
+
+  // Same per-sede tool surface as production.
+  if (sede.nombre === "Gili Air") {
+    return {
+      consultar_disponibilidad: consultarDisponibilidadHandler,
+      send_product_card: sendProductCardHandler,
+    };
+  }
+  if (sede.nombre === "Koh Tao") {
+    return { consultar_disponibilidad: consultarDisponibilidadHandler };
+  }
+  return {
+    consultar_disponibilidad: consultarDisponibilidadHandler,
+    solicitar_deposito: solicitarDepositoHandler,
+    enviar_catalogo: enviarCatalogoHandler,
   };
 }
 
@@ -328,8 +797,17 @@ export async function runSimulatorMessage(input: {
     suggestedCurrency: "EUR",
   });
 
-  // 5. Call Claude with stubbed tools.
-  const toolHandlers = buildStubbedToolHandlers();
+  // 5. Call Claude with sandbox-mode real handlers.
+  const toolHandlers = buildSandboxToolHandlers({
+    sede,
+    conversation: {
+      id: conv.id,
+      leadMetadata: conv.leadMetadata,
+      sedeId: conv.sedeId,
+    },
+    contactId: SIMULATOR_CONTACT_ID,
+    detectedLanguage,
+  });
   const result = await callClaude({
     system: built.system,
     messages: built.messages,
@@ -539,4 +1017,287 @@ export async function saveSimulatorSession(input: {
 export async function deleteSimulatorSession(id: string): Promise<void> {
   const db = getDb();
   await db.delete(simulatorSessions).where(eq(simulatorSessions.id, id));
+}
+
+// ─── Sandbox OCR upload ───────────────────────────────────────────────────
+//
+// Operator uploads a comprobante image from the simulator panel. We run
+// the same `runOcrOnAttachment` Vision call the production webhook uses
+// (with the pre-fetched bytes — there is no Respond.io CDN URL for
+// panel uploads), reconcile against the deposit metadata stamped by
+// `solicitar_deposito`, and on validate=true upgrade the sandbox pending
+// holds to `confirmed`. Mirrors production close-sale semantics: one
+// confirmBooking per (programa, required_slot) pair.
+
+export type SimulatorOcrResult = {
+  verdict: OcrVerdict;
+  bookings: Array<{
+    fecha: string;
+    turno: string;
+    programa: string;
+    pax: number;
+    upgradedFromPending: boolean;
+  }>;
+  /** Total rows touched in the sandbox table. */
+  rowsConfirmed: number;
+  /** Human-readable summary line for the chat UI. */
+  message: string;
+};
+
+export async function runSimulatorOcr(input: {
+  conversacionId: string;
+  base64: string;
+  mimeType: string;
+  fileName?: string | undefined;
+}): Promise<SimulatorOcrResult> {
+  const db = getDb();
+  const log = getLogger();
+
+  const [conv] = await db
+    .select()
+    .from(conversaciones)
+    .where(
+      and(
+        eq(conversaciones.id, input.conversacionId),
+        eq(conversaciones.origin, "simulator"),
+      ),
+    )
+    .limit(1);
+  if (!conv) {
+    throw new Error("simulator: conversation not found or not a simulator session");
+  }
+  const sede = await loadSede(conv.sedeId);
+  if (!sede) {
+    throw new Error(`simulator: sede ${conv.sedeId} not found`);
+  }
+
+  const meta = (conv.leadMetadata as LeadMetadata | null) ?? {};
+  if (!meta.deposit_currency || typeof meta.deposit_amount_total !== "number" || !meta.ref_code) {
+    return {
+      verdict: {
+        ok: false,
+        reason: "fetch_failed",
+        message: "no_deposit_metadata",
+        attachmentMime: input.mimeType,
+      },
+      bookings: [],
+      rowsConfirmed: 0,
+      message:
+        "❌ Sandbox OCR rechazado: la AI todavía no llamó solicitar_deposito. Hacé que el cliente pida la seña primero.",
+    };
+  }
+
+  const expected: ExpectedDeposit = {
+    refCode: meta.ref_code,
+    currency: meta.deposit_currency as DepositCurrency,
+    amount: meta.deposit_amount_total,
+  };
+
+  const verdict = await runOcrOnAttachment({
+    attachmentUrl: `simulator-upload://${input.fileName ?? "comprobante"}`,
+    attachmentMime: input.mimeType,
+    expected,
+    prefetchedBytes: { base64: input.base64, mimeType: input.mimeType },
+  });
+
+  // Persist verdict on lead_metadata.ocr_result so the panel can render it
+  // the same way it would for a real customer.
+  const nowIso = new Date().toISOString();
+  const ocrSummary: NonNullable<LeadMetadata["ocr_result"]> = verdict.ok
+    ? {
+        at: nowIso,
+        ok: true,
+        validated: verdict.validated,
+        mismatches: verdict.mismatches,
+        extraction: verdict.extraction,
+        attachmentMime: verdict.attachmentMime,
+      }
+    : {
+        at: nowIso,
+        ok: false,
+        reason: verdict.reason,
+        attachmentMime: verdict.attachmentMime ?? null,
+      };
+  await db
+    .update(conversaciones)
+    .set({
+      leadMetadata: { ...meta, ocr_result: ocrSummary },
+      updatedAt: new Date(),
+    })
+    .where(eq(conversaciones.id, conv.id))
+    .catch((err) => log.warn({ err }, "[sim] ocr_result metadata patch failed"));
+
+  // Reject paths: not auto-confirmable, surface as a chat message.
+  if (!verdict.ok) {
+    return {
+      verdict,
+      bookings: [],
+      rowsConfirmed: 0,
+      message: `❌ Sandbox OCR falló (${verdict.reason}).`,
+    };
+  }
+  if (!verdict.validated) {
+    return {
+      verdict,
+      bookings: [],
+      rowsConfirmed: 0,
+      message: `⚠️ Sandbox OCR leyó el comprobante pero no validó: ${verdict.mismatches.join(", ")}.`,
+    };
+  }
+
+  // Validated. Upgrade pending → confirmed for every required slot of the
+  // proposed booking. Mirrors the production path in
+  // process-message.ts (around line 575): one confirmBooking per slot,
+  // with conversacionId so the holdPendingBookings hold is promoted in
+  // place rather than duplicated.
+  const startDate = meta.start_date;
+  const programa = meta.programa;
+  const required = meta.required_slots ?? [];
+  const pax = meta.pax ?? 1;
+  const bookings: SimulatorOcrResult["bookings"] = [];
+  if (!startDate || !programa || required.length === 0) {
+    log.info(
+      { conversationId: conv.id },
+      "[sim] OCR validated but no required_slots — skipping confirm",
+    );
+  } else {
+    for (const slot of required) {
+      const fecha = addDays(startDate, slot.dayOffset);
+      const turno = slot.slot as unknown as Parameters<
+        typeof rosterDbService.confirmBooking
+      >[0]["turno"];
+      const result = await rosterDbService.confirmBooking(
+        {
+          sedeId: sede.id,
+          fecha,
+          turno,
+          programa,
+          pax,
+          conversacionId: conv.id,
+          contactId: SIMULATOR_CONTACT_ID,
+          notes: `[sim] booked by ai after OCR auto-confirm (${meta.ref_code})`,
+        },
+        { sandbox: true },
+      );
+      if (result.ok) {
+        bookings.push({
+          fecha,
+          turno: String(turno),
+          programa,
+          pax,
+          upgradedFromPending: result.booking.notes?.includes("pending") ?? false,
+        });
+      } else {
+        log.warn(
+          { conversationId: conv.id, result },
+          "[sim] confirmBooking failed during OCR auto-confirm",
+        );
+      }
+    }
+  }
+
+  // Transition the lead — same lifecycle as production after auto-confirm.
+  await leadStageService
+    .transition({
+      conversacionId: conv.id,
+      to: "deposit_paid",
+      by: "ai",
+      note: `[sim] ocr_auto_confirmed`,
+      metadataPatch: { ocr_result: ocrSummary },
+    })
+    .catch((err) =>
+      log.warn({ err }, "[sim] transition to deposit_paid failed"),
+    );
+
+  // Drop a system message into the chat so the operator sees what happened.
+  const summary = `✅ Sandbox OCR validó. Reservas confirmadas: ${bookings
+    .map((b) => `${b.fecha} ${b.turno}`)
+    .join(", ")}.`;
+  await db.insert(mensajes).values({
+    conversacionId: conv.id,
+    sender: "ai",
+    content: summary,
+    metadata: { synthetic: true, source: "simulator_ocr" },
+    origin: "simulator",
+  });
+
+  return {
+    verdict,
+    bookings,
+    rowsConfirmed: bookings.length,
+    message: summary,
+  };
+}
+
+// ─── Sandbox reset ────────────────────────────────────────────────────────
+//
+// Rewinds a simulator conversation back to a clean slate for the next
+// test scenario:
+//   1. Delete the sandbox roster rows (`roster_bookings_sandbox`) for
+//      THIS conversation only. Other simulator sessions keep their data.
+//   2. Reset the conversation: leadStage='new', clear leadMetadata.
+//   3. Delete all messages so the chat surface is empty.
+//
+// The conversation row itself is preserved (and its saved-session
+// references stay intact) — only its contents are wiped.
+
+export async function resetSimulatorSession(input: {
+  conversacionId: string;
+}): Promise<{ ok: true; deletedMessages: number; deletedBookings: number }> {
+  const db = getDb();
+  const log = getLogger();
+
+  const [conv] = await db
+    .select()
+    .from(conversaciones)
+    .where(
+      and(
+        eq(conversaciones.id, input.conversacionId),
+        eq(conversaciones.origin, "simulator"),
+      ),
+    )
+    .limit(1);
+  if (!conv) {
+    throw new Error("simulator: conversation not found or not a simulator session");
+  }
+
+  // 1. Clear sandbox bookings tied to this conversation.
+  const deletedBookings = await db
+    .delete(rosterBookingsSandbox)
+    .where(eq(rosterBookingsSandbox.conversacionId, input.conversacionId))
+    .returning({ id: rosterBookingsSandbox.id });
+
+  // 2. Reset conversation state — back to lead_stage='new', no metadata.
+  await db
+    .update(conversaciones)
+    .set({
+      leadStage: "new",
+      leadStageChangedAt: new Date(),
+      leadMetadata: null,
+      followUpState: null,
+      closedAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversaciones.id, input.conversacionId));
+
+  // 3. Drop all messages.
+  const deletedMessages = await db
+    .delete(mensajes)
+    .where(eq(mensajes.conversacionId, input.conversacionId))
+    .returning({ id: mensajes.id });
+
+  log.info(
+    {
+      conversationId: input.conversacionId,
+      deletedMessages: deletedMessages.length,
+      deletedBookings: deletedBookings.length,
+    },
+    "[sim] sandbox session reset",
+  );
+
+  return {
+    ok: true,
+    deletedMessages: deletedMessages.length,
+    deletedBookings: deletedBookings.length,
+  };
 }

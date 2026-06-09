@@ -600,6 +600,55 @@ export const rosterBookings = pgTable(
   }),
 );
 
+// ── roster_bookings_sandbox ───────────────────────────────────────────────
+// Sandbox mirror of `roster_bookings`. Used ONLY by the /admin/simulator
+// surface so Miguel can run end-to-end test conversations (consultar →
+// solicitar_deposito → OCR confirm) without ever touching production
+// capacity. Schema is identical column-for-column so the same drizzle
+// queries can target either table by switching the `from` clause.
+//
+// Why a separate table and not a `sandbox` discriminator column on
+// `roster_bookings`: with a column, every legacy query that forgets to
+// filter would mix sandbox holds into real availability. A separate
+// table makes the isolation compile-time enforced — the production
+// path imports `rosterBookings`, the simulator imports
+// `rosterBookingsSandbox`, and there is no shared accidental access.
+// (Miguel rule 2026-06-09 PM: "no hace falta que toque el roster real
+// que tenga una copia con eso estamos bien.")
+export const rosterBookingsSandbox = pgTable(
+  "roster_bookings_sandbox",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    sedeId: uuid("sede_id")
+      .notNull()
+      .references(() => sedes.id, { onDelete: "cascade" }),
+    fecha: text("fecha").notNull(),
+    turno: text("turno").notNull(),
+    programa: text("programa").notNull(),
+    pax: integer("pax").notNull().default(1),
+    conversacionId: uuid("conversacion_id").references(() => conversaciones.id, {
+      onDelete: "set null",
+    }),
+    contactId: text("contact_id"),
+    status: text("status").notNull().default("confirmed"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelledBy: text("cancelled_by"),
+    cancelReason: text("cancel_reason"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    sedeFechaTurnoIdx: index("roster_bookings_sandbox_sede_fecha_turno_idx").on(
+      t.sedeId,
+      t.fecha,
+      t.turno,
+    ),
+    statusIdx: index("roster_bookings_sandbox_status_idx").on(t.status),
+    conversacionIdx: index("roster_bookings_sandbox_conv_idx").on(t.conversacionId),
+  }),
+);
+
 // ── webhook_debug_log ──────────────────────────────────────────────────────
 // Forensic capture of every inbound webhook payload. Added 2026-06-03 to
 // root-cause "first customer message for a new lead doesn't reach the
@@ -644,6 +693,8 @@ export type RosterCapacityOverride = typeof rosterCapacityOverrides.$inferSelect
 export type NewRosterCapacityOverride = typeof rosterCapacityOverrides.$inferInsert;
 export type RosterBooking = typeof rosterBookings.$inferSelect;
 export type NewRosterBooking = typeof rosterBookings.$inferInsert;
+export type RosterBookingSandbox = typeof rosterBookingsSandbox.$inferSelect;
+export type NewRosterBookingSandbox = typeof rosterBookingsSandbox.$inferInsert;
 export type SimulatorSession = typeof simulatorSessions.$inferSelect;
 export type NewSimulatorSession = typeof simulatorSessions.$inferInsert;
 export type ReplayRun = typeof replayRuns.$inferSelect;

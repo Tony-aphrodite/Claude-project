@@ -52,7 +52,9 @@ import {
   listSimulatorSedes,
   listSimulatorSessions,
   loadSimulatorHistory,
+  resetSimulatorSession,
   runSimulatorMessage,
+  runSimulatorOcr,
   saveSimulatorSession,
 } from "../handlers/simulator.js";
 import { leadStageService } from "../services/lead-stage.js";
@@ -1115,6 +1117,84 @@ export async function adminRoutes(app: FastifyInstance) {
     } catch (err) {
       return reply.status(500).send({
         error: { code: "history_failed", message: (err as Error).message },
+      });
+    }
+  });
+
+  // POST /admin/simulator/ocr — upload a comprobante image for the
+  // current sandbox session. Routes through `runOcrOnAttachment` (real
+  // Anthropic Vision) and on validate=true upgrades the sandbox pending
+  // holds to `confirmed` in `roster_bookings_sandbox`. Mirrors the
+  // production webhook path so the operator sees the SAME OCR decision +
+  // booking confirmation flow they'd see for a real customer.
+  //   body: { conversacionId: string;
+  //           base64: string;          // raw bytes, no data: prefix
+  //           mimeType: string;        // image/jpeg | image/png | application/pdf | ...
+  //           fileName?: string }
+  app.post("/admin/simulator/ocr", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const body = (req.body ?? {}) as {
+      conversacionId?: string;
+      base64?: string;
+      mimeType?: string;
+      fileName?: string;
+    };
+    if (!body.conversacionId || !body.base64 || !body.mimeType) {
+      return reply.status(400).send({
+        error: {
+          code: "bad_request",
+          message: "Provide conversacionId, base64, and mimeType.",
+        },
+      });
+    }
+    // Strip data-URL prefix if the panel sent one. Both forms are common
+    // from <input type=file>+FileReader workflows.
+    const cleanedBase64 = body.base64.replace(/^data:[^;]+;base64,/, "");
+    try {
+      const res = await runSimulatorOcr({
+        conversacionId: body.conversacionId,
+        base64: cleanedBase64,
+        mimeType: body.mimeType,
+        fileName: body.fileName,
+      });
+      return reply.send({ ok: true, ...res });
+    } catch (err) {
+      req.log.warn(
+        { err: (err as Error).message, conversacionId: body.conversacionId },
+        "simulator ocr failed",
+      );
+      return reply.status(500).send({
+        error: { code: "ocr_failed", message: (err as Error).message },
+      });
+    }
+  });
+
+  // POST /admin/simulator/reset — rewind a sandbox session for the next
+  // test scenario: delete sandbox bookings tied to this conversation,
+  // clear leadMetadata, reset leadStage='new', drop all messages. The
+  // conversaciones row + saved-session references stay intact.
+  //   body: { conversacionId: string }
+  app.post("/admin/simulator/reset", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") return reply.status(503).send({ error: { code: "admin_disabled" } });
+    if (auth === "bad_auth") return reply.status(401).send({ error: { code: "unauthorized" } });
+    const body = (req.body ?? {}) as { conversacionId?: string };
+    if (!body.conversacionId) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "Provide conversacionId." },
+      });
+    }
+    try {
+      const res = await resetSimulatorSession({
+        conversacionId: body.conversacionId,
+      });
+      req.log.info(res, "simulator session reset");
+      return reply.send(res);
+    } catch (err) {
+      return reply.status(500).send({
+        error: { code: "reset_failed", message: (err as Error).message },
       });
     }
   });
