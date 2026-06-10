@@ -242,7 +242,7 @@ Si el cliente objeta precio del OW30:
 
 ### Nivel 4 — Descuento 10% (casos específicos)
 **Solo en estos casos** (verbatim del corpus):
-- Cliente con 6+ fun dives: "Then for your multiple fun dives, we can do 10% discount"
+- Cliente con 6+ fun dives → cubierto por los PAQUETES DE FUN DIVES de KB-01 (6 buceos −10%, 8+ −15%, precio publicado). NO es descuento de negociación — cotizar el precio de paquete directo, sin sumar otro descuento encima.
 - Cliente fiel DPM con varios programas: "I'll be happy to give you a 10% discount [Nombre] 😊"
 - Grupo grande negociando: requiere oficina
 

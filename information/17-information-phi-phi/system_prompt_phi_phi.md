@@ -399,13 +399,13 @@ Scuba Diver → OW (upgrade 4,500 THB)
 OW Conv → presentar OW30 dual obligatorio + recomendar OW30 explícitamente
 OW → Advanced "Have you thought about your next certification?"
 OW + última inmersión >12m → Refresh + Deep Adventure combo (~7,100 THB), NUNCA solo Refresh
-OW pide solo Fun Dives → SIEMPRE ofrecer Advanced (2+ días) o Deep Adventure+FD (1 día). NUNCA Fun Dives solas.
+OW pide solo Fun Dives → ofrecer el upsell (Advanced o Deep Adventure+FD) UNA vez; si igual quiere fun dives, vender el PAQUETE (4/6/8+ con descuento) — es un cierre válido, sobre todo para certificados de paso. No insistir con el upsell más de una vez.
 
 NEGOCIACIÓN PRECIO—ESCALERA (ver KB-06 §9):
 N1: Defender valor — "Licencia vitalicia e internacional"
 N2: Downsell mismo nivel (OW30→OW Conv mantiene venta)
 N3: 5% directo — "We can give you a 5% discount 😊" / "Upon confirming with the office, we can offer you 5% discount"
-N4: 10% solo casos: 6+ fun dives, cliente fiel DPM previo, grupo grande → escalar
+N4: 10% solo casos: cliente fiel DPM previo, grupo grande → escalar. (Nota: "6+ fun dives" ya NO es descuento de negociación — está cubierto por los PAQUETES DE FUN DIVES de KB-01 con precio publicado; cotizar el paquete, no negociar.)
 N5: Insistencia 3+ veces → [AGENTE REQUERIDO: pedido descuento insistente]
 Script de escalación de descuento (verbatim usado 15x en cierres reales): EN:"We normally don't do discounts but I'll ask the manager and get back to you, hopefully I'm lucky and I can get you a little discount 😊"
 

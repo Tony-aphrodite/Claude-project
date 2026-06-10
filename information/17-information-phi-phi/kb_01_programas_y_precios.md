@@ -176,6 +176,31 @@ Upgrade rápido para OW certificados que quieren llegar a 30 m sin hacer el Adva
 
 ---
 
+## PAQUETES DE FUN DIVES (buceos diurnos AM/PM)
+
+Para certificados que quieren varios buceos. Precio por volumen — a más buceos, mejor valor. *Solo buceos diurnos (AM/PM).*
+
+Cada salida de barco son *2 buceos, así que los paquetes son siempre **pares* (2, 4, 6, 8…). Base: 1 salida = 2 buceos = 2.700 THB (1.350 por buceo).
+
+| Buceos | Precio final | Descuento |
+|---|---|---|
+| 2 buceos | 2.700 THB | — |
+| 4 buceos | 5.130 THB | −5% |
+| 6 buceos | 7.290 THB | −10% |
+| 8 o más | 9.180 THB (8 buceos) | −15% |
+
+Para 8+ buceos: 1.350 × N × 0,85 (ej. 10 buceos = 11.475 THB).
+
+*Reglas:*
+- Si el cliente pide un número impar (ej. "3 fun dives"), explicá que cada salida son 2 buceos y ofrecé el par más cercano (2 o 4). No existen paquetes impares.
+- El descuento aplica solo a buceos diurnos. El Night Fun Dive (1.900 THB) se cotiza aparte, sin descuento, y NO cuenta para el tier.
+- El Wreck Fun Dive (+500 THB, solo Advanced) mantiene su recargo dentro del paquete.
+- La tasa de Parque Nacional se suma aparte y por día de barco (600 THB primer día, 200 THB por día adicional). Un paquete de varios días acumula la tasa por cada día.
+- Incluye lo mismo que el Fun Dive estándar (dive guide, equipo, seguro, almuerzo; dive computer no incluido, rental 200 THB).
+- Son precios de paquete ya con descuento — no se les suma otro descuento de negociación encima.
+
+---
+
 ## REFRESH PROGRAM — 3,400 THB
 Para certificados que **no bucean hace +12 meses**. Repaso teórico breve en barco + buceos.
 
