@@ -31,19 +31,21 @@ describe("getRequiredSlots (Miguel rule 2026-06-07: Confinadas slot added)", () 
     ]);
   });
 
-  it("returns AOW pattern: PM day 1 + AM/PM day 2 (NO pool day — AOW doesn't include pool refresh)", () => {
+  it("returns AOW pattern: PM + Nocturno day 1 + AM/PM day 2 (Miguel 2026-06-10: night dive on day 1 needs the Noc boat seat)", () => {
     const slots = getRequiredSlots("AOW");
     expect(slots).toEqual([
       { dayOffset: 0, slot: "PM" },
+      { dayOffset: 0, slot: "Nocturno" },
       { dayOffset: 1, slot: "AM" },
       { dayOffset: 1, slot: "PM" },
     ]);
   });
 
-  it("RefreshAdv = Confinadas + AOW (pool refresh + advanced dives)", () => {
+  it("RefreshAdv = Confinadas + AOW including the night-dive Noc seat (mirrors AOW Day 1)", () => {
     expect(getRequiredSlots("RefreshAdv")).toEqual([
       { dayOffset: 0, slot: "Confinadas" },
       { dayOffset: 0, slot: "PM" },
+      { dayOffset: 0, slot: "Nocturno" },
       { dayOffset: 1, slot: "AM" },
       { dayOffset: 1, slot: "PM" },
     ]);

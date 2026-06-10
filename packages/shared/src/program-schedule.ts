@@ -61,16 +61,30 @@ const OW30: readonly RequiredSlot[] = [
   { dayOffset: 2, slot: "PM" },
 ];
 const AOW: readonly RequiredSlot[] = [
-  // Day 1: 12:15 PM 2 dives (Navegación + Flotabilidad) — no pool refresh
+  // Day 1, 12:15 PM block — 2 day dives on the PM boat (Navegación +
+  // Flotabilidad).
   { dayOffset: 0, slot: "PM" },
+  // Day 1, 6–8 PM block — 1 night dive on the night boat (Aventura
+  // Nocturna). Miguel rule 2026-06-10: the night boat is a SEPARATE
+  // resource from the day boat. Before this line existed, a full Noc
+  // didn't block an AOW start because consultar_disponibilidad only
+  // looked at PM — the AI even narrated the night dive but the
+  // availability engine never checked it. Schedule gap, not reasoning
+  // gap.
+  { dayOffset: 0, slot: "Nocturno" },
   // Day 2: 7:30 AM 2 dives + 12:30 PM 1 dive
   { dayOffset: 1, slot: "AM" },
   { dayOffset: 1, slot: "PM" },
 ];
 const REFRESH_ADV: readonly RequiredSlot[] = [
-  // Day 1: 9 AM Refresh pool (Confinadas) + 12:15 PM 2 AOW dives
+  // Day 1, 9 AM block — Refresh pool (Confinadas).
   { dayOffset: 0, slot: "Confinadas" },
+  // Day 1, 12:15 PM block — 2 AOW dives on the PM boat.
   { dayOffset: 0, slot: "PM" },
+  // Day 1, 6–8 PM block — 1 night dive on the night boat (Aventura
+  // Nocturna). Mirrors the AOW Day-1 Noc seat added 2026-06-10; without
+  // it RefreshAdv inherited the same overbooking hole on the night dive.
+  { dayOffset: 0, slot: "Nocturno" },
   // Day 2: same as AOW Day 2
   { dayOffset: 1, slot: "AM" },
   { dayOffset: 1, slot: "PM" },

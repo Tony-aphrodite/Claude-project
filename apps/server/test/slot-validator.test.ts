@@ -11,14 +11,20 @@ import {
   findVerifiedAlternativeStartDates,
   validateRequiredSlots,
 } from "../src/services/slot-validator.js";
+import { getRequiredSlots } from "../src/services/program-schedule.js";
 
 // Build a synthetic AvailabilityDay. Defaults: AM full+available, PM
 // full+available. Override per-test for blocked / full / partial states.
+// Noc fields added 2026-06-10 for the AOW night-dive Day-1 footprint —
+// omit when not exercising night-boat scenarios so existing tests don't
+// have to think about it.
 function day(fecha: string, opts: {
   amDisp?: boolean;
   amEspacios?: number;
   pmDisp?: boolean;
   pmEspacios?: number;
+  nocDisp?: boolean;
+  nocEspacios?: number;
 } = {}): AvailabilityDay {
   return {
     fecha,
@@ -30,6 +36,11 @@ function day(fecha: string, opts: {
     turno_tarde: {
       disponible: opts.pmDisp ?? true,
       espacios: opts.pmEspacios ?? 22,
+      capacidad: 22,
+    },
+    turno_nocturno: {
+      disponible: opts.nocDisp ?? true,
+      espacios: opts.nocEspacios ?? 22,
       capacidad: 22,
     },
   } as AvailabilityDay;
@@ -387,5 +398,100 @@ describe("validateRequiredSlots — Miguel 2026-06-10 partial-occupancy overbook
     const okSlot = result.slots.find((s) => s.date === "2026-06-16");
     expect(okSlot?.available).toBe(true);
     expect(okSlot?.paxRequested).toBe(4);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────
+// Miguel 2026-06-10 — AOW night-dive Day-1 footprint guard
+//
+// Repro: AOW Day 1 = 2 PM dives + 1 night dive. The day boat (PM) and
+// the night boat (Noc) are SEPARATE resources. Before the AOW schedule
+// gained the Noc slot, a full Noc didn't block the start because
+// consultar_disponibilidad only looked at PM. Francisco narrated the
+// night dive but called the date "wide open".
+//
+// These tests pin BOTH: (a) the validator rejects when Day-1 Noc is full,
+// and (b) the alternative-date scanner skips past the bad date to the
+// next start whose FULL footprint (PM + Noc + AM/PM Day 2) fits — which
+// was Miguel's recovery requirement.
+// ────────────────────────────────────────────────────────────────────────
+describe("AOW Day-1 Noc footprint (Miguel 2026-06-10)", () => {
+  it("rejects start_date when Day-1 Noc is full — even if Day-1 PM is open", () => {
+    // Start day Noc 22/22 full; everything else wide open.
+    const result = validateRequiredSlots({
+      required: getRequiredSlots("AOW")!,
+      detalleByDate: buildMap(
+        day("2026-06-16", { nocEspacios: 0, nocDisp: false }),
+        day("2026-06-17"),
+      ),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      startDate: "2026-06-16",
+      pax: 1,
+    });
+    expect(result.allAvailable).toBe(false);
+    // The single failure should be the Day-1 Nocturno seat.
+    const nocFailures = result.failingSlots.filter((s) => s.slot === "Nocturno");
+    expect(nocFailures).toHaveLength(1);
+    expect(nocFailures[0]!.date).toBe("2026-06-16");
+    expect(nocFailures[0]!.reason).toBe("full");
+    // Day-1 PM, Day-2 AM, Day-2 PM should all have been checked too —
+    // total slot rows = 4 (the new AOW footprint).
+    expect(result.slots).toHaveLength(4);
+  });
+
+  it("findVerifiedAlternativeStartDates skips a bad-Noc start and surfaces the next viable date (recovery, Miguel part b)", () => {
+    // 16 has Noc full → AOW start on 16 cannot fit Day 1.
+    // 17 has everything open → AOW Day 1 on 17 + Day 2 on 18 must clear
+    //    (we wire up 17 and 18 with full default capacity).
+    const alts = findVerifiedAlternativeStartDates({
+      programa: "AOW",
+      fundiveSlot: undefined,
+      fromDate: "2026-06-15", // scan starts on 16
+      detalleByDate: buildMap(
+        day("2026-06-16", { nocEspacios: 0, nocDisp: false }),
+        day("2026-06-17"), // Day 1 for the new candidate
+        day("2026-06-18"), // Day 2 for the new candidate
+      ),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      limit: 1,
+    });
+    expect(alts).toEqual(["2026-06-17"]);
+  });
+
+  it("rejects every start_date in a window where Day-1 Noc is full on consecutive days", () => {
+    const alts = findVerifiedAlternativeStartDates({
+      programa: "AOW",
+      fundiveSlot: undefined,
+      fromDate: "2026-06-15",
+      detalleByDate: buildMap(
+        day("2026-06-16", { nocEspacios: 0, nocDisp: false }),
+        day("2026-06-17", { nocEspacios: 0, nocDisp: false }),
+        day("2026-06-18", { nocEspacios: 0, nocDisp: false }),
+        day("2026-06-19"), // first day where Noc is open
+        day("2026-06-20"), // its Day 2 — also clear
+      ),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      limit: 3,
+    });
+    expect(alts[0]).toBe("2026-06-19");
+  });
+
+  it("RefreshAdv mirrors AOW Day-1 Noc requirement", () => {
+    const result = validateRequiredSlots({
+      required: getRequiredSlots("RefreshAdv")!,
+      detalleByDate: buildMap(
+        day("2026-06-16", { nocEspacios: 0, nocDisp: false }),
+        day("2026-06-17"),
+      ),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      startDate: "2026-06-16",
+      pax: 1,
+    });
+    expect(result.allAvailable).toBe(false);
+    expect(result.failingSlots.some((s) => s.slot === "Nocturno")).toBe(true);
   });
 });
