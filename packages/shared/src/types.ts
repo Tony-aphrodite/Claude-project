@@ -434,8 +434,29 @@ export type SlotVerdict = {
   available: boolean;
   espacios: number; // remaining seats
   /**
+   * The pax count the validator compared against `espacios`. Echoed back
+   * verbatim so the AI's reply can quote the exact comparison ("para 4
+   * pax pero quedan 2") without re-deriving it from input.
+   *
+   * Added 2026-06-10 (Miguel "partial-occupancy overbook" feedback): when
+   * a slot was at 20/22 and the group of 4 confirmed, the AI's mental
+   * math failed silently. Echoing the comparison numbers makes the gap
+   * unmissable. Always present on validator-emitted verdicts; legacy
+   * call sites that built SlotVerdict by hand may leave it undefined.
+   */
+  paxRequested?: number;
+  /**
+   * `paxRequested - espacios` when the slot fails because of capacity
+   * shortage. Always undefined when `available=true`. Lets the AI say
+   * "faltan 2 lugares para este día" without doing arithmetic. Miguel
+   * 2026-06-10: "lo más robusto sería que la tool reciba la cantidad de
+   * pax y devuelva, por día/turno, los lugares que quedan + si el grupo
+   * entra (sí / no / faltan N)".
+   */
+  shortBy?: number;
+  /**
    * Why a slot is NOT available — only set when available=false.
-   *   • full          — boat is full
+   *   • full          — boat is full (espacios=0 OR espacios < paxRequested)
    *   • past_today    — same-day boat already departed (cutoff WITA)
    *   • missing_data  — Apps Script didn't return that date
    *   • closure_day   — sede closed (Dec 25 / Jan 1, DPM_AI_LAUNCH §9)

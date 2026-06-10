@@ -297,7 +297,7 @@ Reconocer cualquiera de estas señales:
 - EN: "When was their last dive?"
 - ES: "¿Cuándo fue su última inmersión?"
 
-⚠️ Si >6 meses → Refresh obligatorio.
+⚠️ Si >12 meses → Refresh obligatorio.
 
 **Pregunta 3 — ¿Quieren bucear juntos de verdad?**
 - EN: "Are you guys hoping to dive together, or just be on the same boat?"
@@ -334,7 +334,7 @@ Si el cert valora profundidad/upsell por encima de la experiencia compartida:
 
 ### 11.6 ⭐ Opción C — Upsell en cadena Refresh + Deep Adventure
 
-**Cuando el cert necesita Refresh** (>6 meses sin bucear), no solo vender Refresh. Vender Refresh + Deep Adventure como combo, y usar la tarjeta Deep Adventurer del cert como gancho para empujar al sin-cert hacia OW30.
+**Cuando el cert necesita Refresh** (>12 meses sin bucear), no solo vender Refresh. Vender Refresh + Deep Adventure como combo, y usar la tarjeta Deep Adventurer del cert como gancho para empujar al sin-cert hacia OW30.
 
 **Matemática:**
 - Sin upsell: OW Conv (12,900) + Refresh+FD (3,400) = **16,300 THB**
@@ -342,7 +342,7 @@ Si el cert valora profundidad/upsell por encima de la experiencia compartida:
 - **Δ ticket bruto: +9,700 THB con upsell completo**
 
 **Paso 1 — Refresh por seguridad:**
-- ES: "Va a necesitar Refresh primero — pasaron más de 6 meses y es protocolo de seguridad 🙏 Es teoría corta + práctica + 1 inmersión, 3,400 THB."
+- ES: "Va a necesitar Refresh primero — pasaron más de 12 meses y es protocolo de seguridad 🙏 Es teoría corta + práctica + 1 inmersión, 3,400 THB."
 
 **Paso 2 — Plantar Deep Adventure inmediato:**
 - ES: "Y como ya va a estar en el agua, te recomiendo sumar una Aventura Profunda después del Refresh. Es 1 inmersión a 30 m + 1 fun dive, y se lleva la tarjeta SSI Deep Adventurer de por vida (3,700 THB)."

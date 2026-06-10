@@ -185,7 +185,7 @@ Para certificados que **no bucean hace +12 meses**. Repaso teórico breve en bar
 - 2ª inmersión: buceo normal
 
 **Reglas:**
-- Obligatorio para certificados con +6 meses sin bucear (el manual marca 6 meses, en la práctica se aplica más a +12 meses)
+- Obligatorio para certificados con +12 meses sin bucear (el manual de la agencia marca 6 meses, pero DPM aplica 12 en la práctica)
 - DiveMasters e Instructores **NO necesitan refresh** (son profesionales)
 - Si el cliente insiste en que no lo necesita: pedir fecha de última inmersión y número total de buceos → escalar a oficina vía `[AGENTE REQUERIDO]` para evaluar exención
 

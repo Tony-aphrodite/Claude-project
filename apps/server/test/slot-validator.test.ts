@@ -283,3 +283,109 @@ describe("findVerifiedAlternativeStartDates — alt-date scanner", () => {
     expect(alts.length).toBeLessThanOrEqual(1);
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────
+// Miguel 2026-06-10 — partial-occupancy overbook guard
+//
+// Repro from Miguel's report: PM 15/06 = 20/22 (2 free). Group of 4 lands
+// on the same PM (2 OW + 2 Fun Dives). Pre-fix, `validateRequiredSlots`
+// reported `available=false, reason='full'` but did NOT surface the
+// deficit numerically — the AI's mental math missed the gap. Post-fix
+// `shortBy` makes the gap unmissable + `paxRequested` echoes back exactly
+// what the AI passed in.
+// ────────────────────────────────────────────────────────────────────────
+describe("validateRequiredSlots — Miguel 2026-06-10 partial-occupancy overbook guard", () => {
+  it("populates shortBy = pax - espacios when the slot is partially full", () => {
+    const result = validateRequiredSlots({
+      required: [{ dayOffset: 0, slot: "PM" }],
+      detalleByDate: buildMap(day("2026-06-15", { pmEspacios: 2 })),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      startDate: "2026-06-15",
+      pax: 4,
+    });
+    expect(result.allAvailable).toBe(false);
+    expect(result.failingSlots).toHaveLength(1);
+    const slot = result.failingSlots[0]!;
+    expect(slot.reason).toBe("full");
+    expect(slot.espacios).toBe(2);
+    expect(slot.paxRequested).toBe(4);
+    expect(slot.shortBy).toBe(2); // 4 pax - 2 libres = 2 short
+  });
+
+  it("populates paxRequested on the success path too (for parity with failure)", () => {
+    const result = validateRequiredSlots({
+      required: [{ dayOffset: 0, slot: "PM" }],
+      detalleByDate: buildMap(day("2026-06-15", { pmEspacios: 22 })),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      startDate: "2026-06-15",
+      pax: 4,
+    });
+    expect(result.allAvailable).toBe(true);
+    expect(result.slots[0]!.paxRequested).toBe(4);
+    expect(result.slots[0]!.shortBy).toBeUndefined();
+  });
+
+  it("does NOT set shortBy when slot is completely full (espacios=0) — full is full, no deficit needed", () => {
+    const result = validateRequiredSlots({
+      required: [{ dayOffset: 0, slot: "AM" }],
+      detalleByDate: buildMap(day("2026-06-15", { amEspacios: 0, amDisp: false })),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      startDate: "2026-06-15",
+      pax: 4,
+    });
+    expect(result.allAvailable).toBe(false);
+    const slot = result.failingSlots[0]!;
+    expect(slot.reason).toBe("full");
+    expect(slot.espacios).toBe(0);
+    // shortBy still set — = pax - 0 — useful for the AI to say "para 4 no
+    // hay nada, está completo". 0 free seats is just a special case of
+    // the same comparison.
+    expect(slot.shortBy).toBe(4);
+  });
+
+  it("missing_data reason carries paxRequested (so the AI can quote the original ask)", () => {
+    const result = validateRequiredSlots({
+      required: [{ dayOffset: 5, slot: "PM" }], // day not in map
+      detalleByDate: buildMap(day("2026-06-15")),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      startDate: "2026-06-15",
+      pax: 3,
+    });
+    const slot = result.failingSlots[0]!;
+    expect(slot.reason).toBe("missing_data");
+    expect(slot.paxRequested).toBe(3);
+  });
+
+  it("multi-day footprint: deficit on day 2 alone fails the whole start_date", () => {
+    // OW 3-day footprint starting 14/06: Día 1 Confinadas, Día 2 PM 15,
+    // Día 3 AM 16. Miguel's exact repro: PM 15 has 2 free; group of 4
+    // wants OW. The validator runs once for pax=4; Día 2 fails with
+    // shortBy=2 and the whole start_date is rejected.
+    const result = validateRequiredSlots({
+      required: [
+        { dayOffset: 1, slot: "PM" }, // Día 2 — the failing day
+        { dayOffset: 2, slot: "AM" }, // Día 3 — fine
+      ],
+      detalleByDate: buildMap(
+        day("2026-06-15", { pmEspacios: 2 }),
+        day("2026-06-16"),
+      ),
+      horaActualWita: undefined,
+      todayWitaStr: "2026-06-01",
+      startDate: "2026-06-14",
+      pax: 4,
+    });
+    expect(result.allAvailable).toBe(false);
+    expect(result.failingSlots).toHaveLength(1);
+    expect(result.failingSlots[0]!.date).toBe("2026-06-15");
+    expect(result.failingSlots[0]!.shortBy).toBe(2);
+    // The other day still appears in `slots` as available with paxRequested echo.
+    const okSlot = result.slots.find((s) => s.date === "2026-06-16");
+    expect(okSlot?.available).toBe(true);
+    expect(okSlot?.paxRequested).toBe(4);
+  });
+});

@@ -34,7 +34,10 @@ export const consultarDisponibilidadTool: Anthropic.Tool = {
     "Si ok=false (timeout / no_configurado / programa no agendable) " +
     "respondé al cliente que lo verificás con el equipo y NO inventes plazas. " +
     "Si ok=true pero available=false, mostrá cuáles slots fallaron y proponé " +
-    "alternativeStartDate cuando esté presente.",
+    "alternativeStartDate cuando esté presente. " +
+    "Cada slot devuelto trae `espacios` (lugares libres), `paxRequested` " +
+    "(eco del pax que mandaste) y, si no entra, `shortBy` (cuántos faltan): " +
+    "usalos literales para responder, NO calcules de cabeza (Miguel 2026-06-10).",
   input_schema: {
     type: "object",
     properties: {
@@ -93,10 +96,18 @@ export const consultarDisponibilidadTool: Anthropic.Tool = {
         minimum: 1,
         maximum: 20,
         description:
-          "Cantidad de buzos en esta reserva. OBLIGATORIO — el servidor lo " +
-          "guarda en lead_metadata y lo usa para validar el monto del depósito " +
-          "(pax × monto por persona). Si el cliente todavía no aclaró cuántas " +
-          "personas son, PREGUNTÁ antes de llamar la herramienta — no asumas 1.",
+          "Cantidad de buzos que comparten ESTOS slots. OBLIGATORIO. " +
+          "MULTI-PROGRAMA (Miguel 2026-06-10): si el grupo combina programas " +
+          "que CO-OCUPAN los mismos días de barco (ej. 2 OW + 2 Fun Dives que " +
+          "se suman a los días de barco del OW), pasá `pax = total del grupo " +
+          "que cae en el barco` (4 en el ejemplo), NO solo los del programa " +
+          "principal (2). Si pasás 2, el servidor solo verifica 2 lugares " +
+          "libres y la AI confirma para 4 → overbooking. El servidor responde " +
+          "por slot con `espacios` (lugares libres), `paxRequested` (eco del " +
+          "pax pasado) y `shortBy` (cuántos faltan cuando no entra) — usá esos " +
+          "números literalmente, no inventes la cuenta. " +
+          "Si el cliente todavía no aclaró cuántas personas son, PREGUNTÁ " +
+          "antes de llamar la herramienta — no asumas 1.",
       },
     },
     required: ["sede_id", "programa", "start_date", "pax"],

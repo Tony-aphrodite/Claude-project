@@ -98,7 +98,14 @@ export function validateRequiredSlots(
     const date = addDays(input.startDate, req.dayOffset);
     const dayDetail = input.detalleByDate.get(date);
     if (!dayDetail) {
-      slots.push({ date, slot: req.slot, available: false, espacios: 0, reason: "missing_data" });
+      slots.push({
+        date,
+        slot: req.slot,
+        available: false,
+        espacios: 0,
+        paxRequested: pax,
+        reason: "missing_data",
+      });
       allAvailable = false;
       continue;
     }
@@ -160,7 +167,7 @@ export function validateRequiredSlots(
       // (Apps Script doesn't have Confinadas/Nocturno), trust that
       // capacity exists. Office manages internally. Surface as
       // available so the program-day check passes.
-      slots.push({ date, slot: pickedSlot, available: true, espacios: 99 });
+      slots.push({ date, slot: pickedSlot, available: true, espacios: 99, paxRequested: pax });
       continue;
     }
     const espacios = slotData.espacios ?? 0;
@@ -181,7 +188,14 @@ export function validateRequiredSlots(
       pickedSlot !== "Confinadas" &&
       !bookable.has(bookableSlotKey)
     ) {
-      slots.push({ date, slot: pickedSlot, available: false, espacios, reason: "past_today" });
+      slots.push({
+        date,
+        slot: pickedSlot,
+        available: false,
+        espacios,
+        paxRequested: pax,
+        reason: "past_today",
+      });
       allAvailable = false;
       continue;
     }
@@ -190,11 +204,24 @@ export function validateRequiredSlots(
     // check allowed overbooking like "OW for 2 but Día 3 AM has 1
     // libre → AI confirms anyway".
     if (!slotData.disponible || espacios < pax) {
-      slots.push({ date, slot: pickedSlot, available: false, espacios, reason: "full" });
+      // Miguel rule 2026-06-10: emit `shortBy = pax − espacios` so the
+      // AI can quote the exact deficit ("faltan 2 plazas") instead of
+      // doing the math mentally and getting it wrong. `paxRequested` is
+      // echoed so the AI can also quote "pediste para 4". Together they
+      // close the partial-occupancy overbook hole.
+      slots.push({
+        date,
+        slot: pickedSlot,
+        available: false,
+        espacios,
+        paxRequested: pax,
+        shortBy: Math.max(0, pax - espacios),
+        reason: "full",
+      });
       allAvailable = false;
       continue;
     }
-    slots.push({ date, slot: pickedSlot, available: true, espacios });
+    slots.push({ date, slot: pickedSlot, available: true, espacios, paxRequested: pax });
   }
   return {
     allAvailable,
