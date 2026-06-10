@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseStructuredAnswer } from "../src/services/anthropic.js";
+import { parseStructuredAnswer, pickEmptyTextFallback } from "../src/services/anthropic.js";
 
 describe("parseStructuredAnswer", () => {
   it("returns text + fuentes for a clean JSON envelope", () => {
@@ -640,5 +640,125 @@ Vou ser direto e propor a solução mais completa.
       );
       expect(out.escalationReason).toBeNull();
     });
+  });
+});
+
+// ─── Empty-text fallback (Miguel 2026-06-10 "queda colgado" incident) ────
+//
+// When callClaude exhausts its tool-round budget without producing text,
+// or when an envelope strips to empty after parsing, the loop substitutes
+// pickEmptyTextFallback() so the customer never sees an empty bubble.
+// These tests pin the language routing + tool-vs-bare variant selection
+// so the fallback can't silently regress.
+
+describe("pickEmptyTextFallback — Miguel 2026-06-10 queda-colgado guard", () => {
+  it("returns Spanish 'withTools' variant when tools were called and language=es", () => {
+    const out = pickEmptyTextFallback({
+      expectedLanguage: "es",
+      hadToolCalls: true,
+    });
+    expect(out).toContain("curso");
+    expect(out).toContain("personas");
+    expect(out).toMatch(/Try Scuba|Open Water/);
+  });
+
+  it("returns Spanish 'bareMessage' variant when no tools called and language=es", () => {
+    const out = pickEmptyTextFallback({
+      expectedLanguage: "es",
+      hadToolCalls: false,
+    });
+    expect(out).toContain("repetir");
+    // Bare-message variant doesn't mention specific courses.
+    expect(out).not.toMatch(/Try Scuba/);
+  });
+
+  it("returns English variant when language=en", () => {
+    const out = pickEmptyTextFallback({
+      expectedLanguage: "en",
+      hadToolCalls: true,
+    });
+    expect(out).toMatch(/course|people/i);
+    expect(out).not.toContain("curso");
+  });
+
+  it("returns English variant when language=english (label form)", () => {
+    const out = pickEmptyTextFallback({
+      expectedLanguage: "english",
+      hadToolCalls: false,
+    });
+    expect(out).toMatch(/repeat|question/i);
+  });
+
+  it("returns Portuguese variant when language=pt", () => {
+    const out = pickEmptyTextFallback({
+      expectedLanguage: "pt",
+      hadToolCalls: true,
+    });
+    expect(out).toMatch(/curso|pessoas/);
+    expect(out).toContain("Desculpa");
+  });
+
+  it("falls back to Spanish when language is undefined", () => {
+    const out = pickEmptyTextFallback({
+      expectedLanguage: undefined,
+      hadToolCalls: true,
+    });
+    expect(out).toMatch(/curso/);
+  });
+
+  it("falls back to Spanish for unknown languages", () => {
+    const out = pickEmptyTextFallback({
+      expectedLanguage: "klingon",
+      hadToolCalls: false,
+    });
+    expect(out).toMatch(/repetir/);
+  });
+
+  it("withTools and bareMessage variants are different (no accidental aliasing)", () => {
+    const withTools = pickEmptyTextFallback({
+      expectedLanguage: "es",
+      hadToolCalls: true,
+    });
+    const bare = pickEmptyTextFallback({
+      expectedLanguage: "es",
+      hadToolCalls: false,
+    });
+    expect(withTools).not.toBe(bare);
+  });
+
+  it("all variants are non-empty (would defeat the purpose otherwise)", () => {
+    for (const lang of ["es", "en", "pt", "english", "español"]) {
+      for (const hadToolCalls of [true, false]) {
+        const out = pickEmptyTextFallback({ expectedLanguage: lang, hadToolCalls });
+        expect(out.trim().length).toBeGreaterThan(20);
+      }
+    }
+  });
+});
+
+describe("parseStructuredAnswer — empty input edge case", () => {
+  it("returns text='' for empty raw (so callClaude's fallback layer can trigger)", () => {
+    const out = parseStructuredAnswer("");
+    expect(out.text).toBe("");
+    expect(out.fuentes).toEqual([]);
+    expect(out.escalationReason).toBeNull();
+  });
+
+  it("returns text='' for whitespace-only raw", () => {
+    const out = parseStructuredAnswer("   \n\t  ");
+    // Whitespace stripped — parser sees nothing to parse → returns empty text.
+    expect(out.text.trim()).toBe("");
+  });
+
+  it("substitutes SAFE_FALLBACK_TEXT when JSON envelope's respuesta is empty (existing 2026-05-14 guard)", () => {
+    // This path is handled by parseStructuredAnswer's own fallback (the
+    // "Un momento por favor, te conecto…" handoff), separately from the
+    // 2026-06-10 empty-text guard in callClaude. Pinned here so both
+    // layers can evolve independently without tripping each other.
+    const out = parseStructuredAnswer(
+      JSON.stringify({ respuesta: "", fuentes: [] }),
+    );
+    expect(out.text.trim().length).toBeGreaterThan(0);
+    expect(out.text).toContain("momento");
   });
 });

@@ -193,13 +193,20 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
   if (input.toolHandlers.enviar_catalogo) tools.push(enviarCatalogoTool);
   if (input.toolHandlers.send_product_card) tools.push(sendProductCardTool);
 
-  // We allow up to two tool_use round-trips per request. Two is enough for
-  // common combos (e.g. enviar_catalogo + solicitar_deposito on the same
-  // turn) without unbounded latency. The system prompt still encourages
-  // at most one functional tool per turn.
-  const MAX_TOOL_ROUNDS = 2;
+  // Tool-call rounds budget. Bumped from 2 → 3 on 2026-06-10 after a
+  // Miguel-reported "queda colgado" incident where a 6-day diving request
+  // exhausted the loop without producing text. Three rounds covers:
+  //   round 0  — initial response (may emit tool_use)
+  //   round 1  — second response after tool_results (may emit more tools)
+  //   round 2  — third response after more tool_results (may emit more)
+  //   round 3  — FINAL round, tool_choice='none' forces a text synthesis
+  // The final-round tool_choice flip is the load-bearing change: even if
+  // the model wanted to call yet another tool, Anthropic enforces text
+  // output, so the loop can NEVER return empty text again.
+  const MAX_TOOL_ROUNDS = 3;
 
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+    const isFinalRound = round === MAX_TOOL_ROUNDS;
     let response: Anthropic.Message;
     try {
       response = await client.messages.create({
@@ -208,6 +215,13 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         system: input.system,
         tools,
         messages,
+        // Final-round synthesis guard (Miguel 2026-06-10): on the last
+        // round force the model to produce text instead of calling more
+        // tools. Without this the loop can fall through with `rawText=""`
+        // and the panel renders an empty chat bubble.
+        ...(isFinalRound
+          ? { tool_choice: { type: "none" as const } }
+          : {}),
       });
     } catch (err) {
       const latencyMs = Date.now() - startedAt;
@@ -272,6 +286,21 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         finalText = availabilityFallback(input.expectedLanguage);
       }
 
+      // Empty-text guard (Miguel 2026-06-10 "queda colgado" incident).
+      // Even with tool_choice='none' on the final round, an edge case can
+      // produce zero text (max_tokens hit mid-token, JSON envelope that
+      // strips to empty, content blocks all non-text). Substituting a
+      // localized clarifying ask is strictly better than rendering an
+      // empty bubble — the customer always sees something actionable.
+      let emptyTextFallbackApplied = false;
+      if (!finalText.trim()) {
+        emptyTextFallbackApplied = true;
+        finalText = pickEmptyTextFallback({
+          expectedLanguage: input.expectedLanguage,
+          hadToolCalls: toolCalls.length > 0,
+        });
+      }
+
       // Append tool_use to fuentes if Claude actually invoked any. The panel
       // surfaces these so a human can audit which tool the AI relied on.
       for (const toolName of new Set(toolCalls)) {
@@ -319,6 +348,22 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         );
       }
 
+      if (emptyTextFallbackApplied) {
+        log.warn(
+          {
+            sede: input.sedeId,
+            conversacionId: input.conversacionId,
+            round,
+            toolCalls,
+            stopReason: response.stop_reason,
+            contentBlockTypes: response.content.map((b) => b.type),
+            rawTextLen: rawText.length,
+            wasFinalRound: isFinalRound,
+          },
+          "claude returned empty text — empty-text fallback applied (Miguel 2026-06-10 colgado guard)",
+        );
+      }
+
       log.info(
         {
           sede: input.sedeId,
@@ -334,6 +379,8 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
           closeReason,
           hasNotes: notes !== null,
           sendProductCardCount: sendProductCardIds?.length ?? 0,
+          emptyTextFallbackApplied,
+          rounds: round + 1,
         },
         "claude call ok",
       );
@@ -599,6 +646,56 @@ function availabilityFallback(expectedLanguage?: string): string {
     return AVAILABILITY_FALLBACK_TEXT.pt!;
   }
   return AVAILABILITY_FALLBACK_TEXT.es!;
+}
+
+// Empty-text fallback (Miguel 2026-06-10 incident: 6-day diving request →
+// AI called consultar_disponibilidad 4 times across rounds, never produced
+// text, panel rendered empty bubble = "queda colgado"). Defense in depth:
+// the final-round `tool_choice: none` already forces the model to emit
+// text, but if it ever emits an empty/whitespace block (max_tokens cut,
+// SDK quirk, prompt bug) we substitute a clarifying ask so the customer
+// gets SOMETHING instead of silence. Localized per `expectedLanguage`.
+//
+// Two variants depending on whether tools were called this turn:
+//  - hadToolCalls=true  → AI was investigating but couldn't summarize.
+//    Ask for a course + party-size disambiguation.
+//  - hadToolCalls=false → AI couldn't even pick a tool. Ask to restate.
+export const EMPTY_TEXT_FALLBACK: Record<
+  string,
+  { withTools: string; bareMessage: string }
+> = {
+  es: {
+    withTools:
+      "Disculpá, necesito más información para confirmarte. ¿Podés decirme qué curso te interesa (Try Scuba, Open Water, Advanced, Rescue, fun dives) y para cuántas personas? Así te paso disponibilidad y precios exactos 🙏",
+    bareMessage:
+      "Disculpá, no pude procesar tu mensaje recién. ¿Podés repetirme la consulta? Si querés podés contarme qué curso te interesa y para qué fecha 🙏",
+  },
+  en: {
+    withTools:
+      "Sorry, I need a bit more info to confirm. Could you tell me which course you're after (Try Scuba, Open Water, Advanced, Rescue, fun dives) and how many people? Then I can give you exact availability and price 🙏",
+    bareMessage:
+      "Sorry, I couldn't process that message. Could you repeat your question? Feel free to tell me which course you're interested in and your dates 🙏",
+  },
+  pt: {
+    withTools:
+      "Desculpa, preciso de mais info para confirmar. Podes me dizer que curso queres (Try Scuba, Open Water, Advanced, Rescue, fun dives) e para quantas pessoas? Aí te passo disponibilidade e preços 🙏",
+    bareMessage:
+      "Desculpa, não consegui processar a tua mensagem. Podes repetir? Se quiseres conta-me que curso te interessa e para que data 🙏",
+  },
+};
+
+export function pickEmptyTextFallback(input: {
+  expectedLanguage?: string | undefined;
+  hadToolCalls: boolean;
+}): string {
+  const lang = input.expectedLanguage?.toLowerCase() ?? "";
+  const bundle =
+    lang === "english" || lang === "en"
+      ? EMPTY_TEXT_FALLBACK.en!
+      : lang === "português" || lang === "portugues" || lang === "pt"
+        ? EMPTY_TEXT_FALLBACK.pt!
+        : EMPTY_TEXT_FALLBACK.es!;
+  return input.hadToolCalls ? bundle.withTools : bundle.bareMessage;
 }
 
 // Portuguese-only orthography + function-word patterns are imported from
