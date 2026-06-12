@@ -4,3 +4,4 @@ Mon May  4 06:02:30 PM CEST 2026
 Mon May  4 06:22:48 PM CEST 2026
 Mon May  4 06:37:46 PM CEST 2026
 Mon Jun  8 PM PDT 2026 — admin reset reassign fix
+Fri Jun 12 09:29:32 AM UTC 2026 — force redeploy: DB pool stuck, /ready hung, ECONNRESET from Vercel
