@@ -163,27 +163,45 @@ export async function webhookRoutes(app: FastifyInstance) {
         { event: peekedEvent, contactId: (normalized as { contact?: { id?: unknown } })?.contact?.id ?? null },
         "contact-state webhook received",
       );
-      try {
-        const result = await handleContactStateEvent(
-          normalized as Parameters<typeof handleContactStateEvent>[0],
-          peekedEvent,
-          req.log,
-        );
-        captureWebhookDebug({
-          body: normalized,
-          classifiedAs: `contact_state:${peekedEvent}`,
-        });
-        return reply.send(result);
-      } catch (err) {
-        req.log.error({ err, event: peekedEvent }, "contact-state event failed");
-        captureWebhookDebug({
-          body: normalized,
-          classifiedAs: `contact_state_error:${peekedEvent}`,
-        });
-        // Respond with 200 so Respond.io doesn't count it as a failure
-        // and disable the webhook. The error is captured in logs for ops.
-        return reply.send({ ok: true, ignored: "contact_state_error" });
-      }
+
+      // Fire-and-forget: respond 200 IMMEDIATELY so Respond.io never
+      // sees a slow/failed response (which would count as a failure and
+      // eventually auto-disable the webhook — see 2026-05-12 incident
+      // documented above + 2026-06-12 server-hang incident that
+      // auto-disabled the Sync - Cesionario webhook). The handler runs
+      // in the background; any error is logged but does NOT affect the
+      // webhook response. Matches the same fire-and-forget pattern the
+      // message path uses below.
+      //
+      // Trade-off: if the server crashes between reply.send and handler
+      // completion we lose the event. For contact-state events the cost
+      // is acceptable — assignee changes are also detected inline on the
+      // next message (see process-message.ts "Human-takeover hard
+      // silence" block), and lifecycle/tag drift is re-derived by
+      // bidirectional sync. Webhook reliability > occasional event loss.
+      reply.send({ ok: true, queued: true });
+
+      const handleContactState = async (): Promise<void> => {
+        try {
+          await handleContactStateEvent(
+            normalized as Parameters<typeof handleContactStateEvent>[0],
+            peekedEvent,
+            req.log,
+          );
+          captureWebhookDebug({
+            body: normalized,
+            classifiedAs: `contact_state:${peekedEvent}`,
+          });
+        } catch (err) {
+          req.log.error({ err, event: peekedEvent }, "contact-state event failed (async)");
+          captureWebhookDebug({
+            body: normalized,
+            classifiedAs: `contact_state_error:${peekedEvent}`,
+          });
+        }
+      };
+      void handleContactState();
+      return;
     }
 
     // Message path — strict schema.
