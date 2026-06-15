@@ -12,9 +12,14 @@ watchPatterns = ["**"]
 [deploy]
 startCommand = "node dist/index.js"
 healthcheckPath = "/ready"
-# Cold-start budget: container start (~3s) + first DB connection through the
-# Supabase pooler (~5-10s for the cold pool) + Fastify routing.
-healthcheckTimeout = 30
+# Tightened from 30s → 10s (2026-06-15). /ready now has its own 5s probe
+# timeout so a healthy pool returns in <1s and a hung pool returns 503 in
+# ~5s. Railway treats >10s no-response as unhealthy and restarts — this is
+# what kicks in when the connection pool gets stuck (admin endpoints
+# editing prompts/KB triggered it twice in 3 days). Cold-start is still
+# well within 10s because the postgres-js pool initializes lazily on the
+# first /ready hit, not at boot.
+healthcheckTimeout = 10
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
 numReplicas = 1

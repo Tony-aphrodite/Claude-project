@@ -24,13 +24,35 @@ export function getDb(databaseUrl?: string) {
   // Supabase pooler accepts up to ~60 connections on the free tier; we keep a
   // conservative limit so the follow-up scanner + webhook handler + panel can
   // coexist. Tune via DATABASE_POOL_MAX if needed.
-  const max = Number(process.env.DATABASE_POOL_MAX ?? 10);
+  const max = Number(process.env.DATABASE_POOL_MAX ?? 20);
 
   _client = postgres(url, {
     max,
     idle_timeout: 20,
     connect_timeout: 10,
     prepare: true,
+    // Server-side timeouts to prevent connection-hold-forever scenarios that
+    // exhaust the pool (2026-06-12 + 2026-06-15 incidents — admin endpoints
+    // editing prompts/KB triggered transactions that lingered, queue of new
+    // requests starved waiting for free connections, /ready started hanging
+    // past Railway's healthcheck timeout, customer-facing AI went dark).
+    //
+    //   • statement_timeout — kills any single statement that runs longer than
+    //     this. Bounds worst-case query latency, so a stuck query can't tie
+    //     up a connection indefinitely. 30s is well above any legitimate
+    //     query in this app (longest are seed-content INSERTs ~hundreds of
+    //     ms, Anthropic OCR ~10s but that's HTTP not DB).
+    //   • idle_in_transaction_session_timeout — kills connections sitting in
+    //     "BEGIN ... <waiting forever for COMMIT>" state. This is the actual
+    //     leak shape — a transaction handler awaits something that never
+    //     resolves (network, Anthropic, etc.), the postgres connection stays
+    //     bound to that transaction, pool shrinks. 60s lets legitimate
+    //     transactions finish (Anthropic calls inside roster-db transactions
+    //     can take ~30s) but cuts genuine leaks.
+    connection: {
+      statement_timeout: 30_000,
+      idle_in_transaction_session_timeout: 60_000,
+    } as Record<string, number>,
     // Supabase requires SSL; postgres-js auto-detects from sslmode= in URL.
   });
 
