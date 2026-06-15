@@ -96,8 +96,14 @@ export async function processAgentMessage(
   // Pilot test gate — same rule as the client-inbound path so we don't end
   // up capturing real human-agent traffic before Miguel says "go live".
   // V2 payloads omit tags; fetch via API when missing.
-  const requiredTag = loadEnv().PILOT_REQUIRE_TAG;
-  if (requiredTag) {
+  // Multi-tag support (2026-06-15) — same CSV semantics as the inbound
+  // path in process-message.ts. ANY listed tag on the contact passes
+  // the gate. Empty/unset = gate disabled.
+  const requiredTagRaw = loadEnv().PILOT_REQUIRE_TAG;
+  const requiredTags = requiredTagRaw
+    ? requiredTagRaw.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
+    : [];
+  if (requiredTags.length > 0) {
     let tags: string[] = payload.contact.tags ?? [];
     if (tags.length === 0) {
       const fetched = await respondIoClient
@@ -111,11 +117,11 @@ export async function processAgentMessage(
         });
       tags = fetched?.tags ?? [];
     }
-    if (!tags.includes(requiredTag)) {
+    if (!requiredTags.some((t) => tags.includes(t))) {
       log.info(
         {
           contactId: payload.contact.id,
-          requiredTag,
+          requiredTags,
           contactTags: tags,
         },
         "espia: test gate rejected — contact lacks required tag",

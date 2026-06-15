@@ -237,9 +237,20 @@ export async function processIncomingMessage(
   // contact + conversation + message so the next turn's history carries
   // the original language signal. We still suppress the AI reply for
   // gated messages — that's the gate's job.
-  const requiredTag = loadEnv().PILOT_REQUIRE_TAG;
+  // Multi-tag support (2026-06-15): PILOT_REQUIRE_TAG accepts a CSV of
+  // accepted tags so we can activate multiple sedes simultaneously. Any one
+  // of the listed tags on the contact passes the gate. Whitespace around
+  // commas is tolerated. Empty string / unset = gate disabled.
+  //
+  // Example: "Koh Phi Phi,Gili Air" — pilot is open to both PP and GA
+  // contacts; their respective workflows in Respond.io must apply the
+  // matching tag to new leads.
+  const requiredTagRaw = loadEnv().PILOT_REQUIRE_TAG;
+  const requiredTags = requiredTagRaw
+    ? requiredTagRaw.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
+    : [];
   let gateRejected = false;
-  if (requiredTag) {
+  if (requiredTags.length > 0) {
     // Reuse tags from the pre-resolution fetch when possible. fetchedFresh
     // was populated a few lines above (used for sede Branch lookup); it
     // also carries the canonical tag list. Falling back to payload.contact
@@ -255,12 +266,12 @@ export async function processIncomingMessage(
         });
       tags = fetched?.tags ?? [];
     }
-    if (!tags.includes(requiredTag)) {
+    if (!requiredTags.some((t) => tags.includes(t))) {
       gateRejected = true;
       log.info(
         {
           contactId: payload.contact.id,
-          requiredTag,
+          requiredTags,
           contactTags: tags,
         },
         "test gate rejected — contact lacks required tag (persisting for history)",
