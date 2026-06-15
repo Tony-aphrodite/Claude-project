@@ -700,6 +700,15 @@ export const CATALOG_PROGRAMS = [
   "StressRescue", // SSI's branded name for the rescue course
   "ReactRight", // SSI first aid / EFR equivalent
   "DMT", // Divemaster Trainee
+  // KT-only marine-biology specialties (Miguel uploaded Cloudinary cards
+  // 2026-06-15 — only sede running them today; keys are sede-agnostic
+  // so PP/GA can adopt them later without an enum change).
+  "CoralEcology",
+  "FishEcology",
+  "MarineEcology",
+  "BlueOceans",
+  "SeaTurtleEcology",
+  "SharkEcology",
 ] as const;
 export type CatalogProgram = (typeof CATALOG_PROGRAMS)[number];
 

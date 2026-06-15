@@ -2377,7 +2377,13 @@ export async function processIncomingMessage(
         }
       : sede.nombre === "Koh Tao"
         ? {
+            // 2026-06-15: Miguel uploaded 32 Cloudinary URLs for KT (16
+            // programas × EN/ES), including 6 KT-only marine-biology
+            // specialties (Coral/Fish/Marine/BlueOceans/SeaTurtle/Shark
+            // Ecology) plus Divemaster (DMT). Adding enviar_catalogo so
+            // Emma can deliver the image cards.
             consultar_disponibilidad: consultarDisponibilidadHandler,
+            enviar_catalogo: enviarCatalogoHandler,
           }
         : {
             consultar_disponibilidad: consultarDisponibilidadHandler,

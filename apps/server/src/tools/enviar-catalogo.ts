@@ -64,6 +64,12 @@ export const enviarCatalogoTool: Anthropic.Tool = {
           "ReactRight",
           "RescueDiver",
           "DMT",
+          "CoralEcology",
+          "FishEcology",
+          "MarineEcology",
+          "BlueOceans",
+          "SeaTurtleEcology",
+          "SharkEcology",
         ],
         description:
           "Clave canónica del programa cuyo catálogo enviar. " +
@@ -76,7 +82,13 @@ export const enviarCatalogoTool: Anthropic.Tool = {
           "NitroxSpecialty=Nitrox Specialty / " +
           "StressRescue=Stress & Rescue Course / " +
           "ReactRight=React Right (EFR) / " +
-          "RescueDiver=Rescue Diver (legacy) / DMT=Divemaster Trainee.",
+          "RescueDiver=Rescue Diver (legacy) / DMT=Divemaster Trainee / " +
+          "CoralEcology=Coral Ecology (KT) / " +
+          "FishEcology=Fish Ecology (KT) / " +
+          "MarineEcology=Marine Ecology (KT) / " +
+          "BlueOceans=Blue Oceans (KT) / " +
+          "SeaTurtleEcology=Sea Turtle Ecology (KT) / " +
+          "SharkEcology=Shark Ecology (KT).",
       },
     },
     required: ["sede_id", "programa"],

@@ -703,7 +703,13 @@ function buildSandboxToolHandlers(input: {
     };
   }
   if (sede.nombre === "Koh Tao") {
-    return { consultar_disponibilidad: consultarDisponibilidadHandler };
+    // 2026-06-15: enviar_catalogo added — KT now has 32 Cloudinary URLs
+    // (16 programas × EN/ES) covering core diving + 6 marine-biology
+    // specialties + Divemaster.
+    return {
+      consultar_disponibilidad: consultarDisponibilidadHandler,
+      enviar_catalogo: enviarCatalogoHandler,
+    };
   }
   return {
     consultar_disponibilidad: consultarDisponibilidadHandler,
