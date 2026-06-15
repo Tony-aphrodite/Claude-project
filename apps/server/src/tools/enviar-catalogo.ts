@@ -51,20 +51,32 @@ export const enviarCatalogoTool: Anthropic.Tool = {
         type: "string",
         enum: [
           "TryScuba",
+          "ScubaDiver",
           "OW",
           "OW30",
           "AOW",
+          "Adventures",
           "Refresh",
           "FunDive",
+          "DeepSpecialty",
+          "NitroxSpecialty",
+          "StressRescue",
+          "ReactRight",
           "RescueDiver",
           "DMT",
         ],
         description:
           "Clave canónica del programa cuyo catálogo enviar. " +
-          "Mapeo: TryScuba=Try Scuba Diving / OW=Open Water Diver / " +
-          "OW30=Open Water 30h intensivo / AOW=Advanced Open Water / " +
+          "Mapeo: TryScuba=Try Scuba Diving (1 día) / " +
+          "ScubaDiver=Scuba Diver (1 día cert) / " +
+          "OW=Open Water Diver / OW30=Open Water 30h intensivo / " +
+          "AOW=Advanced Open Water / Adventures=Deep Adventure / " +
           "Refresh=Refresh + 2 fun dives / FunDive=Fun Dives / " +
-          "RescueDiver=Rescue Diver / DMT=Divemaster Trainee.",
+          "DeepSpecialty=Deep Specialty (40m) / " +
+          "NitroxSpecialty=Nitrox Specialty / " +
+          "StressRescue=Stress & Rescue Course / " +
+          "ReactRight=React Right (EFR) / " +
+          "RescueDiver=Rescue Diver (legacy) / DMT=Divemaster Trainee.",
       },
     },
     required: ["sede_id", "programa"],
