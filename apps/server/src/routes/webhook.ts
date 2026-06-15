@@ -9,7 +9,7 @@
 // this whole route is the project's P95 < 3s target.
 // ============================================================================
 
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import {
   classifyWebhook,
@@ -25,6 +25,7 @@ import { processAgentMessage } from "../handlers/process-agent-message.js";
 import { processIncomingMessage } from "../handlers/process-message.js";
 import { handleContactStateEvent } from "../handlers/contact-state-event.js";
 import { withConversationLock } from "../services/conversation-lock.js";
+import { sedeSlugToName, SEDE_SLUGS } from "../services/sede.js";
 import {
   authenticateWebhook,
   pickSignatureHeader,
@@ -89,8 +90,261 @@ function captureWebhookDebug(args: {
   }
 }
 
+/**
+ * Pull the Branch custom field out of a Respond.io payload so we can
+ * compare it against an expected sede when the request hit a per-sede
+ * URL. Defensive against shape variation — branch can live on
+ * `contact.customFields` (legacy) or `contact.customFields[]` (v2 array)
+ * depending on Respond.io's webhook version. Returns null when the
+ * field is absent (we'll let the downstream sede gate make the final
+ * decision in that case).
+ */
+function extractBranchFromPayload(body: unknown): string | null {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const contact = (b.contact ?? {}) as Record<string, unknown>;
+  const cf = contact.customFields;
+
+  // Shape A: object map (legacy v1 + simulator).
+  if (cf && typeof cf === "object" && !Array.isArray(cf)) {
+    const branch = (cf as Record<string, unknown>).Branch ?? (cf as Record<string, unknown>).branch;
+    if (typeof branch === "string" && branch.trim() !== "") return branch.trim();
+  }
+
+  // Shape B: array of { name, value } (v2).
+  if (Array.isArray(cf)) {
+    for (const entry of cf) {
+      if (entry && typeof entry === "object") {
+        const e = entry as Record<string, unknown>;
+        const name = typeof e.name === "string" ? e.name : null;
+        const value = typeof e.value === "string" ? e.value : null;
+        if (name && (name === "Branch" || name === "branch") && value && value.trim() !== "") {
+          return value.trim();
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export async function webhookRoutes(app: FastifyInstance) {
   const env = loadEnv();
+
+  // Shared post-auth handler. Both the sede-agnostic
+  // `/webhook/respond-io` route AND each per-sede route
+  // `/webhook/respond-io/<slug>` call this after they've authenticated
+  // and (for per-sede routes) confirmed the Branch matches.
+  // Keeping this as an inner function so it shares the `env` capture
+  // without re-loading it on every call.
+  async function handleVerifiedWebhook(
+    req: FastifyRequest,
+    reply: FastifyReply,
+    normalized: unknown,
+    peekedEvent: string | null,
+  ): Promise<unknown> {
+    req.log.info(
+      {
+        event: peekedEvent,
+        contactId: (normalized as { contact?: { id?: unknown } })?.contact?.id ?? null,
+        isContactState: peekedEvent ? isContactStateEvent(peekedEvent) : false,
+        isMessage: peekedEvent ? isMessageEvent(peekedEvent) : false,
+      },
+      "WEBHOOK_EVENT received",
+    );
+
+    if (peekedEvent && isContactStateEvent(peekedEvent)) {
+      req.log.info(
+        { event: peekedEvent, contactId: (normalized as { contact?: { id?: unknown } })?.contact?.id ?? null },
+        "contact-state webhook received",
+      );
+      reply.send({ ok: true, queued: true });
+      const handleContactState = async (): Promise<void> => {
+        try {
+          await handleContactStateEvent(
+            normalized as Parameters<typeof handleContactStateEvent>[0],
+            peekedEvent,
+            req.log,
+          );
+          captureWebhookDebug({
+            body: normalized,
+            classifiedAs: `contact_state:${peekedEvent}`,
+          });
+        } catch (err) {
+          req.log.error({ err, event: peekedEvent }, "contact-state event failed (async)");
+          captureWebhookDebug({
+            body: normalized,
+            classifiedAs: `contact_state_error:${peekedEvent}`,
+          });
+        }
+      };
+      void handleContactState();
+      return;
+    }
+
+    // Message path — strict schema.
+    const parsed = respondIoIncomingMessageSchema.safeParse(normalized);
+    if (!parsed.success) {
+      req.log.warn({ issues: parsed.error.issues }, "webhook payload invalid");
+      captureWebhookDebug({
+        body: normalized,
+        classifiedAs: "payload_invalid_422",
+      });
+      return reply.status(422).send({
+        error: { code: "payload_invalid", issues: parsed.error.issues },
+      });
+    }
+
+    const event = parsed.data.event;
+    req.log.info(
+      {
+        event,
+        textLen: parsed.data.message?.text?.length ?? 0,
+        hasAttachment:
+          !!parsed.data.message?.attachment ||
+          (Array.isArray(parsed.data.message?.attachments) &&
+            parsed.data.message.attachments.length > 0),
+        hasReferral: !!parsed.data.message?.referral,
+        contactId: parsed.data.contact?.id ?? null,
+      },
+      "webhook payload received",
+    );
+    if (!event) {
+      captureWebhookDebug({ body: normalized, classifiedAs: "ignored:missing_event" });
+      return reply.send({ ok: true, ignored: "missing_event" });
+    }
+    if (!isMessageEvent(event)) {
+      captureWebhookDebug({ body: normalized, classifiedAs: `ignored:not_message_event:${event}` });
+      return reply.send({ ok: true, ignored: event });
+    }
+
+    const dispatch = classifyWebhook(parsed.data);
+
+    if (dispatch.kind === "ignored") {
+      captureWebhookDebug({ body: normalized, classifiedAs: `ignored:${dispatch.reason}` });
+      return reply.send({ ok: true, ignored: dispatch.reason });
+    }
+    if (dispatch.kind === "bot_outbound") {
+      captureWebhookDebug({ body: normalized, classifiedAs: "bot_outbound" });
+      return reply.send({ ok: true, ignored: "bot_outbound" });
+    }
+    captureWebhookDebug({ body: normalized, classifiedAs: `processing:${dispatch.kind}` });
+
+    const handle = (async () => {
+      const t0 = Date.now();
+      try {
+        if (dispatch.kind === "agent_outbound") {
+          await processAgentMessage(parsed.data, dispatch.agentName, req.log);
+          return;
+        }
+        await withConversationLock(parsed.data.contact.id, () =>
+          processIncomingMessage(parsed.data, req.log),
+        );
+      } catch (err) {
+        req.log.error(
+          {
+            err,
+            elapsedMs: Date.now() - t0,
+            contactId: parsed.data.contact?.id ?? null,
+            dispatchKind: dispatch.kind,
+          },
+          "async webhook processing failed",
+        );
+      }
+    })();
+    handle.catch(() => {});
+
+    return reply.status(200).send({ ok: true, queued: true });
+  }
+
+  // Per-sede webhook routes (Miguel 2026-06-15). Same handler logic as
+  // the shared route below, plus a guard that enforces the URL slug
+  // matches the payload's Branch field. Goal: Miguel can register one
+  // webhook per sede in Respond.io and toggle them independently — if
+  // Gili Air starts misbehaving, deactivating its webhook silences GA
+  // without affecting Phi Phi/Koh Tao/GT/NP. The route is mounted for
+  // every sede in SEDE_SLUGS so adding a future sede only needs a new
+  // entry in the slug map.
+  for (const slug of SEDE_SLUGS) {
+    const expectedSedeName = sedeSlugToName(slug);
+    if (!expectedSedeName) continue; // unreachable; guards typings
+    app.post(`/webhook/respond-io/${slug}`, async (req, reply) => {
+      // 1. Authenticate first (same logic as the shared route — we run
+      //    HMAC before peeking at the payload to make the rejection
+      //    cost the same as a bare-URL attack would).
+      const headerSig = pickSignatureHeader(req.headers as Record<string, string | string[]>);
+      const rawBody = (req.body as { __rawBody?: Buffer })?.__rawBody;
+      if (!rawBody) {
+        req.log.error({ sedeSlug: slug }, "missing rawBody on per-sede webhook request");
+        return reply.status(400).send({ error: { code: "no_body" } });
+      }
+      const tokenHeader = pickWorkflowTokenHeader(
+        req.headers as Record<string, string | string[] | undefined>,
+      );
+      const verdict = authenticateWebhook({
+        rawBody,
+        signatureHeader: headerSig,
+        tokenHeader,
+        hmacSecret: env.RESPOND_IO_WEBHOOK_SECRET,
+        hmacSecretsExtra: env.RESPOND_IO_WEBHOOK_SECRETS_EXTRA,
+        workflowToken: env.WEBHOOK_WORKFLOW_TOKEN || undefined,
+      });
+      if (!verdict.ok) {
+        req.log.warn(
+          { sedeSlug: slug, reason: verdict.reason },
+          "per-sede webhook auth rejected",
+        );
+        return reply.status(401).send({ error: { code: "auth_invalid" } });
+      }
+
+      const normalized = normalizeRespondIoPayload(req.body);
+      const peekedEvent =
+        typeof (normalized as { event?: unknown })?.event === "string"
+          ? (normalized as { event: string }).event
+          : null;
+
+      // 2. Sede match check — the URL slug commits us to ONE sede; if
+      //    the payload's Branch says otherwise, reject. This is what
+      //    gives Miguel the toggle-one-sede property: a payload meant
+      //    for sede A that somehow leaks into sede B's URL is rejected
+      //    instead of silently being processed against the wrong KB.
+      //
+      //    Contact-state events (lifecycle/tag/assignee updates) can
+      //    legitimately arrive without a Branch (Respond.io fires them
+      //    on any contact mutation); for those we skip the check and
+      //    let the inbound state handler do its own sede lookup.
+      const isStateEvent = peekedEvent ? isContactStateEvent(peekedEvent) : false;
+      if (!isStateEvent) {
+        const payloadBranch = extractBranchFromPayload(normalized);
+        if (payloadBranch && payloadBranch !== expectedSedeName) {
+          req.log.warn(
+            {
+              sedeSlug: slug,
+              expectedSedeName,
+              payloadBranch,
+              event: peekedEvent,
+              contactId:
+                (normalized as { contact?: { id?: unknown } })?.contact?.id ?? null,
+            },
+            "per-sede webhook rejected: branch/url mismatch",
+          );
+          captureWebhookDebug({
+            body: normalized,
+            classifiedAs: `rejected:branch_mismatch:${slug}:${payloadBranch}`,
+          });
+          // 200 so Respond.io doesn't count this as a delivery failure
+          // (we don't want to auto-disable the webhook over a workflow
+          // misconfiguration on Miguel's side — log + drop instead).
+          return reply.send({ ok: true, ignored: "branch_mismatch" });
+        }
+      }
+
+      // 3. Delegate to the shared handler with the already-verified
+      //    payload + classification. We re-use the same downstream
+      //    fan-out (contact-state branch vs message branch) by calling
+      //    the same processor functions directly.
+      return handleVerifiedWebhook(req, reply, normalized, peekedEvent);
+    });
+  }
 
   app.post("/webhook/respond-io", async (req, reply) => {
     const headerSig = pickSignatureHeader(req.headers as Record<string, string | string[]>);
@@ -130,199 +384,14 @@ export async function webhookRoutes(app: FastifyInstance) {
     const normalized = normalizeRespondIoPayload(req.body);
 
     // PEEK event_type BEFORE running the strict message schema.
-    //
-    // 2026-05-12 evening incident: Respond.io auto-disabled the
-    // "Sync - Ciclo de vida" webhook after too many failed requests.
-    // Root cause: state events (lifecycle.updated / tag.updated /
-    // assignee.updated) don't have the `message.{type,text,...}` fields
-    // the message schema requires, so safeParse returned 422 for every
-    // one. Respond.io counts 422s as failures and disables the webhook
-    // after a threshold. Fix: branch on event_type FIRST, run the
-    // strict schema only on the message path.
+    // 2026-05-12 incident: state events without message fields caused
+    // safeParse 422s in bulk; branch on event_type FIRST.
     const peekedEvent =
       typeof (normalized as { event?: unknown })?.event === "string"
         ? ((normalized as { event: string }).event)
         : null;
-    // Tony 2026-06-07 debug: log EVERY incoming webhook event name so we
-    // know exactly what Respond.io sends (independent of our routing).
-    // Helps diagnose missing assignee.changed events for the take-over flow.
-    req.log.info(
-      {
-        event: peekedEvent,
-        contactId: (normalized as { contact?: { id?: unknown } })?.contact?.id ?? null,
-        isContactState: peekedEvent ? isContactStateEvent(peekedEvent) : false,
-        isMessage: peekedEvent ? isMessageEvent(peekedEvent) : false,
-      },
-      "WEBHOOK_EVENT received",
-    );
-    if (peekedEvent && isContactStateEvent(peekedEvent)) {
-      // Operator-side change in Respond.io (lifecycle moved, tag added/
-      // removed, conversation assignee changed). The handler reads the
-      // raw payload defensively — it doesn't need the message schema.
-      req.log.info(
-        { event: peekedEvent, contactId: (normalized as { contact?: { id?: unknown } })?.contact?.id ?? null },
-        "contact-state webhook received",
-      );
 
-      // Fire-and-forget: respond 200 IMMEDIATELY so Respond.io never
-      // sees a slow/failed response (which would count as a failure and
-      // eventually auto-disable the webhook — see 2026-05-12 incident
-      // documented above + 2026-06-12 server-hang incident that
-      // auto-disabled the Sync - Cesionario webhook). The handler runs
-      // in the background; any error is logged but does NOT affect the
-      // webhook response. Matches the same fire-and-forget pattern the
-      // message path uses below.
-      //
-      // Trade-off: if the server crashes between reply.send and handler
-      // completion we lose the event. For contact-state events the cost
-      // is acceptable — assignee changes are also detected inline on the
-      // next message (see process-message.ts "Human-takeover hard
-      // silence" block), and lifecycle/tag drift is re-derived by
-      // bidirectional sync. Webhook reliability > occasional event loss.
-      reply.send({ ok: true, queued: true });
-
-      const handleContactState = async (): Promise<void> => {
-        try {
-          await handleContactStateEvent(
-            normalized as Parameters<typeof handleContactStateEvent>[0],
-            peekedEvent,
-            req.log,
-          );
-          captureWebhookDebug({
-            body: normalized,
-            classifiedAs: `contact_state:${peekedEvent}`,
-          });
-        } catch (err) {
-          req.log.error({ err, event: peekedEvent }, "contact-state event failed (async)");
-          captureWebhookDebug({
-            body: normalized,
-            classifiedAs: `contact_state_error:${peekedEvent}`,
-          });
-        }
-      };
-      void handleContactState();
-      return;
-    }
-
-    // Message path — strict schema.
-    const parsed = respondIoIncomingMessageSchema.safeParse(normalized);
-    if (!parsed.success) {
-      req.log.warn({ issues: parsed.error.issues }, "webhook payload invalid");
-      captureWebhookDebug({
-        body: normalized,
-        classifiedAs: "payload_invalid_422",
-      });
-      return reply.status(422).send({
-        error: { code: "payload_invalid", issues: parsed.error.issues },
-      });
-    }
-
-    // We only act on text-message events. Other events (typing, read, etc.)
-    // are acknowledged but ignored. Respond.io's "Send Test" ping omits the
-    // event field entirely — return 200 so the dashboard can activate the
-    // webhook.
-    const event = parsed.data.event;
-    // Structured, PII-safe summary of each webhook for observability. We
-    // log shape — event name, message type, attachment presence — but
-    // NEVER the raw body, phone, or message content (those are persisted
-    // in mensajes table where access is auditable).
-    req.log.info(
-      {
-        event,
-        textLen: parsed.data.message?.text?.length ?? 0,
-        hasAttachment:
-          !!parsed.data.message?.attachment ||
-          (Array.isArray(parsed.data.message?.attachments) &&
-            parsed.data.message.attachments.length > 0),
-        // Boolean only — referral body itself may carry PII (utm tokens
-        // can leak ad campaign names, ctwa_clid is per-user). The full
-        // referral object is preserved on the parsed payload for the
-        // lead-source attribution worker to consume when implemented.
-        hasReferral: !!parsed.data.message?.referral,
-        contactId: parsed.data.contact?.id ?? null,
-      },
-      "webhook payload received",
-    );
-    if (!event) {
-      captureWebhookDebug({ body: normalized, classifiedAs: "ignored:missing_event" });
-      return reply.send({ ok: true, ignored: "missing_event" });
-    }
-    if (!isMessageEvent(event)) {
-      captureWebhookDebug({ body: normalized, classifiedAs: `ignored:not_message_event:${event}` });
-      return reply.send({ ok: true, ignored: event });
-    }
-
-    const dispatch = classifyWebhook(parsed.data);
-
-    if (dispatch.kind === "ignored") {
-      captureWebhookDebug({ body: normalized, classifiedAs: `ignored:${dispatch.reason}` });
-      return reply.send({ ok: true, ignored: dispatch.reason });
-    }
-    if (dispatch.kind === "bot_outbound") {
-      // Our own AI reply being echoed back. We already wrote the row in
-      // process-message; do not double-store.
-      captureWebhookDebug({ body: normalized, classifiedAs: "bot_outbound" });
-      return reply.send({ ok: true, ignored: "bot_outbound" });
-    }
-    // Reached here: client_inbound OR agent_outbound — will be processed async
-    captureWebhookDebug({ body: normalized, classifiedAs: `processing:${dispatch.kind}` });
-
-    // Async dispatch (Phi Phi launch 2026-05-26 / Miguel "HTTP Request
-    // has no timeout setting" feedback): we ack BEFORE the expensive
-    // work runs, then process in the background. The customer-facing
-    // reply is delivered via the Respond.io outbound API from inside
-    // the handler, so it does NOT need to ride on this HTTP response.
-    // Returning fast lets Miguel's workflow proceed (and time-budget
-    // the human fallback) without waiting on Anthropic / Apps Script.
-    //
-    // Status code is 200, NOT 202 (root-cause fix 2026-06-02): Respond.io's
-    // auto-disable mechanism treats any non-200 (including 202 Accepted)
-    // as a delivery failure. After enough "failures" in a short window
-    // it auto-disables the webhook silently, causing the freeze symptom
-    // Miguel reported. Returning 200 means every successful ack counts
-    // as success on their side; failures only happen for the cases that
-    // SHOULD count as failures (401 / 422 / 5xx — all still return their
-    // own status codes).
-    //
-    // What we LOSE by going async: a backend processing error no
-    // longer surfaces as a non-2xx status, so the Respond.io workflow
-    // can't route to the human via the "status code != 2xx → fallback"
-    // branch when the failure is mid-pipeline. The fallback still
-    // fires for the cases it was designed for — server fully down,
-    // bad auth (401 stays sync), bad payload (422 stays sync) — and
-    // backend mid-pipeline failures are caught + logged here and to
-    // the `errores` table inside process-message.
-    //
-    // What we KEEP: per-contact serialization via withConversationLock,
-    // so two rapid messages from the same customer still process in
-    // order — Miguel's 2026-05-11 stale-metadata bug stays fixed.
-    const handle = (async () => {
-      const t0 = Date.now();
-      try {
-        if (dispatch.kind === "agent_outbound") {
-          await processAgentMessage(parsed.data, dispatch.agentName, req.log);
-          return;
-        }
-        await withConversationLock(parsed.data.contact.id, () =>
-          processIncomingMessage(parsed.data, req.log),
-        );
-      } catch (err) {
-        req.log.error(
-          {
-            err,
-            elapsedMs: Date.now() - t0,
-            contactId: parsed.data.contact?.id ?? null,
-            dispatchKind: dispatch.kind,
-          },
-          "async webhook processing failed",
-        );
-      }
-    })();
-    // Detach so unhandled-promise warnings don't fire on the rare cases
-    // when the async chain rejects past our try/catch.
-    handle.catch(() => {});
-
-    return reply.status(200).send({ ok: true, queued: true });
+    return handleVerifiedWebhook(req, reply, normalized, peekedEvent);
   });
 }
 

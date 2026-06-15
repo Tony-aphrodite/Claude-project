@@ -172,3 +172,43 @@ export const sedeService = new SedeService();
 
 export const PILOT_SEDE_NAME_CONST = DEFAULT_SEDE_WHEN_CHANNEL_FALLBACK;
 export const AI_ENABLED_SEDE_NAMES_CONST = AI_ENABLED_SEDE_NAMES;
+
+// ─── Per-sede webhook routing (Miguel 2026-06-15) ──────────────────────────
+// Stable URL-safe slug for each AI-enabled sede, used in the per-sede
+// webhook routes (/webhook/respond-io/<slug>). Miguel asked for per-sede
+// webhook isolation so he can toggle just one sede off from Respond.io's
+// UI if it misbehaves — without bringing down the other four.
+//
+// Slug format: kebab-case of the canonical sede name. Keep stable —
+// changing a slug means Miguel has to update the URL on his end.
+const SEDE_NAME_TO_SLUG: Record<AiEnabledSedeName, string> = {
+  "Koh Phi Phi": "koh-phi-phi",
+  "Gili Air": "gili-air",
+  "Koh Tao": "koh-tao",
+  "Gili Trawangan": "gili-trawangan",
+  "Nusa Penida": "nusa-penida",
+};
+
+const SEDE_SLUG_TO_NAME: Record<string, AiEnabledSedeName> = Object.fromEntries(
+  Object.entries(SEDE_NAME_TO_SLUG).map(([name, slug]) => [
+    slug,
+    name as AiEnabledSedeName,
+  ]),
+) as Record<string, AiEnabledSedeName>;
+
+/**
+ * Map a URL slug (e.g. "gili-air") to the canonical Branch / sede name
+ * ("Gili Air") used in the rest of the codebase. Returns null when the
+ * slug isn't a known AI-enabled sede.
+ */
+export function sedeSlugToName(slug: string): AiEnabledSedeName | null {
+  return SEDE_SLUG_TO_NAME[slug.toLowerCase()] ?? null;
+}
+
+/** Inverse — for log messages and URL building. */
+export function sedeNameToSlug(name: string): string | null {
+  return SEDE_NAME_TO_SLUG[name as AiEnabledSedeName] ?? null;
+}
+
+/** All known sede slugs — used to register the per-sede webhook routes. */
+export const SEDE_SLUGS = Object.values(SEDE_NAME_TO_SLUG);
