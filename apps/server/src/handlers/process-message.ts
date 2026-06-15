@@ -2758,40 +2758,32 @@ export async function processIncomingMessage(
             );
             return;
           }
-          // Already assigned to THIS sede's AI → idempotent no-op.
-          if (
-            current.assigneeId !== null &&
-            String(current.assigneeId) === String(aiAssigneeId)
-          ) {
+          // Already assigned to ANY configured AI → idempotent no-op.
+          if (current.assigneeId !== null && isAiAssignee(current.assigneeId)) {
             return;
           }
-          // Assigned to a non-AI human (Fabiola Ramos, etc.) —
-          // workflow misassignment, not a real takeover. The
-          // humanTookOverNow check above (Layer 1 flag, set explicitly
-          // by the assignee.changed webhook handler when a human took
-          // over for real) already blocked us if this is a true
-          // takeover. Anything that gets here is a workflow default
-          // routing decision the operator did NOT make manually, so
-          // we reassign to the correct sede AI. The panel UX matches
-          // the persona that's actually talking.
-          //
-          // Assigned to a DIFFERENT sede's AI (cross-sede mismatch) —
-          // also reassign so the per-sede UX stays consistent.
-          //
-          // Unassigned (null) — also reassign.
+          // Assigned to a non-AI human → DO NOT steal. Once a human
+          // (or the workflow assigning to a human) owns the
+          // conversation, the AI must not reclaim it — Tony policy
+          // 2026-06-15 after revisiting the earlier loosened behavior.
+          // The assignee.changed webhook handler will set the
+          // human_took_over flag on the next pass.
+          if (current.assigneeId !== null && !isAiAssignee(current.assigneeId)) {
+            log.info(
+              {
+                contactId: payload.contact.id,
+                currentAssigneeId: current.assigneeId,
+                aiAssigneeId,
+              },
+              "ai self-assign skipped — conversation already assigned to a human",
+            );
+            return;
+          }
+          // Unassigned (null) → safe to claim with this sede's AI.
           await respondIoClient.assignConversation({
             contactId: payload.contact.id,
             assignee: aiAssigneeId,
           });
-          log.info(
-            {
-              contactId: payload.contact.id,
-              previousAssigneeId: current.assigneeId,
-              newAssigneeId: aiAssigneeId,
-              sede: sede.nombre,
-            },
-            "ai self-assigned to sede AI",
-          );
         } catch (err) {
           log.warn(
             { err: (err as Error).message },
