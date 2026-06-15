@@ -43,7 +43,7 @@ import type {
 } from "@dpm/shared";
 import { depositAmountFor } from "@dpm/shared";
 
-import { eq } from "drizzle-orm";
+import { and, eq, sql as drizzleSql } from "drizzle-orm";
 import { conversaciones, errores, getDb, mensajes, type Sede } from "@dpm/db";
 
 import { getAiAssigneeIds, isAiAssignee, loadEnv, resolveHandoffEmail } from "../env.js";
@@ -956,41 +956,82 @@ export async function processIncomingMessage(
   // Respond.io users on top of the original Francisco Emilio AI (PP).
   const aiAssigneeIdsForGuard = getAiAssigneeIds();
   const hasAiConfigured = aiAssigneeIdsForGuard.length > 0;
+
+  // "Takeover only counts if the AI was actually engaged" (2026-06-15).
+  // Miguel's workflow auto-assigns new leads to Fabiola Ramos (human) BEFORE
+  // the AI gets a chance to send the first message. Without this guard,
+  // every brand-new GA/KT/GT/NP conversation would be flagged as a takeover
+  // on the very first inbound, the human_took_over flag would stamp itself,
+  // and the AI would stay silent forever even if the operator never
+  // intended to take over. Real takeover semantics only make sense once
+  // the AI has actually replied at least once — until then, a human
+  // assignee is a workflow setup choice, not a takeover.
+  //
+  // Cost: one COUNT query against mensajes; only runs when the inline or
+  // active-GET checks would otherwise silence the AI (i.e. when the
+  // assignee is a human). For conversations already taken over (Layer 1
+  // catches them earlier) or normal AI-assigned threads, this never fires.
+  const conversationHasAiActivity = async (): Promise<boolean> => {
+    const [row] = await getDb()
+      .select({ count: drizzleSql<number>`count(*)::int` })
+      .from(mensajes)
+      .where(
+        and(
+          eq(mensajes.conversacionId, conversation.id),
+          eq(mensajes.sender, "ai"),
+        ),
+      );
+    return (row?.count ?? 0) > 0;
+  };
+
   if (incomingAssignee !== undefined && incomingAssignee !== null && incomingAssignee !== "") {
     // assignee from webhook is a string; coerce both sides to string for compare.
     const isAi = isAiAssignee(incomingAssignee);
     if (!isAi) {
-      log.info(
-        {
-          conversationId: conversation.id,
-          contactId: payload.contact.id,
-          incomingAssignee,
-        },
-        "ai silenced — inbound payload shows human assignee (race-cover before assignee.changed webhook)",
-      );
-      // Best-effort: stamp the flag so subsequent messages skip the inline
-      // check too. Fire-and-forget so we still bail fast on this one.
-      void getDb()
-        .update(conversaciones)
-        .set({
-          leadMetadata: {
-            ...((conversation.leadMetadata as LeadMetadata | null) ?? {}),
-            human_took_over: true,
-            human_took_over_at: new Date().toISOString(),
-            human_took_over_by: String(incomingAssignee),
+      const hadAiActivity = await conversationHasAiActivity();
+      if (!hadAiActivity) {
+        log.info(
+          {
+            conversationId: conversation.id,
+            contactId: payload.contact.id,
+            incomingAssignee,
           },
-          updatedAt: new Date(),
-        })
-        .where(eq(conversaciones.id, conversation.id))
-        .catch((err) =>
-          log.warn({ err: (err as Error).message }, "human_took_over flag stamp failed"),
+          "human assignee on inbound, but no prior AI activity — treating as workflow misconfig, proceeding without silencing",
         );
-      return {
-        ok: false,
-        ignored: true,
-        reason: "ai_silenced_human_assignee",
-        latencyMs: Date.now() - t0,
-      };
+        // Fall through to normal processing; do NOT stamp human_took_over.
+      } else {
+        log.info(
+          {
+            conversationId: conversation.id,
+            contactId: payload.contact.id,
+            incomingAssignee,
+          },
+          "ai silenced — inbound payload shows human assignee (race-cover before assignee.changed webhook)",
+        );
+        // Best-effort: stamp the flag so subsequent messages skip the inline
+        // check too. Fire-and-forget so we still bail fast on this one.
+        void getDb()
+          .update(conversaciones)
+          .set({
+            leadMetadata: {
+              ...((conversation.leadMetadata as LeadMetadata | null) ?? {}),
+              human_took_over: true,
+              human_took_over_at: new Date().toISOString(),
+              human_took_over_by: String(incomingAssignee),
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(conversaciones.id, conversation.id))
+          .catch((err) =>
+            log.warn({ err: (err as Error).message }, "human_took_over flag stamp failed"),
+          );
+        return {
+          ok: false,
+          ignored: true,
+          reason: "ai_silenced_human_assignee",
+          latencyMs: Date.now() - t0,
+        };
+      }
     }
   } else if (hasAiConfigured) {
     // THIRD defense layer (Miguel test 2026-06-07 — "AI sigue contestando"
@@ -1016,39 +1057,56 @@ export async function processIncomingMessage(
       currentAssignee?.assigneeId &&
       !isAiAssignee(currentAssignee.assigneeId)
     ) {
-      log.info(
-        {
-          conversationId: conversation.id,
-          contactId: payload.contact.id,
-          currentAssigneeId: currentAssignee.assigneeId,
-        },
-        "ai silenced — active GET confirms human assignee (3rd defense layer)",
-      );
-      // Stamp the flag so subsequent messages skip the GET (faster path).
-      void getDb()
-        .update(conversaciones)
-        .set({
-          leadMetadata: {
-            ...((conversation.leadMetadata as LeadMetadata | null) ?? {}),
-            human_took_over: true,
-            human_took_over_at: new Date().toISOString(),
-            human_took_over_by: String(currentAssignee.assigneeId),
+      // Same "no AI activity = no takeover" guard as the inline check above.
+      // The active GET can return a human assignee on a brand-new thread
+      // simply because the workflow auto-assigned to one before the AI
+      // had a chance.
+      const hadAiActivity = await conversationHasAiActivity();
+      if (!hadAiActivity) {
+        log.info(
+          {
+            conversationId: conversation.id,
+            contactId: payload.contact.id,
+            currentAssigneeId: currentAssignee.assigneeId,
           },
-          updatedAt: new Date(),
-        })
-        .where(eq(conversaciones.id, conversation.id))
-        .catch((err) =>
-          log.warn(
-            { err: (err as Error).message },
-            "human_took_over flag stamp failed (after GET)",
-          ),
+          "active GET shows human assignee, but no prior AI activity — treating as workflow misconfig, proceeding without silencing",
         );
-      return {
-        ok: false,
-        ignored: true,
-        reason: "ai_silenced_human_assignee",
-        latencyMs: Date.now() - t0,
-      };
+        // Fall through to normal processing; do NOT stamp human_took_over.
+      } else {
+        log.info(
+          {
+            conversationId: conversation.id,
+            contactId: payload.contact.id,
+            currentAssigneeId: currentAssignee.assigneeId,
+          },
+          "ai silenced — active GET confirms human assignee (3rd defense layer)",
+        );
+        // Stamp the flag so subsequent messages skip the GET (faster path).
+        void getDb()
+          .update(conversaciones)
+          .set({
+            leadMetadata: {
+              ...((conversation.leadMetadata as LeadMetadata | null) ?? {}),
+              human_took_over: true,
+              human_took_over_at: new Date().toISOString(),
+              human_took_over_by: String(currentAssignee.assigneeId),
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(conversaciones.id, conversation.id))
+          .catch((err) =>
+            log.warn(
+              { err: (err as Error).message },
+              "human_took_over flag stamp failed (after GET)",
+            ),
+          );
+        return {
+          ok: false,
+          ignored: true,
+          reason: "ai_silenced_human_assignee",
+          latencyMs: Date.now() - t0,
+        };
+      }
     }
   }
 
