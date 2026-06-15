@@ -31,28 +31,26 @@ export function getDb(databaseUrl?: string) {
     idle_timeout: 20,
     connect_timeout: 10,
     prepare: true,
-    // Server-side timeouts to prevent connection-hold-forever scenarios that
-    // exhaust the pool (2026-06-12 + 2026-06-15 incidents — admin endpoints
-    // editing prompts/KB triggered transactions that lingered, queue of new
-    // requests starved waiting for free connections, /ready started hanging
-    // past Railway's healthcheck timeout, customer-facing AI went dark).
+    // NOTE on server-side timeouts (statement_timeout /
+    // idle_in_transaction_session_timeout): we used to set these via the
+    // `connection: {...}` startup-parameter block, but Supabase's transaction
+    // pooler (PgBouncer in front of Postgres) rejects unknown startup
+    // params with "08P01 unsupported startup parameter" (seed-content
+    // crashed on 2026-06-15 with exactly this error).
     //
-    //   • statement_timeout — kills any single statement that runs longer than
-    //     this. Bounds worst-case query latency, so a stuck query can't tie
-    //     up a connection indefinitely. 30s is well above any legitimate
-    //     query in this app (longest are seed-content INSERTs ~hundreds of
-    //     ms, Anthropic OCR ~10s but that's HTTP not DB).
-    //   • idle_in_transaction_session_timeout — kills connections sitting in
-    //     "BEGIN ... <waiting forever for COMMIT>" state. This is the actual
-    //     leak shape — a transaction handler awaits something that never
-    //     resolves (network, Anthropic, etc.), the postgres connection stays
-    //     bound to that transaction, pool shrinks. 60s lets legitimate
-    //     transactions finish (Anthropic calls inside roster-db transactions
-    //     can take ~30s) but cuts genuine leaks.
-    connection: {
-      statement_timeout: 30_000,
-      idle_in_transaction_session_timeout: 60_000,
-    } as Record<string, number>,
+    // Fix: set the timeouts at the DATABASE level instead, so EVERY
+    // connection — including pooler-routed ones — inherits them without
+    // needing a startup-time handshake. Run this ONCE in the Supabase SQL
+    // Editor (production + any other env):
+    //
+    //   ALTER DATABASE postgres
+    //     SET statement_timeout = '30s';
+    //   ALTER DATABASE postgres
+    //     SET idle_in_transaction_session_timeout = '60s';
+    //
+    // The 30s/60s budget is the same logic as before — bounds runaway
+    // queries and leaked-transaction connection holds, prevents pool
+    // exhaustion (root cause of the 06-12 and 06-15 outages).
     // Supabase requires SSL; postgres-js auto-detects from sslmode= in URL.
   });
 
