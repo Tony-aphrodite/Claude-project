@@ -694,8 +694,11 @@ function buildSandboxToolHandlers(input: {
 
   // Same per-sede tool surface as production.
   if (sede.nombre === "Gili Air") {
+    // 2026-06-15: enviar_catalogo added (Cloudinary path). send_product_card
+    // kept as legacy fallback. See process-message.ts for full rationale.
     return {
       consultar_disponibilidad: consultarDisponibilidadHandler,
+      enviar_catalogo: enviarCatalogoHandler,
       send_product_card: sendProductCardHandler,
     };
   }

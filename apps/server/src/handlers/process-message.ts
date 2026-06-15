@@ -2352,7 +2352,16 @@ export async function processIncomingMessage(
   const toolHandlers: Parameters<typeof callClaude>[0]["toolHandlers"] =
     sede.nombre === "Gili Air"
       ? {
+          // 2026-06-15: added enviar_catalogo for Gili Air. Was previously
+          // only send_product_card (Meta Cloud API product cards), but Meta
+          // rejects those with 403 — DPM has 0 templates with catalog/mpm
+          // button approved. Now Miguel has 22 Cloudinary URLs (11
+          // programas × EN/ES) configured in Railway env vars, same delivery
+          // path as Phi Phi. send_product_card kept as fallback for any
+          // legacy flow still referencing Meta product_ids; Colomba's
+          // prompt v4 directs the AI to prefer enviar_catalogo.
           consultar_disponibilidad: consultarDisponibilidadHandler,
+          enviar_catalogo: enviarCatalogoHandler,
           send_product_card: sendProductCardHandler,
         }
       : sede.nombre === "Koh Tao"
