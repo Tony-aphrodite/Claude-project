@@ -2715,15 +2715,21 @@ export async function processIncomingMessage(
     //   • human_took_over flag is set (defensive — earlier guard returns)
     //   • current assignee is a human (the new check below)
     //
-    // Multi-AI (2026-06-15): the membership check uses isAiAssignee() so any
-    // configured AI id (Francisco, Colomba, Emma, ...) counts as "already AI".
-    // The self-assign POST uses the singular RESPOND_IO_AI_ASSIGNEE_ID as the
-    // default — Francisco Emilio AI. Per-sede assign-back logic is deferred:
-    // Miguel said in this same thread he'd rather not have the AI claim
-    // ownership at all if a per-sede AI already has it; the human-takeover
-    // check below already prevents us from stealing it.
+    // Multi-AI per-sede (2026-06-15): pick the AI user that matches THIS
+    // sede so the panel shows the right persona as assignee instead of
+    // falling back to Francisco for every conversation. Map verified
+    // against the workspace users on the same date. KT (Emma) intentionally
+    // absent — Miguel hasn't created the user yet; falls through to the
+    // env default.
+    const SEDE_TO_AI_ASSIGNEE: Readonly<Record<string, number>> = {
+      "Koh Phi Phi": 440519,
+      "Gili Air": 441308,
+      "Gili Trawangan": 462203,
+      "Nusa Penida": 464075,
+    };
     const env = loadEnv();
-    const aiAssigneeId = env.RESPOND_IO_AI_ASSIGNEE_ID;
+    const aiAssigneeId =
+      SEDE_TO_AI_ASSIGNEE[sede.nombre] ?? env.RESPOND_IO_AI_ASSIGNEE_ID;
     const handsOffStages: ReadonlyArray<typeof conversation.leadStage> = [
       "handed_off",
       "deposit_paid",
@@ -2752,29 +2758,40 @@ export async function processIncomingMessage(
             );
             return;
           }
-          // Already assigned to ANY configured AI → idempotent no-op.
-          if (current.assigneeId !== null && isAiAssignee(current.assigneeId)) {
+          // Already assigned to THIS sede's AI → idempotent no-op.
+          if (
+            current.assigneeId !== null &&
+            String(current.assigneeId) === String(aiAssigneeId)
+          ) {
             return;
           }
-          // Assigned to a non-AI human → DO NOT steal. The
-          // assignee.changed webhook handler will set the
-          // human_took_over flag on the next pass.
-          if (current.assigneeId !== null && !isAiAssignee(current.assigneeId)) {
-            log.info(
-              {
-                contactId: payload.contact.id,
-                currentAssigneeId: current.assigneeId,
-                aiAssigneeId,
-              },
-              "ai self-assign skipped — conversation already assigned to a human",
-            );
-            return;
-          }
-          // Unassigned (null) → safe to claim.
+          // Assigned to a non-AI human (Fabiola Ramos, etc.) —
+          // workflow misassignment, not a real takeover. The
+          // humanTookOverNow check above (Layer 1 flag, set explicitly
+          // by the assignee.changed webhook handler when a human took
+          // over for real) already blocked us if this is a true
+          // takeover. Anything that gets here is a workflow default
+          // routing decision the operator did NOT make manually, so
+          // we reassign to the correct sede AI. The panel UX matches
+          // the persona that's actually talking.
+          //
+          // Assigned to a DIFFERENT sede's AI (cross-sede mismatch) —
+          // also reassign so the per-sede UX stays consistent.
+          //
+          // Unassigned (null) — also reassign.
           await respondIoClient.assignConversation({
             contactId: payload.contact.id,
             assignee: aiAssigneeId,
           });
+          log.info(
+            {
+              contactId: payload.contact.id,
+              previousAssigneeId: current.assigneeId,
+              newAssigneeId: aiAssigneeId,
+              sede: sede.nombre,
+            },
+            "ai self-assigned to sede AI",
+          );
         } catch (err) {
           log.warn(
             { err: (err as Error).message },
