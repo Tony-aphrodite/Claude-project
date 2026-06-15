@@ -237,14 +237,16 @@ export async function processIncomingMessage(
   // contact + conversation + message so the next turn's history carries
   // the original language signal. We still suppress the AI reply for
   // gated messages — that's the gate's job.
-  // Multi-tag support (2026-06-15): PILOT_REQUIRE_TAG accepts a CSV of
-  // accepted tags so we can activate multiple sedes simultaneously. Any one
-  // of the listed tags on the contact passes the gate. Whitespace around
+  // Pilot gate (2026-06-15): PILOT_REQUIRE_TAG accepts a CSV of allowed
+  // pilot sedes. The gate matches against EITHER a contact tag OR the
+  // contact's Branch (i.e. the resolved sede name) — Miguel's workflows
+  // currently set Branch reliably but only sometimes apply the matching
+  // tag, so requiring both would block legit traffic. Whitespace around
   // commas is tolerated. Empty string / unset = gate disabled.
   //
-  // Example: "Koh Phi Phi,Gili Air" — pilot is open to both PP and GA
-  // contacts; their respective workflows in Respond.io must apply the
-  // matching tag to new leads.
+  // Example: "Koh Phi Phi,Gili Air" — pilot is open to PP and GA contacts
+  // (whether identified by tag or by Branch=Gili Air). KT/GT/NP contacts
+  // fall through to the gate-rejected branch.
   const requiredTagRaw = loadEnv().PILOT_REQUIRE_TAG;
   const requiredTags = requiredTagRaw
     ? requiredTagRaw.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
@@ -266,15 +268,18 @@ export async function processIncomingMessage(
         });
       tags = fetched?.tags ?? [];
     }
-    if (!requiredTags.some((t) => tags.includes(t))) {
+    const matchedByTag = requiredTags.some((t) => tags.includes(t));
+    const matchedByBranch = requiredTags.includes(sede.nombre);
+    if (!matchedByTag && !matchedByBranch) {
       gateRejected = true;
       log.info(
         {
           contactId: payload.contact.id,
           requiredTags,
           contactTags: tags,
+          sede: sede.nombre,
         },
-        "test gate rejected — contact lacks required tag (persisting for history)",
+        "test gate rejected — contact lacks required tag and Branch not in allowed sedes",
       );
     }
   }

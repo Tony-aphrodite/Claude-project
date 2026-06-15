@@ -96,9 +96,11 @@ export async function processAgentMessage(
   // Pilot test gate — same rule as the client-inbound path so we don't end
   // up capturing real human-agent traffic before Miguel says "go live".
   // V2 payloads omit tags; fetch via API when missing.
-  // Multi-tag support (2026-06-15) — same CSV semantics as the inbound
-  // path in process-message.ts. ANY listed tag on the contact passes
-  // the gate. Empty/unset = gate disabled.
+  //
+  // Multi-tag + Branch match (2026-06-15): PILOT_REQUIRE_TAG is a CSV of
+  // allowed pilot sedes. The contact passes if EITHER any required value
+  // is on its tag list OR its Branch (= sede.nombre) is in the CSV.
+  // Empty/unset = gate disabled.
   const requiredTagRaw = loadEnv().PILOT_REQUIRE_TAG;
   const requiredTags = requiredTagRaw
     ? requiredTagRaw.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
@@ -117,14 +119,17 @@ export async function processAgentMessage(
         });
       tags = fetched?.tags ?? [];
     }
-    if (!requiredTags.some((t) => tags.includes(t))) {
+    const matchedByTag = requiredTags.some((t) => tags.includes(t));
+    const matchedByBranch = requiredTags.includes(sede.nombre);
+    if (!matchedByTag && !matchedByBranch) {
       log.info(
         {
           contactId: payload.contact.id,
           requiredTags,
           contactTags: tags,
+          sede: sede.nombre,
         },
-        "espia: test gate rejected — contact lacks required tag",
+        "espia: test gate rejected — contact lacks required tag and Branch not in allowed sedes",
       );
       return {
         ok: false,
