@@ -128,13 +128,30 @@ export class SedeService {
       return { ok: true, sede, via: "branch" };
     }
 
-    // V2 fallback: Respond.io v2 webhooks omit customFields, so Branch is
-    // unavailable in the payload. Use the locked WhatsApp channel id
-    // instead — channel 274637 defaults to Gili Trawangan (the original
-    // pilot sede) when we can't tell from anything else. GA contacts on
-    // the v2 webhook path must rely on Branch being set; we do NOT guess
-    // GA from channel because there's no unique channel for it yet.
-    if (channelId && channelId === PILOT_WHATSAPP_CHANNEL_ID) {
+    // V2 channel fallback DISABLED in multi-sede production (2026-06-15).
+    //
+    // Background: while only Gili Trawangan was live, when a v2 webhook
+    // omitted Branch we'd guess GT from channel 274637 (WAP EN main, shared
+    // across sedes). That was safe because GT was the only target.
+    //
+    // Now that PP, GA, KT, GT, NP all run on the same WAP EN channel, the
+    // channel id alone can't pick the right sede. Worse: it was silently
+    // routing GA/PP/KT/NP contacts to the GT prompt + GT roster when their
+    // workflows hadn't set Branch yet — invisible misrouting.
+    //
+    // New behavior: empty Branch returns branch_empty (gate rejection,
+    // visible in logs). Workflows MUST set Branch — that's the documented
+    // contract per [[architecture_branch_field_workflow_trigger]]. If a
+    // workflow forgets, the message gets rejected loudly instead of being
+    // routed to the wrong sede.
+    //
+    // Set SEDE_CHANNEL_FALLBACK=1 if a single-sede deploy needs the legacy
+    // behavior back; the env-gated branch below preserves it.
+    if (
+      process.env.SEDE_CHANNEL_FALLBACK === "1" &&
+      channelId &&
+      channelId === PILOT_WHATSAPP_CHANNEL_ID
+    ) {
       const sede = await this.findByName(DEFAULT_SEDE_WHEN_CHANNEL_FALLBACK);
       if (!sede) {
         return {
