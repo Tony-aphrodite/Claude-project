@@ -95,7 +95,34 @@ const envSchema = z.object({
   // conversations stay "Sin asignar" in the panel. Find this id in
   // Respond.io → Settings → Team → user/team properties; numeric id only.
   // Optional — when missing, AI conversations remain unassigned (no harm).
+  //
+  // Originally a single id (Francisco Emilio AI for Phi Phi). Multi-sede
+  // production needs per-sede AI users (Colomba AI for GA, Emma for KT,
+  // etc.); use RESPOND_IO_AI_ASSIGNEE_IDS below to register the additional
+  // ids. The takeover guard treats ANY id in the union as "the AI".
   RESPOND_IO_AI_ASSIGNEE_ID: z.coerce.number().int().positive().optional(),
+  // 2026-06-15: additional AI assignee ids as CSV (e.g. "567890,789012"
+  // for Colomba AI + Emma + John). Whitespace around commas is tolerated.
+  // The singular RESPOND_IO_AI_ASSIGNEE_ID stays for backward compat (it's
+  // unioned with these). Empty / unset = no extras.
+  RESPOND_IO_AI_ASSIGNEE_IDS: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .transform((raw) => {
+      if (!raw) return [] as number[];
+      return raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .map((s) => {
+          const n = Number(s);
+          if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+            throw new Error(`RESPOND_IO_AI_ASSIGNEE_IDS: "${s}" is not a positive integer`);
+          }
+          return n;
+        });
+    }),
   // 2026-06-07 (Miguel sales logger spec): the Apps Script endpoint that
   // writes one row to DPM_Ventas_Master per call. SAME URL the human
   // workflow "DPM Ventas Master Logger" uses — Miguel confirmed the AI
@@ -237,4 +264,38 @@ export function resolveHandoffEmail(
     return HANDOFF_EMAIL_FALLBACK;
   }
   return configured;
+}
+
+/**
+ * All Respond.io user ids that count as "the AI" for the takeover guard.
+ * Unions the singular RESPOND_IO_AI_ASSIGNEE_ID (Francisco Emilio AI,
+ * primary) with the CSV RESPOND_IO_AI_ASSIGNEE_IDS (additional per-sede
+ * AIs like Colomba AI for GA, Emma for KT, etc.). The takeover guard
+ * silences the AI when the conversation's assignee is anyone outside
+ * this set.
+ *
+ * Empty array means no AI is configured — treat all assignees as humans
+ * (the takeover guard becomes a no-op).
+ */
+export function getAiAssigneeIds(): number[] {
+  const env = loadEnv();
+  const ids: number[] = [];
+  if (env.RESPOND_IO_AI_ASSIGNEE_ID !== undefined) {
+    ids.push(env.RESPOND_IO_AI_ASSIGNEE_ID);
+  }
+  for (const extra of env.RESPOND_IO_AI_ASSIGNEE_IDS) {
+    if (!ids.includes(extra)) ids.push(extra);
+  }
+  return ids;
+}
+
+/**
+ * True iff the given id matches any configured AI assignee (singular or
+ * CSV extras). Defensive against string/number shape variation since
+ * Respond.io's payload uses both depending on event_type.
+ */
+export function isAiAssignee(id: string | number | null | undefined): boolean {
+  if (id === null || id === undefined || id === "") return false;
+  const target = String(id);
+  return getAiAssigneeIds().some((aiId) => String(aiId) === target);
 }

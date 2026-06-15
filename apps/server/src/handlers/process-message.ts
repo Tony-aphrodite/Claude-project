@@ -46,7 +46,7 @@ import { depositAmountFor } from "@dpm/shared";
 import { eq } from "drizzle-orm";
 import { conversaciones, errores, getDb, mensajes, type Sede } from "@dpm/db";
 
-import { loadEnv, resolveHandoffEmail } from "../env.js";
+import { getAiAssigneeIds, isAiAssignee, loadEnv, resolveHandoffEmail } from "../env.js";
 import { callClaude } from "../services/anthropic.js";
 import { appsScriptService } from "../services/apps-script.js";
 import { bookableSlots } from "../services/bookable-slots.js";
@@ -950,12 +950,15 @@ export async function processIncomingMessage(
     };
   }
   const incomingAssignee = payload.conversation?.assignee;
-  const aiAssigneeIdForGuard = loadEnv().RESPOND_IO_AI_ASSIGNEE_ID;
+  // Multi-AI support (2026-06-15): the guard accepts any id in the union
+  // of singular RESPOND_IO_AI_ASSIGNEE_ID + CSV RESPOND_IO_AI_ASSIGNEE_IDS.
+  // Per-sede production added Colomba AI (GA), Emma (KT), etc. as separate
+  // Respond.io users on top of the original Francisco Emilio AI (PP).
+  const aiAssigneeIdsForGuard = getAiAssigneeIds();
+  const hasAiConfigured = aiAssigneeIdsForGuard.length > 0;
   if (incomingAssignee !== undefined && incomingAssignee !== null && incomingAssignee !== "") {
     // assignee from webhook is a string; coerce both sides to string for compare.
-    const isAi =
-      aiAssigneeIdForGuard !== undefined &&
-      String(incomingAssignee) === String(aiAssigneeIdForGuard);
+    const isAi = isAiAssignee(incomingAssignee);
     if (!isAi) {
       log.info(
         {
@@ -989,7 +992,7 @@ export async function processIncomingMessage(
         latencyMs: Date.now() - t0,
       };
     }
-  } else if (aiAssigneeIdForGuard) {
+  } else if (hasAiConfigured) {
     // THIRD defense layer (Miguel test 2026-06-07 — "AI sigue contestando"
     // even when a human took over).
     //
@@ -1011,7 +1014,7 @@ export async function processIncomingMessage(
       .catch(() => null);
     if (
       currentAssignee?.assigneeId &&
-      String(currentAssignee.assigneeId) !== String(aiAssigneeIdForGuard)
+      !isAiAssignee(currentAssignee.assigneeId)
     ) {
       log.info(
         {
@@ -2648,7 +2651,16 @@ export async function processIncomingMessage(
     //   • lead_stage is terminal/handoff
     //   • human_took_over flag is set (defensive — earlier guard returns)
     //   • current assignee is a human (the new check below)
-    const aiAssigneeId = loadEnv().RESPOND_IO_AI_ASSIGNEE_ID;
+    //
+    // Multi-AI (2026-06-15): the membership check uses isAiAssignee() so any
+    // configured AI id (Francisco, Colomba, Emma, ...) counts as "already AI".
+    // The self-assign POST uses the singular RESPOND_IO_AI_ASSIGNEE_ID as the
+    // default — Francisco Emilio AI. Per-sede assign-back logic is deferred:
+    // Miguel said in this same thread he'd rather not have the AI claim
+    // ownership at all if a per-sede AI already has it; the human-takeover
+    // check below already prevents us from stealing it.
+    const env = loadEnv();
+    const aiAssigneeId = env.RESPOND_IO_AI_ASSIGNEE_ID;
     const handsOffStages: ReadonlyArray<typeof conversation.leadStage> = [
       "handed_off",
       "deposit_paid",
@@ -2677,14 +2689,14 @@ export async function processIncomingMessage(
             );
             return;
           }
-          // Already assigned to AI → idempotent no-op (skip the POST).
-          if (current.assigneeId !== null && String(current.assigneeId) === String(aiAssigneeId)) {
+          // Already assigned to ANY configured AI → idempotent no-op.
+          if (current.assigneeId !== null && isAiAssignee(current.assigneeId)) {
             return;
           }
           // Assigned to a non-AI human → DO NOT steal. The
           // assignee.changed webhook handler will set the
           // human_took_over flag on the next pass.
-          if (current.assigneeId !== null && String(current.assigneeId) !== String(aiAssigneeId)) {
+          if (current.assigneeId !== null && !isAiAssignee(current.assigneeId)) {
             log.info(
               {
                 contactId: payload.contact.id,

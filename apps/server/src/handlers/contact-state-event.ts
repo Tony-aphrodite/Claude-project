@@ -20,7 +20,7 @@ import { eq } from "drizzle-orm";
 import { conversaciones, getDb } from "@dpm/db";
 import type { LeadMetadata } from "@dpm/shared";
 
-import { loadEnv } from "../env.js";
+import { getAiAssigneeIds, isAiAssignee, loadEnv } from "../env.js";
 import { leadStageService } from "../services/lead-stage.js";
 
 type IncomingPayload = {
@@ -265,11 +265,14 @@ export async function handleContactStateEvent(
         (payload.payload as Record<string, unknown> | undefined)?.assignee,
     );
 
-    const aiAssigneeId = loadEnv().RESPOND_IO_AI_ASSIGNEE_ID;
-    const isHuman = newAssignee !== null && newAssignee !== aiAssigneeId;
+    // Multi-AI (2026-06-15): a human takeover is anyone outside the
+    // configured AI set (Francisco, Colomba, Emma, ...). Reassigning from
+    // Francisco to Colomba (e.g. sede switch) is NOT a takeover.
+    const aiAssigneeIds = getAiAssigneeIds();
+    const isHuman = newAssignee !== null && !isAiAssignee(newAssignee);
 
     log.info(
-      { event, contactId, newAssignee, aiAssigneeId, isHuman },
+      { event, contactId, newAssignee, aiAssigneeIds, isHuman },
       "assignee event parsed",
     );
 
