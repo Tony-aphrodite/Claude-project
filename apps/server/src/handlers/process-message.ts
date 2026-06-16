@@ -934,8 +934,62 @@ export async function processIncomingMessage(
         latencyMs: Date.now() - t0,
       };
     }
-    log.info("ignoring non-text message (not deposit_pending)");
-    return { ok: false, ignored: true, reason: "non_text", latencyMs: Date.now() - t0 };
+    // Non-text message arrived but the conv isn't in deposit_pending — most
+    // commonly because the AI hasn't yet invoked `solicitar_deposito` (the
+    // tool that transitions the stage and stamps the expected amount). Bug
+    // 4 (Tony 2026-06-16 GA pilot): the customer uploaded a PDF receipt
+    // and the AI went silent because this branch returned ignored without
+    // any reply. Customer reads it as "se paró ahí".
+    //
+    // Fix: send a localized acknowledgment so the customer knows the file
+    // arrived. We deliberately DO NOT run OCR or change lead_stage — the
+    // expected metadata isn't there yet, and we'd be guessing the amount
+    // / currency. Operator (or a follow-up AI turn) handles the rest.
+    //
+    // PP-safe: PP threads that correctly hit `solicitar_deposito` enter
+    // the deposit_pending block above and never reach this branch; their
+    // OCR path is unchanged. Only previously-silent flows are affected.
+    const fallbackAck = pickPreDepositAttachmentAck(contact.language ?? null);
+    try {
+      await respondIoClient.sendMessage({
+        conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
+        contactId: payload.contact.id,
+        text: fallbackAck,
+      });
+    } catch (err) {
+      log.error(
+        { err: (err as Error).message },
+        "respond_io send failed during pre-deposit attachment ack",
+      );
+    }
+    await getDb()
+      .insert(mensajes)
+      .values({
+        conversacionId: conversation.id,
+        sender: "ai",
+        content: fallbackAck,
+        metadata: {
+          synthetic: true,
+          reason: "attachment_pre_deposit_ack",
+          leadStageAtArrival: conversation.leadStage,
+        },
+      })
+      .catch((err) =>
+        log.warn(
+          { err: (err as Error).message },
+          "failed to persist pre-deposit attachment ack mensaje",
+        ),
+      );
+    log.info(
+      { conversationId: conversation.id, leadStage: conversation.leadStage },
+      "non-text message acknowledged outside deposit_pending (Bug 4 fallback)",
+    );
+    return {
+      ok: true,
+      acknowledgedAttachment: true,
+      conversationId: conversation.id,
+      latencyMs: Date.now() - t0,
+    };
   }
 
   // Idempotency was already gated above (before the non-text branch) so by
@@ -3243,6 +3297,22 @@ export function pickComprobanteAck(language: string | null): string {
     return "Got it, thanks 🙏 Let me confirm the transfer with the team and I'll get back to you in a few minutes.";
   }
   return "¡Recibido, gracias 🙏! Déjame confirmar la transferencia con el equipo y te aviso en unos minutos.";
+}
+
+/**
+ * Generic acknowledgment for a non-text message that arrives BEFORE the
+ * conversation has entered deposit_pending. We can't run OCR (no expected
+ * amount/currency stamped) but we MUST reply or the customer sees silence
+ * (Bug 4 — Tony 2026-06-16 GA pilot, "se paró ahí"). Kept deliberately
+ * neutral — we don't assume the file is a deposit receipt, only that it
+ * was received and someone will look at it.
+ */
+export function pickPreDepositAttachmentAck(language: string | null): string {
+  const lang = (language ?? "es").slice(0, 2).toLowerCase();
+  if (lang === "en") {
+    return "Got your file 🙏 Let me take a look and I'll get back to you in a moment.";
+  }
+  return "¡Recibí tu archivo 🙏! Lo reviso y te respondo en un momento.";
 }
 
 /**
