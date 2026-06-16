@@ -2762,21 +2762,53 @@ export async function processIncomingMessage(
           if (current.assigneeId !== null && isAiAssignee(current.assigneeId)) {
             return;
           }
-          // Assigned to a non-AI human → DO NOT steal. Once a human
-          // (or the workflow assigning to a human) owns the
-          // conversation, the AI must not reclaim it — Tony policy
-          // 2026-06-15 after revisiting the earlier loosened behavior.
-          // The assignee.changed webhook handler will set the
-          // human_took_over flag on the next pass.
+          // Assigned to a non-AI human. Two sub-cases distinguished by
+          // whether the AI has ever participated in this conversation:
+          //
+          //   • Real takeover: an operator clicked "take over" on a
+          //     thread the AI was already handling. Prior AI activity
+          //     exists. Mi server must respect that — never steal back
+          //     (Tony rule, restored 2026-06-15 after a brief loosened
+          //     attempt).
+          //
+          //   • Workflow setup: the bienvenida workflow assigned the
+          //     thread to a human (Fabiola / Grecia) BEFORE the AI ever
+          //     spoke. No prior AI activity. This isn't an operator
+          //     decision; it's a workflow routing default that should
+          //     match the sede AI to make GA mirror PP. Reassign to the
+          //     sede AI so the panel shows the persona that's actually
+          //     handling the conversation.
+          //
+          // The distinction matches the "lenient takeover guard" used
+          // earlier in this same handler — same signal (prior AI
+          // activity = real takeover; no prior activity = workflow
+          // routing).
           if (current.assigneeId !== null && !isAiAssignee(current.assigneeId)) {
+            const hadAiActivity = await conversationHasAiActivity();
+            if (hadAiActivity) {
+              log.info(
+                {
+                  contactId: payload.contact.id,
+                  currentAssigneeId: current.assigneeId,
+                  aiAssigneeId,
+                },
+                "ai self-assign skipped — real takeover (human owns after AI engagement)",
+              );
+              return;
+            }
             log.info(
               {
                 contactId: payload.contact.id,
-                currentAssigneeId: current.assigneeId,
-                aiAssigneeId,
+                previousAssigneeId: current.assigneeId,
+                newAssigneeId: aiAssigneeId,
+                sede: sede.nombre,
               },
-              "ai self-assign skipped — conversation already assigned to a human",
+              "ai self-assigning — workflow routed to human but no prior AI activity (setup, not takeover)",
             );
+            await respondIoClient.assignConversation({
+              contactId: payload.contact.id,
+              assignee: aiAssigneeId,
+            });
             return;
           }
           // Unassigned (null) → safe to claim with this sede's AI.

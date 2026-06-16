@@ -15,9 +15,9 @@
 
 import type { FastifyBaseLogger } from "fastify";
 
-import { eq } from "drizzle-orm";
+import { and, eq, sql as drizzleSql } from "drizzle-orm";
 
-import { conversaciones, getDb } from "@dpm/db";
+import { conversaciones, getDb, mensajes } from "@dpm/db";
 import type { LeadMetadata } from "@dpm/shared";
 
 import { getAiAssigneeIds, isAiAssignee, loadEnv } from "../env.js";
@@ -271,13 +271,36 @@ export async function handleContactStateEvent(
     const aiAssigneeIds = getAiAssigneeIds();
     const isHuman = newAssignee !== null && !isAiAssignee(newAssignee);
 
+    // Workflow-routing vs operator-takeover (Tony rule 2026-06-15):
+    // distinguish via prior AI activity. If the AI never spoke on this
+    // thread, this assignment is the bienvenida workflow's default
+    // routing, NOT a takeover — match what process-message.ts does in
+    // its self-assign block. We log the assignee, but do NOT stamp the
+    // human_took_over flag in that case (otherwise every brand-new
+    // conversation would be flagged on the first webhook and the AI
+    // would never get to talk).
+    let priorAiCount = 0;
+    if (isHuman) {
+      const [row] = await db
+        .select({ count: drizzleSql<number>`count(*)::int` })
+        .from(mensajes)
+        .where(
+          and(
+            eq(mensajes.conversacionId, conv.id),
+            eq(mensajes.sender, "ai"),
+          ),
+        );
+      priorAiCount = row?.count ?? 0;
+    }
+    const isRealTakeover = isHuman && priorAiCount > 0;
+
     log.info(
-      { event, contactId, newAssignee, aiAssigneeIds, isHuman },
+      { event, contactId, newAssignee, aiAssigneeIds, isHuman, priorAiCount, isRealTakeover },
       "assignee event parsed",
     );
 
     const oldMeta = (conv.leadMetadata as LeadMetadata | null) ?? {};
-    if (isHuman) {
+    if (isRealTakeover) {
       const result = await leadStageService.forceTransition({
         conversacionId: conv.id,
         to: "handed_off",
