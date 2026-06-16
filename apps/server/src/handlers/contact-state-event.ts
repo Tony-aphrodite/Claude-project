@@ -108,16 +108,42 @@ export async function handleContactStateEvent(
       event.startsWith("contact.assignee.") ||
       /assignee/i.test(event)
     ) {
-      const newAssignee = readNumberOrNull(
-        payload.assignee ??
-          (payload.data as Record<string, unknown> | undefined)?.assignee ??
-          (payload.payload as Record<string, unknown> | undefined)?.assignee,
-      );
+      const newAssignee = extractAssigneeFromPayload(payload);
       const isHuman = newAssignee !== null && !isAiAssignee(newAssignee);
+      log.info(
+        {
+          event,
+          contactId,
+          newAssignee,
+          isHuman,
+          payloadKeys: Object.keys(payload),
+          contactKeys: payload.contact
+            ? Object.keys(payload.contact as Record<string, unknown>)
+            : [],
+        },
+        "auto-welcome candidate: assignee event on no-conv contact",
+      );
       if (isHuman) {
         await maybeSendWorkflowAutoWelcome({
           contactId,
           newAssignee,
+          log,
+        });
+        return { ok: true, action: "auto_welcome_no_conv" };
+      }
+      // For contact.assignee.updated events, the workflow may have
+      // assigned to a human without surfacing the id in any field we
+      // recognize. Fall back to running the welcome path anyway — it
+      // re-fetches the contact via Respond.io's API, which is the
+      // source of truth for the current assignee + Branch + sede.
+      if (event.includes("assignee")) {
+        log.info(
+          { event, contactId },
+          "auto-welcome candidate: assignee event with unparseable id — running fallback (Respond.io API will resolve current state)",
+        );
+        await maybeSendWorkflowAutoWelcome({
+          contactId,
+          newAssignee: null,
           log,
         });
         return { ok: true, action: "auto_welcome_no_conv" };
@@ -312,11 +338,7 @@ export async function handleContactStateEvent(
     event.startsWith("contact.assignee.") ||
     /assignee/i.test(event)
   ) {
-    const newAssignee = readNumberOrNull(
-      payload.assignee ??
-        (payload.data as Record<string, unknown> | undefined)?.assignee ??
-        (payload.payload as Record<string, unknown> | undefined)?.assignee,
-    );
+    const newAssignee = extractAssigneeFromPayload(payload);
 
     // Multi-AI (2026-06-15): a human takeover is anyone outside the
     // configured AI set (Francisco, Colomba, Emma, ...). Reassigning from
@@ -518,6 +540,45 @@ export async function handleContactStateEvent(
   }
 
   return { ok: true, action: "tag_event_ignored", reason: event };
+}
+
+/**
+ * Pull the new-assignee user id out of an assignee.* event payload.
+ * Respond.io's v2 shape varies across event types:
+ *   - conversation.assignee.changed → top-level `assignee`
+ *   - contact.assignee.updated      → either top-level `assignee`,
+ *                                     `newAssignee`, `assigneeId`, or
+ *                                     `contact.assignedTo` / `contact.assignedUser`
+ * Older v1 payloads wrap the value in `data` or `payload`. We try them
+ * all and return the first number we recognize.
+ */
+function extractAssigneeFromPayload(payload: IncomingPayload): number | null {
+  const contact = (payload.contact ?? {}) as Record<string, unknown>;
+  const data = (payload.data ?? {}) as Record<string, unknown>;
+  const inner = (payload.payload ?? {}) as Record<string, unknown>;
+
+  const candidates: unknown[] = [
+    payload.assignee,
+    (payload as Record<string, unknown>).newAssignee,
+    (payload as Record<string, unknown>).assigneeId,
+    (payload as Record<string, unknown>).userId,
+    data.assignee,
+    data.newAssignee,
+    data.assigneeId,
+    inner.assignee,
+    inner.newAssignee,
+    inner.assigneeId,
+    contact.assignedTo,
+    contact.assignedUser,
+    contact.assignee,
+    contact.assigneeId,
+  ];
+
+  for (const c of candidates) {
+    const n = readNumberOrNull(c);
+    if (n !== null) return n;
+  }
+  return null;
 }
 
 function readNumberOrNull(v: unknown): number | null {
