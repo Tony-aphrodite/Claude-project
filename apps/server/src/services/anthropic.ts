@@ -101,18 +101,6 @@ export type CallClaudeInput = {
    * goodbye.
    */
   incomingMessage?: string | undefined;
-  /**
-   * Force the model to invoke a specific tool on its FIRST tool round.
-   * Tony 2026-06-16: at the deposit step (customer just confirmed
-   * currency + we already have programa/start_date/pax in metadata),
-   * Claude was stalling instead of invoking `solicitar_deposito`. The
-   * prompt rules alone could not stop the stalling. With this set to
-   * "solicitar_deposito", Anthropic forces Claude to call exactly that
-   * tool — no opt-out, no stalling, no escalation. On subsequent
-   * rounds tool_choice reverts to its normal value so the model can
-   * finish the turn naturally.
-   */
-  forceToolChoice?: string | undefined;
 };
 
 // Canonical escalation_reason codes the AI may emit. Keep in sync with
@@ -233,9 +221,7 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
         // and the panel renders an empty chat bubble.
         ...(isFinalRound
           ? { tool_choice: { type: "none" as const } }
-          : round === 0 && input.forceToolChoice
-            ? { tool_choice: { type: "tool" as const, name: input.forceToolChoice } }
-            : {}),
+          : {}),
       });
     } catch (err) {
       const latencyMs = Date.now() - startedAt;

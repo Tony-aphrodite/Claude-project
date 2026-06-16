@@ -2669,44 +2669,6 @@ export async function processIncomingMessage(
   // Tony perf feedback 2026-06-07: "3 minutes to respond". The Claude
   // call (with up to 2 tool-use round-trips) is usually the dominant
   // cost. Log explicitly so Railway logs make the bottleneck visible.
-  // Deposit-step tool forcing (Tony 2026-06-16 PM 4th round). At the
-  // moment the customer just confirmed the currency for an already-
-  // qualified booking (programa + start_date + pax stamped on
-  // lead_metadata), we need solicitar_deposito to be invoked
-  // deterministically. The prompt rules alone failed five times in a
-  // row today — Claude kept emitting "te preparo los datos en un
-  // momento", "el equipo te escribe", etc. and finally calling
-  // handoff_human without ever invoking the tool. Forcing tool_choice
-  // closes that escape hatch.
-  const _currencyConfirmedRegex = /^\s*(eur|gbp|aud|usd|idr|thb|euros?|dólares?|dollars?|libras?|pounds?)\s*$/i;
-  const _depositMetaForForce =
-    (conversation.leadMetadata as LeadMetadata | null) ?? null;
-  const _hasQualifiedBooking =
-    !!_depositMetaForForce?.programa &&
-    !!_depositMetaForForce?.start_date;
-  const _alreadyDepositPending =
-    conversation.leadStage === "deposit_pending" ||
-    !!(_depositMetaForForce?.ref_code &&
-      _depositMetaForForce?.deposit_currency);
-  const forceToolChoice =
-    incomingText &&
-    _currencyConfirmedRegex.test(incomingText) &&
-    _hasQualifiedBooking &&
-    !_alreadyDepositPending
-      ? "solicitar_deposito"
-      : undefined;
-  if (forceToolChoice) {
-    log.info(
-      {
-        conversationId: conversation.id,
-        incomingText,
-        programa: _depositMetaForForce?.programa,
-        startDate: _depositMetaForForce?.start_date,
-      },
-      "claude tool_choice forced to solicitar_deposito (currency confirmation detected)",
-    );
-  }
-
   const claudeT0 = Date.now();
   const claudeResult = await callClaude({
     system,
@@ -2717,7 +2679,6 @@ export async function processIncomingMessage(
     promptVersionId: promptVersion?.id,
     expectedLanguage: detectedLanguage,
     incomingMessage: incomingText,
-    forceToolChoice,
   });
   log.info(
     {
