@@ -331,42 +331,50 @@ Decirlo siempre:
 
 ## Cuentas bancarias DPM Gili Air {#cuentas}
 
-> **🚨 REGLA ABSOLUTA 2026-06-16 (Tony PM 2nd round):** los números
-> de cuenta, IBAN, BSB, sort code, routing number y beneficiario
-> exactos **YA NO ESTÁN EN ESTA KB**. La única fuente válida es la
-> respuesta de la herramienta `solicitar_deposito`. Caso real
-> 2026-06-16: Colomba tipeó IBAN + datos bancarios completos desde
-> memoria SIN invocar la tool — no se generó `ref_code`, no
-> transicionó lead_stage, la OCR del PDF no funcionó, el cliente
-> vio una "Referencia: [nombre] – [programa] [fecha]" inventada en
-> vez del código real `DPM-GA-MMDD-XXXXXX` que necesita el equipo.
-> Removidos los números para forzar el uso de la tool.
+> **Nota interna 2026-06-16 (Miguel via Tony):** Estos datos son SOLO
+> referencia interna — Colomba NUNCA debe tipearlos directamente al
+> cliente. El cliente recibe únicamente lo que devuelve la herramienta
+> `solicitar_deposito`. Anteriormente la KB listaba estas cuentas a
+> nombre de "Hari Rahmadiansyah" (titular anterior antes de la
+> migración a LLC); los nombres corporativos correctos son los de
+> abajo.
 
-### Monedas soportadas en Gili Air
+### EUR — Wise
 
-| Moneda | Banco | Soportado? |
-|--------|-------|------------|
-| EUR | Wise Brussels | ✅ |
-| GBP | Wise London | ✅ |
-| AUD | Wise Sydney | ✅ |
-| USD | Cuenta corporativa de Koh Tao (CFSB NY) — silenciosa | ✅ (compartida) |
-| IDR | Bank Mandiri (solo desde cuentas indonesias locales) | ✅ |
+- **Beneficiario:** DPM Diving Gili Air LLC
+- **IBAN:** BE26 9050 6838 7229
+- **BIC/SWIFT:** TRWIBEB1XXX
+- **Banco:** Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium
 
-### Procedimiento correcto para mandar datos bancarios
+### GBP — Wise (London)
 
-1. Cliente confirma programa + fecha + pax + moneda explícitamente.
-2. Invocás `solicitar_deposito(sede_id, moneda_cliente, pax, programas)`.
-3. La tool devuelve `ref_code` + `instrucciones` (bloque bancario formateado).
-4. Copiás el bloque que devuelve la tool **literalmente** (sin reformatear, sin tipear de memoria).
-5. La línea final ya incluye `Reference: DPM-GA-MMDD-XXXXXX` — NO la cambies por el nombre del cliente, NO la inventes.
+- **Beneficiario:** DPM Diving Gili Air LLC
+- **Account number:** 59488146
+- **Sort code:** 23-08-01
+- **IBAN:** GB37 TRWI 2308 0159 4881 46
+- **BIC/SWIFT:** TRWIGB2LXXX
+- **Banco:** Wise Payments Limited, 1st Floor, Worship Square, 65 Clifton Street, London EC2A 4JE, United Kingdom
 
-### Nota USD (cuenta de Koh Tao, silenciosa)
+### AUD — Wise (Sydney)
 
-Cuando el cliente elige USD, la tool devuelve la cuenta corporativa
-de Koh Tao (Community Federal Savings Bank, NY) — beneficiario
-"Dpm Diving" (sin sufijo LLC). Si el cliente pregunta por qué el
-beneficiario es "Dpm Diving" en vez de "DPM Diving Gili Air LLC":
-*"Es nuestra cuenta corporativa para USD, todo va al mismo grupo 🤿"*.
+- **Beneficiario:** DPM Diving Gili Air LLC
+- **Account number:** 222597691
+- **BSB:** 774-001
+- **BIC/SWIFT:** TRWIAUS1XXX
+- **Banco:** Wise Australia Pty Ltd, Suite 1, Level 11, 66 Goulburn Street, Sydney, NSW, 2000, Australia
+
+### IDR — Bank Mandiri
+
+- **Beneficiario:** PT DALAM PROFESSIONAL MENYELAM
+- **Banco:** Bank Mandiri
+- **Account number:** 161001392624-6
+- **Solo aceptado desde cuentas indonesias locales**
+
+### USD — cuenta corporativa de Koh Tao (silenciosa)
+
+- Se usa la cuenta USD del centro de Koh Tao (Community Federal Savings Bank, NY)
+- Beneficiario: "Dpm Diving" (sin sufijo LLC — es la entidad de Koh Tao)
+- Si el cliente pregunta por qué el beneficiario es "Dpm Diving" en vez de "DPM Diving Gili Air LLC": *"Es nuestra cuenta corporativa para USD, todo va al mismo grupo 🤿"*
 
 ---
 

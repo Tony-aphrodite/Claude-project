@@ -38,55 +38,51 @@ Decirlo siempre:
 
 ## Cuentas bancarias DPM Gili Air {#cuentas}
 
-> **🚨 REGLA ABSOLUTA 2026-06-16 (Tony PM 2nd round):** los números
-> de cuenta, IBAN, BSB, sort code, routing number y beneficiario
-> exactos **YA NO ESTÁN EN ESTA KB**. La única fuente válida es la
-> respuesta de la herramienta `solicitar_deposito` — que el server
-> lee de `BANK_BLOCKS_BY_SEDE` (apps/server/src/services/deposit-
-> instructions.ts). Si necesitás darle al cliente los datos del
-> depósito, **tenés que invocar la herramienta**, no hay otra manera
-> de obtenerlos.
+> **Nota interna 2026-06-16 (Miguel via Tony):** Estos datos son SOLO
+> referencia interna — Colomba NUNCA debe tipearlos directamente al
+> cliente. El cliente recibe únicamente lo que devuelve la herramienta
+> `solicitar_deposito` (que lee de `BANK_BLOCKS_BY_SEDE` en código).
+> Anteriormente la KB listaba estas cuentas a nombre de "Hari
+> Rahmadiansyah" (titular anterior); Miguel migró a la LLC y los
+> nombres corporativos son los que figuran abajo.
 
-### Monedas soportadas
+### EUR — Wise
 
-| Moneda | Banco | Soportado? |
-|--------|-------|------------|
-| EUR | Wise Brussels | ✅ Sí |
-| GBP | Wise London | ✅ Sí |
-| AUD | Wise Sydney | ✅ Sí |
-| USD | Cuenta corporativa de Koh Tao (CFSB NY) — silenciosa | ✅ Sí (compartida) |
-| IDR | Bank Mandiri | ✅ Sí (solo desde cuentas indonesias locales) |
+- **Beneficiario:** DPM Diving Gili Air LLC
+- **IBAN:** BE26 9050 6838 7229
+- **BIC/SWIFT:** TRWIBEB1XXX
+- **Banco:** Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium
 
-### Por qué removimos los números de cuenta
+### GBP — Wise (London)
 
-Caso real Tony 2026-06-16 PM: el AI tipeó IBAN + datos bancarios
-directamente desde la KB SIN invocar `solicitar_deposito`. Resultado:
-no se generó `ref_code` único, no transicionó `lead_stage` a
-`deposit_pending`, no funcionó la OCR del PDF recibido. El cliente
-recibió una línea "Referencia: [nombre del cliente] – [programa]
-[fecha]" inventada, en vez del código real `DPM-GA-MMDD-XXXXXX` que
-necesita el equipo de Miguel para reconciliar.
+- **Beneficiario:** DPM Diving Gili Air LLC
+- **Account number:** 59488146
+- **Sort code:** 23-08-01
+- **IBAN:** GB37 TRWI 2308 0159 4881 46
+- **BIC/SWIFT:** TRWIGB2LXXX
+- **Banco:** Wise Payments Limited, 1st Floor, Worship Square, 65 Clifton Street, London EC2A 4JE, United Kingdom
 
-Con los números fuera de la KB, la única salida es la herramienta.
+### AUD — Wise (Sydney)
 
-### Procedimiento correcto
+- **Beneficiario:** DPM Diving Gili Air LLC
+- **Account number:** 222597691
+- **BSB:** 774-001
+- **BIC/SWIFT:** TRWIAUS1XXX
+- **Banco:** Wise Australia Pty Ltd, Suite 1, Level 11, 66 Goulburn Street, Sydney, NSW, 2000, Australia
 
-1. Cliente confirma programa + fecha + pax + moneda explícitamente
-2. Invocás `solicitar_deposito(sede_id, moneda_cliente, pax, programas)`
-3. La herramienta devuelve `ref_code` + `instrucciones` (bloque
-   bancario formateado en el idioma del cliente)
-4. Copiás **literalmente** el bloque que devuelve la tool, sin
-   reformatear, sin tipear datos de memoria
-5. Termina con la línea `Reference: DPM-GA-MMDD-XXXXXX` (la tool ya
-   la incluye en `instrucciones`)
+### IDR — Bank Mandiri
 
-### Nota especial USD
+- **Beneficiario:** PT DALAM PROFESSIONAL MENYELAM
+- **Banco:** Bank Mandiri
+- **Account number:** 161001392624-6
+- **Solo aceptado desde cuentas indonesias locales**
 
-Cuando el cliente elige USD, la tool devuelve la cuenta corporativa
-de Koh Tao (Community Federal Savings Bank, NY) — beneficiario
-"Dpm Diving" (sin sufijo LLC). Si el cliente pregunta por qué el
-beneficiario es "Dpm Diving" y no "DPM Diving Gili Air LLC":
-*"Es nuestra cuenta corporativa para USD, todo va al mismo grupo 🤿"*.
+### USD — cuenta corporativa de Koh Tao (silenciosa)
+
+- Se usa la cuenta USD del centro de Koh Tao (Community Federal Savings Bank, NY)
+- Beneficiario en la transferencia: "Dpm Diving" (sin sufijo LLC — es la entidad de Koh Tao)
+- Si el cliente pregunta por qué el beneficiario es "Dpm Diving" en vez de "DPM Diving Gili Air LLC": *"Es nuestra cuenta corporativa para USD, todo va al mismo grupo 🤿"*
+- El número de cuenta lo devuelve la herramienta — NO lo memorices ni inventes
 
 ---
 
