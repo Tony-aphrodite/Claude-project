@@ -41,7 +41,7 @@ import type {
   SolicitarDepositoResult,
   TurnoKey,
 } from "@dpm/shared";
-import { depositAmountFor } from "@dpm/shared";
+import { depositAmountFor, readBranchField } from "@dpm/shared";
 
 import { and, eq, sql as drizzleSql } from "drizzle-orm";
 import { conversaciones, errores, getDb, mensajes, type Sede } from "@dpm/db";
@@ -186,9 +186,47 @@ export async function processIncomingMessage(
       return null;
     });
   if (fetchedFresh?.customFields) {
-    contactForResolution = {
+    // Preserve payload's Branch when fresh API returns no Branch (Tony rule
+    // 2026-06-16). The per-sede webhook route injects Branch into the
+    // payload from the URL slug when Respond.io's workflow hasn't yet
+    // persisted "Set Branch" on the contact. If we blindly overwrite
+    // customFields with the fresh API response, that injection is lost
+    // and sedeService.resolveForPilot returns branch_empty — exactly the
+    // failure mode that kept GA's "Hola"/"Gili Air" turns from creating
+    // a conv earlier today. Fresh-fetch wins for OTHER keys (richer
+    // contact data); Branch falls back to payload when fresh is empty.
+    const freshBranch = readBranchField({
       ...payload.contact,
       customFields: fetchedFresh.customFields,
+    });
+    const payloadBranch = readBranchField(payload.contact);
+    const branchToUse = freshBranch || payloadBranch;
+
+    let mergedCustomFields: unknown = fetchedFresh.customFields;
+    if (branchToUse && !freshBranch) {
+      // Re-stamp Branch back onto the fresh customFields shape.
+      if (Array.isArray(mergedCustomFields)) {
+        mergedCustomFields = [
+          ...mergedCustomFields,
+          { name: "Branch", value: branchToUse },
+        ];
+      } else if (mergedCustomFields && typeof mergedCustomFields === "object") {
+        mergedCustomFields = {
+          ...(mergedCustomFields as Record<string, unknown>),
+          Branch: branchToUse,
+        };
+      } else {
+        mergedCustomFields = { Branch: branchToUse };
+      }
+      log.info(
+        { contactId: payload.contact.id, branchToUse },
+        "sede resolution: preserved payload Branch (fresh contact had none)",
+      );
+    }
+
+    contactForResolution = {
+      ...payload.contact,
+      customFields: mergedCustomFields as Record<string, unknown>,
       tags: fetchedFresh.tags ?? payload.contact.tags,
     };
   }
