@@ -41,7 +41,7 @@ import type {
   SolicitarDepositoResult,
   TurnoKey,
 } from "@dpm/shared";
-import { depositAmountFor, readBranchField } from "@dpm/shared";
+import { depositAmountFor } from "@dpm/shared";
 
 import { and, eq, sql as drizzleSql } from "drizzle-orm";
 import { conversaciones, errores, getDb, mensajes, type Sede } from "@dpm/db";
@@ -94,7 +94,7 @@ import { leadStageService } from "../services/lead-stage.js";
 import { buildFourBlockPrompt } from "../services/prompt-builder.js";
 import { promptsService } from "../services/prompts.js";
 import { respondIoClient } from "../services/respond-io.js";
-import { sedeService } from "../services/sede.js";
+import { AI_ENABLED_SEDE_NAMES_CONST, sedeService } from "../services/sede.js";
 import { getSedeBehavior } from "../services/sede-behavior.js";
 import {
   generateRefCode,
@@ -130,7 +130,8 @@ export type ProcessResult =
         | "sede_not_seeded"
         | "test_tag_missing"
         | "ai_silenced_post_handoff"
-        | "ai_silenced_human_assignee";
+        | "ai_silenced_human_assignee"
+        | "sede_selector_button";
       branch?: string | null;
       latencyMs: number;
     }
@@ -148,6 +149,38 @@ export async function processIncomingMessage(
   const t0 = Date.now();
 
   const incomingText = (payload.message.text ?? "").trim();
+
+  // Step 1: Bienvenida sede-selector button click skip (Tony rule 2026-06-16).
+  //
+  // The welcome workflow shows a sede picker as quick-reply buttons. The
+  // customer's click is delivered to us as a regular incoming text message
+  // whose body is exactly the sede name ("Gili Air", "Koh Phi Phi", ...).
+  // Letting the AI process this:
+  //   1. Triggers a greeting reply, which seeds priorAiCount=1 BEFORE the
+  //      workflow has finished its routing — when the workflow then assigns
+  //      a human (Alba/Grecia/Fabiola), contact-state-event classifies it
+  //      as a real takeover and silences the AI permanently.
+  //   2. Has no semantic value for the customer — the workflow already
+  //      sends a "Genial, enseguida estaremos contigo" confirmation.
+  // We skip the click here. The post-pick sede AI greeting is driven by
+  // contact-state-event.maybeSendWorkflowAutoWelcome (fires on the
+  // workflow's assignee.updated event AFTER Branch has been set on the
+  // contact).
+  if (
+    incomingText &&
+    (AI_ENABLED_SEDE_NAMES_CONST as readonly string[]).includes(incomingText)
+  ) {
+    log.info(
+      { contactId: payload.contact.id, text: incomingText },
+      "skipped: text matches sede name (bienvenida button click) — letting workflow handle",
+    );
+    return {
+      ok: false,
+      ignored: true,
+      reason: "sede_selector_button",
+      latencyMs: Date.now() - t0,
+    };
+  }
 
   // Step 2: Pilot gate. The Branch contact field decides which sede this
   // message belongs to. Two AI-enabled sedes are accepted: Gili Trawangan
@@ -186,47 +219,9 @@ export async function processIncomingMessage(
       return null;
     });
   if (fetchedFresh?.customFields) {
-    // Preserve payload's Branch when fresh API returns no Branch (Tony rule
-    // 2026-06-16). The per-sede webhook route injects Branch into the
-    // payload from the URL slug when Respond.io's workflow hasn't yet
-    // persisted "Set Branch" on the contact. If we blindly overwrite
-    // customFields with the fresh API response, that injection is lost
-    // and sedeService.resolveForPilot returns branch_empty — exactly the
-    // failure mode that kept GA's "Hola"/"Gili Air" turns from creating
-    // a conv earlier today. Fresh-fetch wins for OTHER keys (richer
-    // contact data); Branch falls back to payload when fresh is empty.
-    const freshBranch = readBranchField({
-      ...payload.contact,
-      customFields: fetchedFresh.customFields,
-    });
-    const payloadBranch = readBranchField(payload.contact);
-    const branchToUse = freshBranch || payloadBranch;
-
-    let mergedCustomFields: unknown = fetchedFresh.customFields;
-    if (branchToUse && !freshBranch) {
-      // Re-stamp Branch back onto the fresh customFields shape.
-      if (Array.isArray(mergedCustomFields)) {
-        mergedCustomFields = [
-          ...mergedCustomFields,
-          { name: "Branch", value: branchToUse },
-        ];
-      } else if (mergedCustomFields && typeof mergedCustomFields === "object") {
-        mergedCustomFields = {
-          ...(mergedCustomFields as Record<string, unknown>),
-          Branch: branchToUse,
-        };
-      } else {
-        mergedCustomFields = { Branch: branchToUse };
-      }
-      log.info(
-        { contactId: payload.contact.id, branchToUse },
-        "sede resolution: preserved payload Branch (fresh contact had none)",
-      );
-    }
-
     contactForResolution = {
       ...payload.contact,
-      customFields: mergedCustomFields as Record<string, unknown>,
+      customFields: fetchedFresh.customFields,
       tags: fetchedFresh.tags ?? payload.contact.tags,
     };
   }

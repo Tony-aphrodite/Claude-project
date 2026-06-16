@@ -21,6 +21,8 @@ import { conversaciones, getDb, mensajes, sedes } from "@dpm/db";
 import type { LeadMetadata } from "@dpm/shared";
 
 import { getAiAssigneeIds, isAiAssignee, loadEnv } from "../env.js";
+import { chatContactsService } from "../services/chat-contacts.js";
+import { conversationService } from "../services/conversation.js";
 import { leadStageService } from "../services/lead-stage.js";
 import { respondIoClient } from "../services/respond-io.js";
 
@@ -616,6 +618,57 @@ async function maybeSendWorkflowAutoWelcome(args: {
       contactId,
       text: sedeAi.welcome,
     });
+
+    // Persist the conv + welcome in our DB so the customer's NEXT message
+    // arrives with proper context: process-message will find an existing
+    // conv (sede_id correctly set), the takeover guard reads priorAi
+    // activity correctly, and the AI sees the welcome in its history
+    // instead of greeting twice. Without this, the no-conv welcome path
+    // sent a Respond.io message but left our DB empty, so the next
+    // customer turn would either silently re-greet or trip the takeover
+    // guard on its own.
+    try {
+      const db = getDb();
+      const [sedeRow] = await db
+        .select({ id: sedes.id })
+        .from(sedes)
+        .where(eq(sedes.nombre, branch));
+      if (sedeRow) {
+        const contact = await chatContactsService.upsertFromWebhook({
+          respondIoContactId: contactId,
+          phone: (fresh as { phone?: string } | null)?.phone ?? null,
+          name: (fresh as { name?: string } | null)?.name ?? null,
+          language: (fresh as { language?: string } | null)?.language ?? null,
+          tags: (fresh as { tags?: string[] } | null)?.tags ?? undefined,
+          sedeId: sedeRow.id,
+        });
+        const conv = await conversationService.upsertOnInbound({
+          respondIoConversationId: `tmp_${contact.respondIoContactId}`,
+          respondIoContactId: contact.respondIoContactId,
+          sedeId: sedeRow.id,
+        });
+        await db.insert(mensajes).values({
+          conversacionId: conv.id,
+          sender: "ai",
+          content: sedeAi.welcome,
+          metadata: { auto_welcome: true, sede: branch },
+        });
+        log.info(
+          { contactId, conversationId: conv.id, branch },
+          "auto-welcome: conv + welcome mensaje persisted",
+        );
+      } else {
+        log.warn(
+          { contactId, branch },
+          "auto-welcome: sede row not found for branch — skipped DB persist",
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err: (err as Error).message, contactId, branch },
+        "auto-welcome: DB persist failed (non-blocking, Respond.io side already sent)",
+      );
+    }
 
     log.info(
       {
