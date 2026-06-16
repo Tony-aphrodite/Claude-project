@@ -17,11 +17,36 @@ import type { FastifyBaseLogger } from "fastify";
 
 import { and, eq, sql as drizzleSql } from "drizzle-orm";
 
-import { conversaciones, getDb, mensajes } from "@dpm/db";
+import { conversaciones, getDb, mensajes, sedes } from "@dpm/db";
 import type { LeadMetadata } from "@dpm/shared";
 
 import { getAiAssigneeIds, isAiAssignee, loadEnv } from "../env.js";
 import { leadStageService } from "../services/lead-stage.js";
+import { respondIoClient } from "../services/respond-io.js";
+
+// Per-sede welcome message + AI assignee for the auto-greeting that fires
+// when the bienvenida workflow finishes and the AI takes over. Tony rule
+// 2026-06-15: GA / KT / GT / NP must match PP's flow — sede AI sends "I'm
+// X from Y" greeting automatically right after sede selection, no
+// customer message needed in between.
+const SEDE_AI_USERS: Readonly<Record<string, { assigneeId: number; welcome: string }>> = {
+  "Koh Phi Phi": {
+    assigneeId: 440519,
+    welcome: "¡Hola! Soy Francisco Emilio de DPM Diving Koh Phi Phi 🤿 ¿En qué te puedo ayudar?",
+  },
+  "Gili Air": {
+    assigneeId: 441308,
+    welcome: "¡Hola! Soy Colomba de DPM Diving Gili Air 🤿 ¿En qué te puedo ayudar?",
+  },
+  "Gili Trawangan": {
+    assigneeId: 462203,
+    welcome: "¡Hola! Soy John de DPM Diving Gili Trawangan 🤿 ¿En qué te puedo ayudar?",
+  },
+  "Nusa Penida": {
+    assigneeId: 464075,
+    welcome: "¡Hola! Soy David de DPM Diving Nusa Penida 🤿 ¿En qué te puedo ayudar?",
+  },
+};
 
 type IncomingPayload = {
   contact?: { id?: string | number };
@@ -300,6 +325,85 @@ export async function handleContactStateEvent(
     );
 
     const oldMeta = (conv.leadMetadata as LeadMetadata | null) ?? {};
+
+    // Workflow-setup auto-greeting (Tony rule 2026-06-15): when the
+    // bienvenida workflow finishes by routing the thread to a human
+    // BEFORE the AI has spoken, this isn't a takeover — it's the workflow
+    // handing the customer off "to the team." Mi server matches what PP
+    // does naturally (where the workflow assigns to Francisco AI directly):
+    //   1. Reassign the thread to the sede AI so the panel shows the right
+    //      persona.
+    //   2. Send the sede AI's welcome message ("I'm X from Y, how can I
+    //      help?") immediately, no need for the customer to nudge.
+    //   3. Persist the welcome as an `ai` mensaje so future webhook events
+    //      on this same thread see prior AI activity and correctly classify
+    //      a later assignee change as a real takeover.
+    //
+    // Only fires once per thread (gated by the priorAiCount == 0 check) and
+    // only when we can resolve the sede via conv.sedeId.
+    if (isHuman && !isRealTakeover && conv.sedeId) {
+      const [sede] = await db
+        .select({ nombre: sedes.nombre })
+        .from(sedes)
+        .where(eq(sedes.id, conv.sedeId));
+      const sedeName = sede?.nombre;
+      const sedeAi = sedeName ? SEDE_AI_USERS[sedeName] : undefined;
+      if (sedeAi) {
+        // Fire and forget — same pattern as the rest of this handler. If
+        // either the Respond.io call or the mensaje insert fails, log it
+        // but don't block the webhook response.
+        void (async () => {
+          try {
+            // Reassign first so when the welcome lands in Respond.io it
+            // already shows the AI as owner. Best-effort — if the API
+            // call fails the welcome still sends.
+            await respondIoClient
+              .assignConversation({
+                contactId: String(contactId),
+                assignee: sedeAi.assigneeId,
+              })
+              .catch((err) =>
+                log.warn(
+                  { err: (err as Error).message, sedeName, contactId },
+                  "workflow setup: reassign to sede AI failed (non-blocking)",
+                ),
+              );
+
+            // sendMessage uses contact-based fallback when conversationId
+            // looks like an unresolved template (or our temp prefix), which
+            // covers brand-new threads where Respond.io hasn't returned the
+            // real conv id yet. Always pass contactId so the fallback fires.
+            const respondIoConvId =
+              typeof conv.respondIoConversationId === "string"
+                ? conv.respondIoConversationId
+                : "$conversation.id";
+            await respondIoClient.sendMessage({
+              conversationId: respondIoConvId,
+              contactId: String(contactId),
+              text: sedeAi.welcome,
+            });
+
+            await db.insert(mensajes).values({
+              conversacionId: conv.id,
+              sender: "ai",
+              content: sedeAi.welcome,
+              metadata: { auto_welcome: true, sede: sedeName },
+            });
+
+            log.info(
+              { contactId, sedeName, newAssigneeId: sedeAi.assigneeId },
+              "workflow setup: sent auto-welcome and reassigned to sede AI",
+            );
+          } catch (err) {
+            log.error(
+              { err: (err as Error).message, contactId, sedeName },
+              "workflow setup: auto-welcome failed (non-blocking)",
+            );
+          }
+        })();
+      }
+    }
+
     if (isRealTakeover) {
       const result = await leadStageService.forceTransition({
         conversacionId: conv.id,
