@@ -112,22 +112,42 @@ function referenceBlock(
  * message.
  *
  * Sedes without an entry fall back to `Gili Trawangan` (legacy default —
- * preserves behavior for sedes not yet on the AI).
- *
- * Currencies missing from a sede's block fall back to the same currency
- * in Gili Trawangan. This is intentional for IDR (Gili-only — Phi Phi
- * shouldn't offer IDR, but if a customer insists, the fallback still
- * works). Use `sedeSupportsCurrency()` to gate offer-time decisions.
+ * preserves behavior for sedes not yet on the AI). Updated 2026-06-16
+ * (post-audit): silent fallback to GT is gone — `lookupBankBlock`
+ * throws when a sede × currency combo isn't seeded. Callers MUST gate
+ * with `sedeSupportsCurrency()` before invoking `solicitar_deposito`,
+ * and reject upstream with a customer-facing currency list if the
+ * combination isn't supported.
  */
 type SedeBankBlocks = Partial<Record<DepositCurrency, string[]>>;
 
+// Shared KT USD block — re-used by Gili Air per Miguel's silent-share
+// instruction (2026-06-16). The customer-facing beneficiary stays as
+// "Dpm Diving" with no LLC suffix; if the customer questions it
+// Colomba responds per the prompt rule ("nuestra cuenta corporativa
+// para USD"). NP does NOT share USD — it rejects the currency.
+const KT_USD_BLOCK: string[] = [
+  "Beneficiary: Dpm Diving",
+  "Account type: Checking",
+  "Account number: 822000685807",
+  "Routing number: 026073150",
+  "BIC/SWIFT: CMFGUS33",
+  "Bank: Community Federal Savings Bank, 89-16 Jamaica Ave, Woodhaven, NY, 11421, USA",
+];
+
 const BANK_BLOCKS_BY_SEDE: Record<string, SedeBankBlocks> = {
+  // Miguel 2026-06-16 (re-confirmed) — GT now has its OWN Wise US
+  // account for USD (Wilmington DE under DPM Diving Gili T LLC).
+  // Previously code shared the CFSB account with KT — that account
+  // actually belongs to KT, not GT. IDR holder updated to "PT DALAM
+  // PROFESIONAL MENYELAM" (corporate legal name, matches Mandiri
+  // record) with bank code 80017.
   "Gili Trawangan": {
     EUR: [
       "Beneficiary: DPM Diving Gili T LLC",
       "IBAN: BE93 9050 6891 4867",
       "BIC/SWIFT: TRWIBEB1XXX",
-      "Bank: Wise, Brussels, Belgium",
+      "Bank: Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium",
     ],
     GBP: [
       "Beneficiary: DPM Diving Gili T LLC",
@@ -135,27 +155,136 @@ const BANK_BLOCKS_BY_SEDE: Record<string, SedeBankBlocks> = {
       "Sort code: 23-08-01",
       "IBAN: GB52 TRWI 2308 0155 8349 53",
       "BIC/SWIFT: TRWIGB2LXXX",
-      "Bank: Wise Payments Limited, London, UK",
+      "Bank: Wise Payments Limited, 1st Floor, Worship Square, 65 Clifton Street, London, EC2A 4JE, UK",
     ],
     AUD: [
       "Beneficiary: DPM Diving Gili T LLC",
       "Account number: 222625669",
       "BSB: 774-001",
       "BIC/SWIFT: TRWIAUS1XXX",
-      "Bank: Wise Australia, Sydney",
+      "Bank: Wise Australia Pty Ltd, Suite 1, Level 11, 66 Goulburn Street, Sydney, NSW, 2000, Australia",
     ],
     USD: [
-      "Beneficiary: Dpm Diving",
-      "Account number: 822000685807",
-      "Routing number: 026073150",
-      "BIC/SWIFT: CMFGUS33",
-      "Bank: Community Federal Savings Bank, New York, USA",
+      "Beneficiary: DPM Diving Gili T LLC",
+      "Account type: Deposit",
+      "Account number: 496290465973320",
+      "Routing number: 084009519",
+      "BIC/SWIFT: TRWIUS35XXX",
+      "Bank: Wise US Inc, 108 W 13th St, Wilmington, DE, 19801, USA",
     ],
     IDR: [
-      "Beneficiary: Dalam Professional Menyelam",
+      "Beneficiary: PT DALAM PROFESIONAL MENYELAM",
       "Bank: Bank Mandiri",
-      "Account: 1610010570609",
+      "Bank code: 80017",
+      "Account number: 1610010570609",
     ],
+  },
+
+  // Miguel 2026-06-16 — full GA block. KB previously listed accounts
+  // under "Hari Rahmadiansyah" personal name (origin: original
+  // colombagiliairparajunjun.zip 2026-05-15); Miguel disavowed that
+  // name 2026-06-16 — likely the prior Wise account holder before
+  // migration to the LLC. Same IBAN/account numbers, new beneficiary.
+  // USD: silently uses KT's CFSB account (see KT_USD_BLOCK).
+  "Gili Air": {
+    EUR: [
+      "Beneficiary: DPM Diving Gili Air LLC",
+      "IBAN: BE26 9050 6838 7229",
+      "BIC/SWIFT: TRWIBEB1XXX",
+      "Bank: Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium",
+    ],
+    GBP: [
+      "Beneficiary: DPM Diving Gili Air LLC",
+      "Account number: 59488146",
+      "Sort code: 23-08-01",
+      "IBAN: GB37 TRWI 2308 0159 4881 46",
+      "BIC/SWIFT: TRWIGB2LXXX",
+      "Bank: Wise Payments Limited, 1st Floor, Worship Square, 65 Clifton Street, London, EC2A 4JE, UK",
+    ],
+    AUD: [
+      "Beneficiary: DPM Diving Gili Air LLC",
+      "Account number: 222597691",
+      "BSB: 774-001",
+      "BIC/SWIFT: TRWIAUS1XXX",
+      "Bank: Wise Australia Pty Ltd, Suite 1, Level 11, 66 Goulburn Street, Sydney, NSW, 2000, Australia",
+    ],
+    USD: KT_USD_BLOCK, // silent share with KT (Miguel rule 2026-06-16)
+    IDR: [
+      "Beneficiary: PT DALAM PROFESSIONAL MENYELAM",
+      "Bank: Bank Mandiri",
+      "Account number: 161001392624-6",
+    ],
+  },
+
+  // Miguel 2026-06-16 — NP block. USD NOT supported (Miguel: "Nusa
+  // penida no usa cuenta en dólares"). Old NP KB wrongly listed
+  // CFSB shared USD; that's actually KT's account. NP rejects USD
+  // — no silent fallback.
+  "Nusa Penida": {
+    EUR: [
+      "Beneficiary: DPM Diving Nusa Penida LLC",
+      "IBAN: BE57 9050 6281 0335",
+      "BIC/SWIFT: TRWIBEB1XXX",
+      "Bank: Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium",
+    ],
+    GBP: [
+      "Beneficiary: DPM Diving Nusa Penida LLC",
+      "Account number: 83574365",
+      "Sort code: 23-08-01",
+      "IBAN: GB88 TRWI 2308 0183 5743 65",
+      "BIC/SWIFT: TRWIGB2LXXX",
+      "Bank: Wise Payments Limited, 1st Floor, Worship Square, 65 Clifton Street, London, EC2A 4JE, UK",
+    ],
+    AUD: [
+      "Beneficiary: DPM Diving Nusa Penida LLC",
+      "Account number: 222430607",
+      "BSB: 774-001",
+      "BIC/SWIFT: TRWIAUS1XXX",
+      "Bank: Wise Australia Pty Ltd, Suite 1, Level 11, 66 Goulburn Street, Sydney, NSW, 2000, Australia",
+    ],
+    // USD intentionally omitted — sedeSupportsCurrency() returns
+    // false; solicitar_deposito returns sede_currency_not_supported.
+    IDR: [
+      "Beneficiary: PT DPM DIVING NUSA PENIDA",
+      "Bank: Bank BPD Bali",
+      "Bank code: 1290013",
+      "Account number: 0230202084015",
+    ],
+  },
+
+  // Miguel 2026-06-16 — KT block. Beneficiary is plain "Dpm Diving"
+  // (Thailand entity, not the BE-resident LLC pattern of the Indo
+  // sedes). Stripe THB link still active in parallel with Bangkok
+  // Bank — see sedeStripeLink() below.
+  "Koh Tao": {
+    EUR: [
+      "Beneficiary: Dpm Diving",
+      "IBAN: BE02 9674 4543 1440",
+      "BIC/SWIFT: TRWIBEB1XXX",
+      "Bank: Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium",
+    ],
+    GBP: [
+      "Beneficiary: Dpm Diving",
+      "Account number: 14569568",
+      "Sort code: 23-14-70",
+      "IBAN: GB18 TRWI 2314 7014 5695 68",
+      "BIC/SWIFT: TRWIGB2LXXX",
+      "Bank: Wise Payments Limited, 1st Floor, Worship Square, 65 Clifton Street, London, EC2A 4JE, UK",
+    ],
+    AUD: [
+      "Beneficiary: Dpm Diving",
+      "Account number: 209258620",
+      "BSB: 774-001",
+      "BIC/SWIFT: TRWIAUS1XXX",
+      "Bank: Wise Australia Pty Ltd, Suite 1, Level 11, 66 Goulburn Street, Sydney, NSW, 2000, Australia",
+    ],
+    USD: KT_USD_BLOCK,
+    THB: [
+      "Beneficiary: Dpm diving",
+      "Bank: Bangkok Bank",
+      "Account number: 7310135871",
+    ],
+    // IDR intentionally omitted — KT is Thailand.
   },
 
   // Miguel 2026-06-07 — complete bank details (3 messages: image, THB
@@ -212,12 +341,45 @@ const BANK_BLOCKS_BY_SEDE: Record<string, SedeBankBlocks> = {
   },
 };
 
-const DEFAULT_SEDE_FOR_FALLBACK = "Gili Trawangan" as const;
+/**
+ * Whether (sede, currency) has a configured bank block. Use this BEFORE
+ * invoking `solicitar_deposito` to decide whether to accept the
+ * customer's currency choice or push back with the supported list.
+ * Per the 2026-06-16 audit (Tony GA pilot, Miguel confirmations), the
+ * support matrix is:
+ *
+ *   • GT: EUR / GBP / AUD / USD / IDR
+ *   • GA: EUR / GBP / AUD / USD (silently shared with KT) / IDR
+ *   • NP: EUR / GBP / AUD / IDR     ← NO USD (Miguel explicit)
+ *   • KT: EUR / GBP / AUD / USD / THB   ← NO IDR (Thailand)
+ *   • PP: EUR / GBP / AUD / USD / THB
+ */
+export function sedeSupportsCurrency(
+  sedeNombre: string,
+  currency: DepositCurrency,
+): boolean {
+  return BANK_BLOCKS_BY_SEDE[sedeNombre]?.[currency] !== undefined;
+}
+
+/** Currencies supported by a sede. Used to compose the customer-facing
+ *  rejection message ("la sede acepta X, Y, Z"). */
+export function supportedCurrenciesForSede(
+  sedeNombre: string,
+): DepositCurrency[] {
+  const blocks = BANK_BLOCKS_BY_SEDE[sedeNombre];
+  if (!blocks) return [];
+  return Object.keys(blocks) as DepositCurrency[];
+}
 
 /**
- * Resolve the bank block lines for (sede, currency). Falls back to the
- * default sede (Gili Trawangan) if the sede doesn't have explicit
- * configuration OR if the sede has no block for that currency.
+ * Resolve the bank block lines for (sede, currency). Throws when the
+ * sede × currency combination isn't configured — callers must gate
+ * with `sedeSupportsCurrency()` first. The old behavior of falling
+ * back to Gili Trawangan silently caused the 2026-06-16 GA pilot
+ * incident: GA's customers were receiving GT's bank details for any
+ * currency GA hadn't seeded, including the wrong corporate entity on
+ * the beneficiary line. Loud failure is the right default — quiet
+ * fallback hides bugs that move money to the wrong account.
  */
 function lookupBankBlock(
   sedeNombre: string,
@@ -225,8 +387,11 @@ function lookupBankBlock(
 ): string[] {
   const sedeBlocks = BANK_BLOCKS_BY_SEDE[sedeNombre];
   if (sedeBlocks?.[currency]) return sedeBlocks[currency]!;
-  // Fall back to default sede's block.
-  return BANK_BLOCKS_BY_SEDE[DEFAULT_SEDE_FOR_FALLBACK]![currency] ?? [];
+  throw new Error(
+    `bank_block_not_configured: sede="${sedeNombre}" currency="${currency}". ` +
+      `Either add an explicit block to BANK_BLOCKS_BY_SEDE or reject the ` +
+      `currency upstream via sedeSupportsCurrency().`,
+  );
 }
 
 function formatAmount(currency: DepositCurrency, pax: number = 1): string {

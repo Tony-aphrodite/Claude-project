@@ -38,35 +38,51 @@ Decirlo siempre:
 
 ## Cuentas bancarias DPM Gili Air {#cuentas}
 
+> **Nota interna 2026-06-16 (Miguel via Tony):** Estos datos son SOLO
+> referencia interna — Colomba NUNCA debe tipearlos directamente al
+> cliente. El cliente recibe únicamente lo que devuelve la herramienta
+> `solicitar_deposito` (que lee de `BANK_BLOCKS_BY_SEDE` en código).
+> Anteriormente la KB listaba estas cuentas a nombre de "Hari
+> Rahmadiansyah" (titular anterior); Miguel migró a la LLC y los
+> nombres corporativos son los que figuran abajo.
+
 ### EUR — Wise
 
+- **Beneficiario:** DPM Diving Gili Air LLC
 - **IBAN:** BE26 9050 6838 7229
-- **Beneficiario:** Hari Rahmadiansyah
 - **BIC/SWIFT:** TRWIBEB1XXX
+- **Banco:** Wise, Rue du Trône 100, 3rd floor, Brussels, 1050, Belgium
 
 ### GBP — Wise (London)
 
+- **Beneficiario:** DPM Diving Gili Air LLC
 - **Account number:** 59488146
 - **Sort code:** 23-08-01
-- **Beneficiario:** Hari Rahmadiansyah
+- **IBAN:** GB37 TRWI 2308 0159 4881 46
+- **BIC/SWIFT:** TRWIGB2LXXX
+- **Banco:** Wise Payments Limited, 1st Floor, Worship Square, 65 Clifton Street, London EC2A 4JE, United Kingdom
 
 ### AUD — Wise (Sydney)
 
+- **Beneficiario:** DPM Diving Gili Air LLC
 - **Account number:** 222597691
 - **BSB:** 774-001
-- **Beneficiario:** Hari Rahmadiansyah
+- **BIC/SWIFT:** TRWIAUS1XXX
+- **Banco:** Wise Australia Pty Ltd, Suite 1, Level 11, 66 Goulburn Street, Sydney, NSW, 2000, Australia
 
-### IDR — Mandiri (Bank Mandiri Indonesia)
+### IDR — Bank Mandiri
 
+- **Beneficiario:** PT DALAM PROFESSIONAL MENYELAM
+- **Banco:** Bank Mandiri
 - **Account number:** 161001392624-6
-- **Beneficiario:** Hari Rahmadiansyah
 - **Solo aceptado desde cuentas indonesias locales**
 
-### USD — Cuenta corporativa Koh Tao (silenciosa)
+### USD — cuenta corporativa de Koh Tao (silenciosa)
 
-- Se usa una cuenta USD compartida con la sede de Koh Tao
-- Confirmar número con oficina antes de enviar
-- Si el cliente pregunta: "es nuestra cuenta corporativa para USD, todo va al mismo grupo"
+- Se usa la cuenta USD del centro de Koh Tao (Community Federal Savings Bank, NY)
+- Beneficiario en la transferencia: "Dpm Diving" (sin sufijo LLC — es la entidad de Koh Tao)
+- Si el cliente pregunta por qué el beneficiario es "Dpm Diving" en vez de "DPM Diving Gili Air LLC": *"Es nuestra cuenta corporativa para USD, todo va al mismo grupo 🤿"*
+- El número de cuenta lo devuelve la herramienta — NO lo memorices ni inventes
 
 ---
 

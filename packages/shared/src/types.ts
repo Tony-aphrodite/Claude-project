@@ -912,6 +912,7 @@ export type SolicitarDepositoResult =
       reason:
         | "sede_unknown"
         | "currency_unsupported"
+        | "sede_currency_not_supported" // Miguel 2026-06-16: per-sede currency matrix (e.g. NP has no USD)
         | "internal_error"
         | "booking_not_finalized" // programa / start_date never stamped by consultar_disponibilidad
         | "slot_unavailable"; // a required slot is no longer available — re-check roster

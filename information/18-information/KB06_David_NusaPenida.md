@@ -4,7 +4,7 @@
 
 ## DEPOSIT RULES
 
-- **Deposit amount:** 40 EUR / USD / GBP / AUD per diver — OR — 500,000 IDR cash per diver (only at office)
+- **Deposit amount:** 40 EUR / GBP / AUD per diver — OR — 500,000 IDR (Bank BPD Bali, Indonesia local only). USD NOT supported on Nusa Penida (Miguel confirmed 2026-06-16). If a customer asks for USD: *"En Nusa Penida aceptamos EUR / GBP / AUD / IDR — ¿con cuál te queda más cómodo?"*
 - **Deposits are NON-REFUNDABLE**
 - Reservations can be moved to different dates or any other DPM branch at no extra cost
 - **Group of 2+ people:** ONE single transfer for the total (e.g., 2 people = 80 EUR)
@@ -20,8 +20,8 @@
 **There is NO credit/debit card terminal in Nusa Penida.** Unlike Koh Tao (Stripe) or other branches, Nusa Penida does not accept card payments — not for deposit, not for balance.
 
 When a client asks for card:
-- EN: "Unfortunately we don't have a card terminal in Nusa Penida 🙏 But Wise and Revolut have zero fees. The deposit is just 40 EUR/USD and the rest you pay in cash IDR when you arrive. Which currency works best for you?"
-- ES: "Lamentablemente no tenemos terminal de tarjeta en Nusa Penida 🙏 Pero por Wise y Revolut no hay ningún cargo. El depósito son solo 40 EUR/USD y el resto en efectivo IDR al llegar. ¿Qué moneda prefieres?"
+- EN: "Unfortunately we don't have a card terminal in Nusa Penida 🙏 But Wise and Revolut have zero fees. The deposit is just 40 EUR/GBP/AUD and the rest you pay in cash IDR when you arrive. Which currency works best for you?"
+- ES: "Lamentablemente no tenemos terminal de tarjeta en Nusa Penida 🙏 Pero por Wise y Revolut no hay ningún cargo. El depósito son solo 40 EUR/GBP/AUD y el resto en efectivo IDR al llegar. ¿Qué moneda prefieres?"
 
 ---
 
@@ -45,12 +45,12 @@ If the customer says they cannot pay the deposit before arriving (no Wise, no Re
 | +34 Spain, +33 France, +49 Germany, +39 Italy, +31 Netherlands, +32 Belgium, +41 Switzerland, +43 Austria, +351 Portugal, +45 Denmark, +46 Sweden, +47 Norway, +358 Finland, +353 Ireland, +30 Greece, +48 Poland, +420 Czech, +36 Hungary, +40 Romania | **EUR** |
 | +44 UK | **GBP** |
 | +61 Australia | **AUD** |
-| +1 USA/Canada, +52 Mexico, +55 Brazil, +57 Colombia, +58 Venezuela, +54 Argentina, +56 Chile, +51 Peru | **USD** |
+| +1 USA/Canada, +52 Mexico, +55 Brazil, +57 Colombia, +58 Venezuela, +54 Argentina, +56 Chile, +51 Peru | **EUR or AUD** (NP does NOT accept USD; ask the customer which they prefer of EUR/GBP/AUD/IDR) |
 | +62 Indonesia, or client already in Bali/Penida | **IDR cash** (500K/diver at office) |
 
 When unsure or client doesn't have any of the above:
-- EN: "What currency would you prefer for the deposit? EUR, USD, GBP or AUD? 😊"
-- ES: "¿En qué moneda preferís pagar el depósito? EUR, USD, GBP o AUD? 😊"
+- EN: "What currency would you prefer for the deposit? EUR, GBP, AUD or IDR? 😊" (Note: NP does NOT accept USD.)
+- ES: "¿En qué moneda preferís pagar el depósito? EUR, GBP, AUD o IDR? 😊" (Nota: NP NO acepta USD.)
 
 ---
 
@@ -113,22 +113,20 @@ Snippet: (use direct data — no specific QR assigned)
 
 ---
 
-### 💵 USD — Community Federal Savings Bank (shared with all DPM branches)
+### 💵 USD — ❌ NOT SUPPORTED on Nusa Penida (Miguel 2026-06-16)
 
-"Here are the USD payment details:
+Nusa Penida does NOT accept USD deposits. The shared CFSB account that
+previously appeared here actually belongs to **Koh Tao** (per the
+2026-06-16 audit) — sending NP customers to it would route their
+deposit to the wrong office's ledger.
 
-Name: Dpm Diving
-Account number: 822000685807
-Account type: Checking
-Routing number (Wire and ACH): 026073150
-SWIFT/BIC: CMFGUS33
-Bank: Community Federal Savings Bank, 89-16 Jamaica Ave, Woodhaven, NY 11421, USA
+If a customer requests USD, David must respond:
 
-Amount: 40 USD per person
+- 🇪🇸 ES: *"En Nusa Penida aceptamos EUR / GBP / AUD / IDR — ¿con cuál te queda más cómodo?"*
+- 🇬🇧 EN: *"At Nusa Penida we accept EUR / GBP / AUD / IDR — which one works best for you?"*
 
-Please download the PDF and share it with us 🙏"
-
-Snippet: `GENENUSDAccount` / `GENESUSDAccount`
+The server enforces this — `solicitar_deposito` returns
+`sede_currency_not_supported` when invoked with USD on NP.
 
 ---
 

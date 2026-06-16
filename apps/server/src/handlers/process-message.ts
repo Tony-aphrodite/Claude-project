@@ -75,6 +75,8 @@ import {
 import {
   buildPaymentInstructions,
   sedeHasAutomaticGateway,
+  sedeSupportsCurrency,
+  supportedCurrenciesForSede,
   type SedeKey,
 } from "../services/deposit-instructions.js";
 import { followUpProcessor } from "../services/follow-up.js";
@@ -1912,10 +1914,37 @@ export async function processIncomingMessage(
     }
     // ────────────────────────────────────────────────────────────────────
 
+    // Per-sede currency support (Miguel rules 2026-06-16, audit):
+    //   • NP rejects USD ("no usa cuenta en dólares")
+    //   • KT rejects IDR (Thailand)
+    //   • GA supports USD by silently sharing KT's CFSB account
+    //   • PP/GT support their full matrix
+    // If the AI invoked the tool with an unsupported currency, refuse
+    // BEFORE we generate a ref code or stamp lead_metadata — the
+    // customer would receive bank details for the wrong sede/entity
+    // and the deposit would land in an unreachable account.
+    const requestedCurrency = input.moneda_cliente as DepositCurrency;
+    if (!sedeSupportsCurrency(sede.nombre, requestedCurrency)) {
+      const supported = supportedCurrenciesForSede(sede.nombre);
+      log.warn(
+        {
+          sede: sede.nombre,
+          requestedCurrency,
+          supported,
+        },
+        "solicitar_deposito rejected — sede does not support this currency",
+      );
+      return {
+        ok: false,
+        reason: "sede_currency_not_supported",
+        message: `La sede ${sede.nombre} no acepta ${requestedCurrency}. Monedas soportadas: ${supported.join(", ")}. Preguntá al cliente con cuál de esas prefiere y volvé a invocar solicitar_deposito.`,
+      };
+    }
+
     // Block IDR for clients without an Indonesian bank account. We can't
     // verify that from the AI side, so we trust the client's claim — but
     // we record the decision in lead_metadata for audit.
-    const currency = input.moneda_cliente as DepositCurrency;
+    const currency = requestedCurrency;
     const monto = depositAmountFor(currency); // per-person, e.g. 40 EUR
     const pax = input.pax;
     // Total amount the customer should transfer. OCR validates the PDF

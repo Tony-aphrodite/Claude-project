@@ -112,9 +112,19 @@ Please download the PDF receipt and share it with us 🙏"
 
 ---
 
-### 🏦 Bangkok Bank — ONLY AS LAST RESORT
-Use only if all other methods fail. Ask office for current Bangkok Bank details before sending.
-NEVER send Bangkok Bank details without confirming with the team first.
+### 🏦 Bangkok Bank — THB transfer (Miguel 2026-06-16 confirmed canonical)
+
+"For THB payments by local bank transfer:
+
+Bank: Bangkok Bank
+Account name: Dpm diving
+Account number: 7310135871
+
+Amount: 1,000 THB per person
+
+Please download the PDF and share it with us 🙏"
+
+Note: Stripe card link (1,000 THB per person — see §STRIPE above) is ALSO active in parallel. Customer picks whichever they prefer.
 
 ---
 
