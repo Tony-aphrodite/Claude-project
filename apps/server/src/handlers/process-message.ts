@@ -2669,29 +2669,40 @@ export async function processIncomingMessage(
   // Tony perf feedback 2026-06-07: "3 minutes to respond". The Claude
   // call (with up to 2 tool-use round-trips) is usually the dominant
   // cost. Log explicitly so Railway logs make the bottleneck visible.
-  // Deposit-step tool forcing (Tony 2026-06-16 PM 4th round). At the
-  // moment the customer just confirmed the currency for an already-
-  // qualified booking (programa + start_date + pax stamped on
-  // lead_metadata), we need solicitar_deposito to be invoked
-  // deterministically. The prompt rules alone failed five times in a
-  // row today — Claude kept emitting "te preparo los datos en un
-  // momento", "el equipo te escribe", etc. and finally calling
-  // handoff_human without ever invoking the tool. Forcing tool_choice
-  // closes that escape hatch.
+  // Deposit-step tool forcing — loosened condition Tony 2026-06-17.
+  // Original v1 of this guard required programa + start_date stamped
+  // on lead_metadata. The GA pilot test showed Claude was quoting
+  // bank info from the KB WITHOUT having previously called
+  // consultar_disponibilidad → metadata empty → strict condition
+  // never matched → no forcing → no ref_code → broken flow.
+  //
+  // New condition: customer's last message looks like a currency
+  // identifier AND the conversation has reached at least
+  // "qualified"/"proposed" stage (= the AI has been actively selling
+  // and the customer is now replying to a deposit-style question)
+  // AND we haven't already transitioned past deposit_pending.
+  //
+  // If programa / start_date happen to be empty when the tool fires,
+  // solicitar_deposito returns booking_not_finalized and Claude
+  // synthesizes a natural recovery reply on the next round (asking
+  // the customer to re-confirm program + date). Far better than the
+  // failure mode we had — Claude silently quoting bank info from the
+  // KB with no ref_code stamped.
   const _currencyConfirmedRegex = /^\s*(eur|gbp|aud|usd|idr|thb|euros?|dólares?|dollars?|libras?|pounds?)\s*$/i;
   const _depositMetaForForce =
     (conversation.leadMetadata as LeadMetadata | null) ?? null;
-  const _hasQualifiedBooking =
-    !!_depositMetaForForce?.programa &&
-    !!_depositMetaForForce?.start_date;
+  const _isLeadStageEngaged =
+    conversation.leadStage === "qualified" ||
+    conversation.leadStage === "proposed";
   const _alreadyDepositPending =
     conversation.leadStage === "deposit_pending" ||
+    conversation.leadStage === "deposit_paid" ||
     !!(_depositMetaForForce?.ref_code &&
       _depositMetaForForce?.deposit_currency);
   const forceToolChoice =
     incomingText &&
     _currencyConfirmedRegex.test(incomingText) &&
-    _hasQualifiedBooking &&
+    _isLeadStageEngaged &&
     !_alreadyDepositPending
       ? "solicitar_deposito"
       : undefined;
@@ -2700,8 +2711,12 @@ export async function processIncomingMessage(
       {
         conversationId: conversation.id,
         incomingText,
-        programa: _depositMetaForForce?.programa,
-        startDate: _depositMetaForForce?.start_date,
+        leadStage: conversation.leadStage,
+        programa: _depositMetaForForce?.programa ?? null,
+        startDate: _depositMetaForForce?.start_date ?? null,
+        hasFullMetadata:
+          !!_depositMetaForForce?.programa &&
+          !!_depositMetaForForce?.start_date,
       },
       "claude tool_choice forced to solicitar_deposito (currency confirmation detected)",
     );
