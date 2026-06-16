@@ -127,6 +127,49 @@ function extractBranchFromPayload(body: unknown): string | null {
   return null;
 }
 
+/**
+ * Stamp Branch into the normalized payload's contact.customFields so that
+ * downstream code (sedeService.resolveForPilot, contact-state handler,
+ * etc.) reads the correct sede. Used by per-sede routes when the URL
+ * slug commits to a sede but the payload doesn't carry Branch yet
+ * (because Respond.io fires the message webhook before the workflow's
+ * "Set Branch" step has persisted on the contact).
+ *
+ * Mutates the payload in place — payload was just normalized for THIS
+ * request, no one else holds a reference. Idempotent: if Branch is
+ * already set to the same value, this is a no-op.
+ */
+function injectBranchIntoPayload(body: unknown, sedeName: string): void {
+  if (!body || typeof body !== "object") return;
+  const b = body as Record<string, unknown>;
+  const contact = (b.contact ?? {}) as Record<string, unknown>;
+  b.contact = contact;
+
+  const cf = contact.customFields;
+  // Match the shape that's already there if possible. Default to the
+  // object-map shape (Shape A) when no customFields are present at all
+  // — it's the cheapest for downstream readers and what the simulator
+  // uses.
+  if (Array.isArray(cf)) {
+    let found = false;
+    for (const entry of cf) {
+      if (entry && typeof entry === "object") {
+        const e = entry as Record<string, unknown>;
+        if (e.name === "Branch" || e.name === "branch") {
+          e.value = sedeName;
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found) cf.push({ name: "Branch", value: sedeName });
+  } else if (cf && typeof cf === "object") {
+    (cf as Record<string, unknown>).Branch = sedeName;
+  } else {
+    contact.customFields = { Branch: sedeName };
+  }
+}
+
 export async function webhookRoutes(app: FastifyInstance) {
   const env = loadEnv();
 
@@ -335,6 +378,26 @@ export async function webhookRoutes(app: FastifyInstance) {
           // (we don't want to auto-disable the webhook over a workflow
           // misconfiguration on Miguel's side — log + drop instead).
           return reply.send({ ok: true, ignored: "branch_mismatch" });
+        }
+
+        // Branch injection (Tony rule 2026-06-16): per-sede URL is the
+        // commitment. When the workflow's "Set Branch" step hasn't
+        // landed yet on the contact (Respond.io fires message webhooks
+        // synchronously as the message arrives, so workflow side-effects
+        // may not be persisted yet), the payload's Branch is empty even
+        // though the URL slug already committed to a sede. Without this
+        // injection every brand-new GA/KT/GT/NP lead's "Hola" and
+        // "<sede>" button click gets pilot-gate-rejected with reason
+        // branch_empty, the conv is never created, and the AI never
+        // greets. The URL slug is the source of truth — write it into
+        // the payload so downstream (sedeService.resolveForPilot etc.)
+        // sees the right sede.
+        if (!payloadBranch) {
+          injectBranchIntoPayload(normalized, expectedSedeName);
+          req.log.info(
+            { sedeSlug: slug, expectedSedeName, event: peekedEvent },
+            "per-sede webhook: injected Branch from URL slug (payload was empty)",
+          );
         }
       }
 
