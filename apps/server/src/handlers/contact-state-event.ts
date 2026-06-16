@@ -57,6 +57,7 @@ type IncomingPayload = {
 
 export type ContactStateResult =
   | { ok: true; action: "no_conversation" }
+  | { ok: true; action: "auto_welcome_no_conv" }
   | { ok: true; action: "lifecycle_reset"; from: string; to: string }
   | { ok: true; action: "tag_event_ignored"; reason: string }
   | { ok: true; action: "human_takeover"; assignee: string }
@@ -87,7 +88,11 @@ export async function handleContactStateEvent(
   }
 
   // Find the conversation row. If we don't have one yet for this
-  // contact, this event predates any AI interaction — nothing to sync.
+  // contact, this event predates any AI interaction. Most paths can't
+  // do anything useful without a conv row — but the auto-welcome path
+  // (sede selected, workflow assigned to a human) MUST still fire,
+  // otherwise brand-new GA / KT / GT / NP leads never get the
+  // sede AI greeting (Tony rule 2026-06-15).
   const db = getDb();
   const [conv] = await db
     .select()
@@ -95,6 +100,27 @@ export async function handleContactStateEvent(
     .where(eq(conversaciones.respondIoContactId, contactId))
     .limit(1);
   if (!conv) {
+    // Try the auto-welcome path on assignee events even without a conv.
+    if (
+      event.startsWith("conversation.assignee.") ||
+      event.startsWith("contact.assignee.") ||
+      /assignee/i.test(event)
+    ) {
+      const newAssignee = readNumberOrNull(
+        payload.assignee ??
+          (payload.data as Record<string, unknown> | undefined)?.assignee ??
+          (payload.payload as Record<string, unknown> | undefined)?.assignee,
+      );
+      const isHuman = newAssignee !== null && !isAiAssignee(newAssignee);
+      if (isHuman) {
+        await maybeSendWorkflowAutoWelcome({
+          contactId,
+          newAssignee,
+          log,
+        });
+        return { ok: true, action: "auto_welcome_no_conv" };
+      }
+    }
     log.info(
       { event, contactId },
       "contact-state event: no conversation in DB yet — noop",
@@ -511,4 +537,99 @@ function readString(obj: unknown, key: string): string | null {
   if (!obj || typeof obj !== "object") return null;
   const v = (obj as Record<string, unknown>)[key];
   return typeof v === "string" ? v : null;
+}
+
+/**
+ * Send the sede-specific auto-welcome message + reassign the conversation
+ * to the sede AI. Used by the "workflow setup" branch of the assignee
+ * handler — covers both the case where we already have a conv row in our
+ * DB and the case where this is the first webhook on a brand-new lead
+ * (no conv yet because the customer's initial "Hola" was rejected by the
+ * sede gate with branch_empty).
+ *
+ * The function reads the contact's current Branch field FROM Respond.io
+ * (not from our DB) so we get the sede the workflow JUST assigned, not
+ * a stale value.
+ */
+async function maybeSendWorkflowAutoWelcome(args: {
+  contactId: string;
+  newAssignee: number | null;
+  log: FastifyBaseLogger;
+}): Promise<void> {
+  const { contactId, newAssignee, log } = args;
+  try {
+    const fresh = await respondIoClient.getContact(contactId).catch((err) => {
+      log.warn(
+        { err: (err as Error).message, contactId },
+        "auto-welcome: getContact failed (non-blocking)",
+      );
+      return null;
+    });
+    if (!fresh) return;
+
+    // Pull Branch out of the customFields shape Respond.io v2 uses.
+    const cf = fresh.customFields as unknown;
+    let branch: string | null = null;
+    if (cf && typeof cf === "object" && !Array.isArray(cf)) {
+      const rec = cf as Record<string, unknown>;
+      const v = rec.Branch ?? rec.branch;
+      if (typeof v === "string" && v.trim() !== "") branch = v.trim();
+    } else if (Array.isArray(cf)) {
+      for (const entry of cf) {
+        if (entry && typeof entry === "object") {
+          const e = entry as Record<string, unknown>;
+          const name = typeof e.name === "string" ? e.name : null;
+          const value = typeof e.value === "string" ? e.value : null;
+          if (name && (name === "Branch" || name === "branch") && value && value.trim() !== "") {
+            branch = value.trim();
+            break;
+          }
+        }
+      }
+    }
+    if (!branch) {
+      log.info({ contactId }, "auto-welcome: Branch not set on contact yet — skip");
+      return;
+    }
+
+    const sedeAi = SEDE_AI_USERS[branch];
+    if (!sedeAi) {
+      log.info({ contactId, branch }, "auto-welcome: branch not in SEDE_AI_USERS map — skip");
+      return;
+    }
+
+    // Reassign to the sede AI (best effort).
+    await respondIoClient
+      .assignConversation({ contactId, assignee: sedeAi.assigneeId })
+      .catch((err) =>
+        log.warn(
+          { err: (err as Error).message, contactId, branch },
+          "auto-welcome: reassign to sede AI failed (non-blocking)",
+        ),
+      );
+
+    // Send the welcome. Use the unresolved-template trick so the
+    // respond-io client falls back to the contact-id message endpoint
+    // (we don't have a conversation id here).
+    await respondIoClient.sendMessage({
+      conversationId: "$conversation.id",
+      contactId,
+      text: sedeAi.welcome,
+    });
+
+    log.info(
+      {
+        contactId,
+        branch,
+        newAssigneeFromWorkflow: newAssignee,
+        reassignedTo: sedeAi.assigneeId,
+      },
+      "auto-welcome: sede AI greeting sent and conversation reassigned",
+    );
+  } catch (err) {
+    log.error(
+      { err: (err as Error).message, contactId },
+      "auto-welcome: unexpected failure (non-blocking)",
+    );
+  }
 }
