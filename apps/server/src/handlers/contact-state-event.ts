@@ -614,12 +614,56 @@ function readString(obj: unknown, key: string): string | null {
  * (not from our DB) so we get the sede the workflow JUST assigned, not
  * a stale value.
  */
+// In-memory dedup so we don't double-welcome when Respond.io fires
+// multiple assignee.updated events in rapid succession (workflow's
+// unassign → assign → our own reassign all generate webhooks, and
+// the welcome's async API calls leave a window where a second
+// invocation can race past the no-conv check).
+const autoWelcomeInFlight = new Set<string>();
+
 async function maybeSendWorkflowAutoWelcome(args: {
   contactId: string;
   newAssignee: number | null;
   log: FastifyBaseLogger;
 }): Promise<void> {
   const { contactId, newAssignee, log } = args;
+
+  // Idempotency layer 1: in-flight lock (handles parallel webhook
+  // events arriving within the welcome's API-call window).
+  if (autoWelcomeInFlight.has(contactId)) {
+    log.info(
+      { contactId },
+      "auto-welcome: another invocation in flight for this contact — skipping duplicate",
+    );
+    return;
+  }
+  autoWelcomeInFlight.add(contactId);
+
+  // Idempotency layer 2: existing conv (handles assignee events that
+  // arrive AFTER a prior welcome already completed — the conv we
+  // created last time is the witness that we've already greeted).
+  try {
+    const db = getDb();
+    const [existing] = await db
+      .select({ id: conversaciones.id })
+      .from(conversaciones)
+      .where(eq(conversaciones.respondIoContactId, contactId))
+      .limit(1);
+    if (existing) {
+      log.info(
+        { contactId, conversationId: existing.id },
+        "auto-welcome: conv already exists for this contact — skipping (already greeted)",
+      );
+      autoWelcomeInFlight.delete(contactId);
+      return;
+    }
+  } catch (err) {
+    log.warn(
+      { err: (err as Error).message, contactId },
+      "auto-welcome: pre-check conv lookup failed — proceeding (will dedup downstream if applicable)",
+    );
+  }
+
   try {
     const fresh = await respondIoClient.getContact(contactId).catch((err) => {
       log.warn(
@@ -745,5 +789,7 @@ async function maybeSendWorkflowAutoWelcome(args: {
       { err: (err as Error).message, contactId },
       "auto-welcome: unexpected failure (non-blocking)",
     );
+  } finally {
+    autoWelcomeInFlight.delete(contactId);
   }
 }
