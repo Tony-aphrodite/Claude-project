@@ -142,6 +142,24 @@ export type ProcessResult =
       latencyMs: number;
     };
 
+// Per-conversation lock that serializes AI processing. Tony 2026-06-16 Bug 1:
+// when a customer sends two short turns back-to-back ("AM", "Hace 5 días"),
+// each fires its own webhook → its own processIncomingMessage invocation →
+// they race through history load + Claude call in parallel. Result: 2-3
+// near-identical replies because each invocation reads a history snapshot
+// that doesn't yet contain the other invocation's AI message.
+//
+// Fix: a Map<conversationId, Promise<void>> that the AI-call section of
+// each invocation awaits before proceeding. The second invocation waits
+// until the first finishes (its AI message is persisted), then re-reads
+// history and processes with full context — naturally producing a
+// follow-up reply instead of a duplicate.
+//
+// PP-safe: PP threads that don't send rapid turns hit the lock with
+// nothing in flight (no-op fast path). Only conversations with true
+// parallel activity see the serialization.
+const convAiLock = new Map<string, Promise<void>>();
+
 export async function processIncomingMessage(
   payload: RespondIoIncomingMessage,
   log: FastifyBaseLogger,
@@ -1312,6 +1330,27 @@ export async function processIncomingMessage(
       );
     }
   }
+
+  // Acquire the per-conv AI lock (Bug 1). If a previous invocation for
+  // THIS conversation is mid-flight (we're in the rapid-fire window),
+  // wait until it finishes so we see its AI message in our history
+  // snapshot below. Without this, two parallel turns race and ship
+  // duplicate replies.
+  const prevAiLock = convAiLock.get(conversation.id);
+  if (prevAiLock) {
+    log.info(
+      { conversationId: conversation.id },
+      "ai lock: waiting for in-flight AI invocation on this conv (Bug 1 serialization)",
+    );
+    await prevAiLock.catch(() => {});
+  }
+  let releaseAiLock: () => void = () => {};
+  const myAiLock = new Promise<void>((resolve) => {
+    releaseAiLock = resolve;
+  });
+  convAiLock.set(conversation.id, myAiLock);
+
+  try {
 
   const history = await conversationService.recentMessages(conversation.id);
 
@@ -2944,6 +2983,16 @@ export async function processIncomingMessage(
     cacheHitRate: claudeResult.cost.cacheHitRate,
     costUsd: claudeResult.cost.totalUsd,
   };
+
+  } finally {
+    // Release the per-conv AI lock so a queued follow-up invocation can
+    // proceed. Only clear the map entry if we're still the owner — a
+    // later invocation may have already overwritten it.
+    releaseAiLock();
+    if (convAiLock.get(conversation.id) === myAiLock) {
+      convAiLock.delete(conversation.id);
+    }
+  }
 }
 
 /**
