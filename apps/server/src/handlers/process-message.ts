@@ -1333,12 +1333,24 @@ export async function processIncomingMessage(
     }
   }
 
-  // Acquire the per-conv AI lock (Bug 1). If a previous invocation for
-  // THIS conversation is mid-flight (we're in the rapid-fire window),
-  // wait until it finishes so we see its AI message in our history
-  // snapshot below. Without this, two parallel turns race and ship
-  // duplicate replies.
+  // Acquire the per-conv AI lock (Bug 1, re-fixed 2026-06-16 PM after
+  // Tony observed the original fix still produced 3 parallel replies).
+  //
+  // First attempt had a race: every waiter read the SAME prior lock,
+  // awaited it, then ALL woke up simultaneously and overwrote each
+  // other's lock entries. Net effect was no serialization for
+  // pile-on traffic.
+  //
+  // Correct pattern is a queue chain — install MY lock into the map
+  // BEFORE awaiting the previous one. The next invocation that comes
+  // in will see MY lock, not the lock I'm waiting on, so it chains
+  // behind me. Result is a linear queue rather than a stampede.
+  let releaseAiLock: () => void = () => {};
+  const myAiLock = new Promise<void>((resolve) => {
+    releaseAiLock = resolve;
+  });
   const prevAiLock = convAiLock.get(conversation.id);
+  convAiLock.set(conversation.id, myAiLock); // install BEFORE await
   if (prevAiLock) {
     log.info(
       { conversationId: conversation.id },
@@ -1346,11 +1358,6 @@ export async function processIncomingMessage(
     );
     await prevAiLock.catch(() => {});
   }
-  let releaseAiLock: () => void = () => {};
-  const myAiLock = new Promise<void>((resolve) => {
-    releaseAiLock = resolve;
-  });
-  convAiLock.set(conversation.id, myAiLock);
 
   try {
 
