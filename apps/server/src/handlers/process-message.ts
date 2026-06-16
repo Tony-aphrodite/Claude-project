@@ -475,7 +475,31 @@ export async function processIncomingMessage(
         );
     }
 
-    if (conversation.leadStage === "deposit_pending") {
+    // OCR path eligibility — broadened 2026-06-16 PM after Tony observed
+    // the Bug 4 fallback ACK shadowing the OCR path. The original check
+    // was strictly `leadStage === "deposit_pending"`. If the
+    // `solicitar_deposito` tool's stage transition was rejected (it logs
+    // a warn but still returns the bank instructions to the customer),
+    // the conv could end up with deposit metadata stamped on
+    // lead_metadata but leadStage NOT in "deposit_pending" — the
+    // ref_code/amount/currency are all there, the customer transferred
+    // and sent the PDF, but the PDF lands here, fails the strict check,
+    // gets a generic "Recibí tu archivo" ACK, and the OCR pipeline
+    // never runs. Fix: if the deposit triplet (ref_code + amount +
+    // currency) is fully stamped, treat the conv as deposit_pending
+    // for routing purposes.
+    const _depositMeta = (conversation.leadMetadata as LeadMetadata | null) ?? null;
+    const hasDepositTriplet =
+      !!_depositMeta?.ref_code &&
+      !!_depositMeta?.deposit_currency &&
+      !!(_depositMeta?.deposit_amount_total ?? _depositMeta?.deposit_amount);
+    if (conversation.leadStage === "deposit_pending" || hasDepositTriplet) {
+      if (conversation.leadStage !== "deposit_pending" && hasDepositTriplet) {
+        log.info(
+          { conversationId: conversation.id, leadStage: conversation.leadStage },
+          "OCR path: leadStage not deposit_pending but deposit triplet stamped — routing to OCR (broadened check 2026-06-16)",
+        );
+      }
       const meta = (conversation.leadMetadata as LeadMetadata | null) ?? null;
       // OCR target amount is the TOTAL (pax × per-person). Falls back to
       // per-person for legacy conversations that don't have
@@ -2356,29 +2380,34 @@ export async function processIncomingMessage(
       };
     }
 
-    // Dedup guard REMOVED 2026-06-05 (Slice 3b regression hunt). The
-    // original guard returned alreadySent:true when the same `programa`
-    // had been sent earlier in the conversation. That was added 2026-06-04
-    // to stop Francisco from sending the same card 3 times in a row when
-    // a customer kept confirming ("Sí claro" / "Primera vez").
+    // Dedup guard RESTORED 2026-06-16 PM (Tony GA pilot regression). The
+    // guard was removed on 2026-06-05 on the theory that the prompt-level
+    // rules alone were sufficient. They are not. Tony's evening test
+    // produced the exact pattern the original guard was built to stop —
+    // the same Bautizo de Buceo card landing 4 times in 6 minutes as the
+    // customer ticked through date / currency / "where do I send"
+    // confirmation turns. Each turn the AI saw the program key in the
+    // conversation state and called `enviar_catalogo` again. The prompt
+    // rules (§catalogo-meta 5/6 + the new SOLO-UN-CATÁLOGO-POR-PROGRAMA
+    // in v2.2) read clearly but Claude flat-out skips them.
     //
-    // After Miguel #18 (long descriptive text after each card) and Miguel
-    // 2026-06-05 MULTI-PAX rule (send one card per distinct programa in
-    // multi-pax turns), the AI is disciplined enough at the PROMPT level
-    // — the server-side dedup was now actively HARMFUL: it blocked the
-    // multi-pax re-send of programs the customer had inquired about
-    // earlier for themselves but now needs to share with their group.
-    //
-    // Concrete case 2026-06-05: customer first asks Try Scuba for
-    // themselves → card sent. Then "we are 3 people, one Try Scuba, one
-    // Refresh, one Advanced". AI calls enviar_catalogo×3 but only 2
-    // cards land (Try Scuba dedup'd) — customer sees only Refresh +
-    // Advanced and is confused.
-    //
-    // We keep tracking `catalogsSent` in lead_metadata further down as an
-    // audit trail (for the panel / future analytics), but stop using it
-    // to short-circuit the send. The prompt rules cover the "don't
-    // repeat" case correctly now.
+    // New shape (avoids the 2026-06-05 multi-pax regression):
+    //   • catalogsSent is keyed by PROGRAM, and stamped only AFTER a
+    //     send completes. A multi-pax turn invokes the handler three
+    //     times for three DISTINCT programs in the same Claude
+    //     response; none of them is in catalogsSent yet (the
+    //     per-call updates are fire-and-forget and we read the value
+    //     into a local at the top of processIncomingMessage, so the
+    //     three calls share the same snapshot). Fan-out works.
+    //   • Repeat invocations across turns DO short-circuit. The new
+    //     turn loads fresh conv state from DB, sees the prior turn's
+    //     program key in catalogsSent, and returns alreadySent=true
+    //     without re-firing the Cloudinary send.
+    //   • If the customer genuinely needs the card again (rare —
+    //     "perdí la imagen, mandámela de nuevo"), the AI prompt
+    //     teaches it to describe in text instead. We accept the rare
+    //     UX papercut to protect against the much more frequent
+    //     stampede pattern.
     const conversationMeta =
       (conversation.leadMetadata as LeadMetadata | null) ?? {};
     const catalogsSentSoFar = Array.isArray(
@@ -2386,6 +2415,24 @@ export async function processIncomingMessage(
     )
       ? ((conversationMeta as { catalogsSent?: string[] }).catalogsSent ?? [])
       : [];
+
+    if (catalogsSentSoFar.includes(input.programa)) {
+      log.info(
+        {
+          conversationId: conversation.id,
+          programa: input.programa,
+          catalogsSent: catalogsSentSoFar,
+        },
+        "enviar_catalogo: program already sent earlier in this conversation — short-circuiting (Tony 2026-06-16 dedup restoration)",
+      );
+      return {
+        ok: true,
+        sent: false,
+        alreadySent: true,
+        programa: input.programa,
+        catalogRef: entry.label,
+      };
+    }
 
     // Try Respond.io first (preserves operator visibility in their Inbox).
     // On failure — and only when META_WHATSAPP_* credentials are configured
