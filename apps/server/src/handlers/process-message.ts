@@ -2798,6 +2798,72 @@ export async function processIncomingMessage(
     "PERF claude call complete",
   );
 
+  // Server-side ref_code post-processing (Tony 2026-06-17). Claude is
+  // not forced to invoke solicitar_deposito (forceToolChoice was
+  // removed because it hung in production). If Claude naturally
+  // quoted the bank block from the KB instead of invoking the tool,
+  // its reply has no ref_code line and the lead_metadata / lead_stage
+  // never transition — which means a later PDF can't be OCR'd.
+  //
+  // This post-process closes the gap WITHOUT touching Claude's flow:
+  // when (a) the customer's last message was a currency confirmation,
+  // (b) lead_metadata has the booking qualified, (c) Claude's reply
+  // looks like a bank block, and (d) the tool hasn't already run for
+  // this conv — invoke solicitarDepositoHandler server-side just for
+  // its side effects (ref_code stamp + stage transition) and append
+  // the ref_code line to Claude's text before it's sent to the
+  // customer. Tool's preflight/roster check stays the same — if the
+  // booking really isn't finalized, we don't append anything and
+  // Claude's reply ships as-is.
+  if (_wouldHaveBeenForced && !claudeResult.toolCalls.includes("solicitar_deposito")) {
+    const _looksLikeBankBlock =
+      /\bIBAN\b/i.test(claudeResult.text) ||
+      /\bBIC\b/i.test(claudeResult.text) ||
+      /\bBeneficiario\b/i.test(claudeResult.text) ||
+      /\bAccount number\b/i.test(claudeResult.text) ||
+      /\bRouting number\b/i.test(claudeResult.text);
+    if (_looksLikeBankBlock) {
+      try {
+        const _currencyUpper = incomingText.trim().toUpperCase();
+        const _moneda = (
+          _currencyUpper === "EUROS" ? "EUR" :
+          _currencyUpper === "DÓLARES" || _currencyUpper === "DOLARES" || _currencyUpper === "DOLLARS" ? "USD" :
+          _currencyUpper === "LIBRAS" || _currencyUpper === "POUNDS" ? "GBP" :
+          _currencyUpper === "EUROS" ? "EUR" :
+          _currencyUpper
+        ) as "EUR" | "GBP" | "AUD" | "USD" | "IDR" | "THB";
+        const _pax = Number(_depositMetaForForce?.pax) || 1;
+        const _idioma = (contact.language ?? "es").slice(0, 2);
+        const postResult = await solicitarDepositoHandler({
+          sede_id: sede.id,
+          cliente_idioma: _idioma,
+          moneda_cliente: _moneda,
+          pax: _pax,
+        });
+        if (postResult.ok) {
+          const _appendLine = `\n\nReference: ${postResult.ref_code}`;
+          if (!claudeResult.text.includes(postResult.ref_code)) {
+            claudeResult.text = claudeResult.text + _appendLine;
+          }
+          log.info(
+            { conversationId: conversation.id, refCode: postResult.ref_code },
+            "ref_code post-processing: appended ref_code to Claude's bank block reply",
+          );
+        } else {
+          log.info(
+            { conversationId: conversation.id, reason: postResult.reason },
+            "ref_code post-processing: solicitar_deposito returned not-ok, leaving Claude's reply untouched",
+          );
+        }
+      } catch (postErr) {
+        log.warn(
+          { err: (postErr as Error).message, conversationId: conversation.id },
+          "ref_code post-processing: solicitar_deposito threw — leaving Claude's reply untouched",
+        );
+      }
+    }
+  }
+
   // Step 9: persist AI message with citations
   await conversationService.appendAiMessage(conversation.id, claudeResult.text, {
     fuentes: claudeResult.fuentes,
