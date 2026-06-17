@@ -398,7 +398,26 @@ export async function handleContactStateEvent(
         .where(eq(sedes.id, conv.sedeId));
       const sedeName = sede?.nombre;
       const sedeAi = sedeName ? SEDE_AI_USERS[sedeName] : undefined;
-      if (sedeAi) {
+
+      // Pilot gate (Tony 2026-06-17): same guard as the no-conv path
+      // in maybeSendWorkflowAutoWelcome. If the sede isn't on the
+      // PILOT_REQUIRE_TAG allowlist, skip the welcome — we don't want
+      // John / David / Emma greeting customers from non-pilot sedes
+      // and then leaving them in test_tag_missing silence.
+      const pilotRawForGuard = loadEnv().PILOT_REQUIRE_TAG;
+      const pilotSedesForGuard = pilotRawForGuard
+        ? pilotRawForGuard.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
+        : [];
+      const sedeAllowed =
+        pilotSedesForGuard.length === 0 ||
+        (sedeName ? pilotSedesForGuard.includes(sedeName) : false);
+      if (sedeAi && !sedeAllowed) {
+        log.info(
+          { contactId, sedeName, pilotSedes: pilotSedesForGuard },
+          "workflow setup: sede not in PILOT_REQUIRE_TAG allowlist — skip welcome (Tony 2026-06-17)",
+        );
+      }
+      if (sedeAi && sedeAllowed) {
         // Fire and forget — same pattern as the rest of this handler. If
         // either the Respond.io call or the mensaje insert fails, log it
         // but don't block the webhook response.
@@ -702,6 +721,29 @@ async function maybeSendWorkflowAutoWelcome(args: {
     const sedeAi = SEDE_AI_USERS[branch];
     if (!sedeAi) {
       log.info({ contactId, branch }, "auto-welcome: branch not in SEDE_AI_USERS map — skip");
+      return;
+    }
+
+    // Pilot gate (Tony 2026-06-17): respect the PILOT_REQUIRE_TAG
+    // env CSV here too — without this, the auto-welcome fires for
+    // every sede the SEDE_AI_USERS map knows about (GT John / NP
+    // David / etc.) even when the operator only opened the AI to
+    // PP + GA. Customers of the non-pilot sedes then receive a
+    // greeting from "John" / "David" but every subsequent message
+    // is silently rejected by process-message's test_tag_missing
+    // gate — terrible UX. With this check, the welcome only fires
+    // when the sede is on the pilot allowlist; non-pilot sedes
+    // stay with their workflow-assigned human and never see the
+    // confusing AI handshake.
+    const pilotRaw = loadEnv().PILOT_REQUIRE_TAG;
+    const pilotSedes = pilotRaw
+      ? pilotRaw.split(",").map((t) => t.trim()).filter((t) => t.length > 0)
+      : [];
+    if (pilotSedes.length > 0 && !pilotSedes.includes(branch)) {
+      log.info(
+        { contactId, branch, pilotSedes },
+        "auto-welcome: sede not in PILOT_REQUIRE_TAG allowlist — skip (Tony 2026-06-17)",
+      );
       return;
     }
 
