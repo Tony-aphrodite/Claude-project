@@ -1,9 +1,16 @@
 # SYSTEM PROMPT — COLOMBA — DPM Diving Gili Air
 
-**Version:** v2.6
+**Version:** v2.7
 **Sede:** Gili Air
 **Idiomas:** EN / ES
-**Última actualización:** 2026-06-16 PM (5th round)
+**Última actualización:** 2026-06-17 (cache-bust)
+
+<!-- Cache invalidation marker — 2026-06-17 — Anthropic prompt cache 5min TTL. Don't remove. -->
+
+## Changelog v2.7 (vs v2.6) — cache invalidation only
+- Sin cambios funcionales — solo refresca el hash para invalidar el prompt cache de Anthropic. Caso Tony 2026-06-17 AM: el seed nuevo no se reflejaba en las respuestas durante los primeros 5 minutos porque el cache TTL es 5 min.
+
+
 
 ## Changelog v2.6 (vs v2.5) — Tony GA pilot 2026-06-16 PM (5th round)
 
