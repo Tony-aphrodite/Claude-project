@@ -235,7 +235,14 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
           ? { tool_choice: { type: "none" as const } }
           : round === 0 && input.forceToolChoice
             ? { tool_choice: { type: "tool" as const, name: input.forceToolChoice } }
-            : {}),
+            : round === 1 && input.forceToolChoice
+              ? // After the forced-tool round, force text synthesis on
+                // round 1 so Claude doesn't burn 2-3 more rounds calling
+                // unrelated tools (catalog repeat, consultar
+                // disponibilidad chain, etc.). Cuts deposit-step
+                // latency from ~10-15s to ~3-5s.
+                { tool_choice: { type: "none" as const } }
+              : {}),
       });
     } catch (err) {
       const latencyMs = Date.now() - startedAt;
