@@ -235,14 +235,16 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
           ? { tool_choice: { type: "none" as const } }
           : round === 0 && input.forceToolChoice
             ? { tool_choice: { type: "tool" as const, name: input.forceToolChoice } }
-            : round === 1 && input.forceToolChoice
-              ? // After the forced-tool round, force text synthesis on
-                // round 1 so Claude doesn't burn 2-3 more rounds calling
-                // unrelated tools (catalog repeat, consultar
-                // disponibilidad chain, etc.). Cuts deposit-step
-                // latency from ~10-15s to ~3-5s.
-                { tool_choice: { type: "none" as const } }
-              : {}),
+            : {}),
+        // Tony 2026-06-17: removed the round-1 tool_choice=none guard
+        // that I had added on top of forceToolChoice. With it, Claude
+        // got a tool_result on round 1 but was forbidden from calling
+        // any other tool — leading to either an empty text response
+        // or an apparent hang (no completion log, no error). Letting
+        // round 1 run with default tool_choice gives Claude room to
+        // either synthesize text naturally or call a second tool if
+        // it needs one; the MAX_TOOL_ROUNDS=3 + final-round
+        // tool_choice=none guard upstream still bounds total latency.
       });
     } catch (err) {
       const latencyMs = Date.now() - startedAt;
