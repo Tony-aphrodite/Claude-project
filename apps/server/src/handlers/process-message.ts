@@ -971,6 +971,98 @@ export async function processIncomingMessage(
         }
       }
 
+      // Customer-facing OCR result message (Tony 2026-06-17). Before this
+      // commit the customer only ever saw the initial "Recibido, gracias"
+      // ack — after that the AI went silent regardless of OCR outcome.
+      // Tony's GA pilot test surfaced this: deposit_paid landed in DB, the
+      // ref_code was stamped, but the customer never received a
+      // confirmation / failure message. Without this, the booking flow
+      // ends in silence and the customer has no signal that the deposit
+      // landed.
+      //
+      // Two outcomes covered here:
+      //   • OCR validated → send buildAutoConfirmedText (programa + fecha +
+      //     sizing + arrival info + handoff line).
+      //   • OCR ran but did not validate (amount/currency mismatch, etc.) →
+      //     send buildOcrMismatchText asking the customer to re-check.
+      //
+      // OCR not-ok cases (screenshot_rejected, fetch_failed) keep their
+      // existing flow — the screenshot rejection message was already
+      // emitted upstream, and the comprobante ack is enough for the rest.
+      if (ocrVerdict !== null) {
+        try {
+          let resultText: string | null = null;
+          if (ocrVerdict.ok === true && ocrVerdict.validated === true) {
+            const _freshMeta =
+              (conversation.leadMetadata as LeadMetadata | null) ?? null;
+            resultText = buildAutoConfirmedText({
+              programa: (_freshMeta?.programa as string | null) ?? null,
+              fecha: (_freshMeta?.start_date as string | null) ?? null,
+              language: contact.language ?? null,
+              sedeNombre: sede.nombre,
+            });
+          } else if (
+            ocrVerdict.ok === true &&
+            ocrVerdict.validated === false
+          ) {
+            resultText = buildOcrMismatchText({
+              language: contact.language ?? null,
+              reason: ocrVerdict.mismatches[0] ?? null,
+            });
+          }
+          if (resultText) {
+            await respondIoClient
+              .sendMessage({
+                conversationId:
+                  payload.conversation?.id ?? conversation.respondIoConversationId,
+                contactId: payload.contact.id,
+                text: resultText,
+              })
+              .catch((err) =>
+                log.error(
+                  { err: (err as Error).message },
+                  "ocr result message send failed",
+                ),
+              );
+            await getDb()
+              .insert(mensajes)
+              .values({
+                conversacionId: conversation.id,
+                sender: "ai",
+                content: resultText,
+                metadata: {
+                  synthetic: true,
+                  reason:
+                    ocrVerdict.ok && ocrVerdict.validated
+                      ? "ocr_auto_confirmed_followup"
+                      : "ocr_mismatch_followup",
+                },
+              })
+              .catch((err) =>
+                log.warn(
+                  { err: (err as Error).message },
+                  "ocr result mensaje insert failed",
+                ),
+              );
+            log.info(
+              {
+                conversationId: conversation.id,
+                outcome:
+                  ocrVerdict.ok && ocrVerdict.validated
+                    ? "auto_confirmed"
+                    : "mismatch",
+              },
+              "ocr result message sent to customer",
+            );
+          }
+        } catch (sendErr) {
+          log.error(
+            { err: (sendErr as Error).message },
+            "ocr result message branch threw",
+          );
+        }
+      }
+
       return {
         ok: true,
         acknowledgedAttachment: true,
@@ -3631,10 +3723,11 @@ export function buildAutoConfirmedText(ctx: {
   programa: string | null;
   fecha: string | null;
   language: string | null;
+  sedeNombre: string | null;
 }): string {
   const lang = (ctx.language ?? "es").slice(0, 2).toLowerCase();
   const isEn = lang === "en";
-  const SCHOOL_MAPS_URL = "https://maps.app.goo.gl/9e7PLpg1WU8b8S9R9";
+  const sede = ctx.sedeNombre ?? "DPM Diving";
   const lead =
     ctx.programa && ctx.fecha
       ? isEn
@@ -3653,9 +3746,9 @@ export function buildAutoConfirmedText(ctx: {
       "• T-shirt size (XS to 4XL)",
       "• European shoe size",
       "",
-      `Also, please drop by the school the day before your program between 8am and 6pm for registration. Here's the location: ${SCHOOL_MAPS_URL}`,
+      `Also, please drop by the ${sede} dive center the day before your program between 8am and 6pm for registration and gear sizing.`,
       "",
-      "My colleague from Gili Trawangan will message you shortly to coordinate the rest 🤿",
+      `Our team will message you shortly to coordinate the rest 🤿`,
     ].join("\n");
   }
   return [
@@ -3666,9 +3759,35 @@ export function buildAutoConfirmedText(ctx: {
     "• Talla de camiseta (XS a 4XL)",
     "• Talla de calzado europeo",
     "",
-    `Además, pasá por la escuela el día anterior a tu programa entre 8am y 6pm para el registro. La ubicación: ${SCHOOL_MAPS_URL}`,
+    `Además, pasá por el centro de ${sede} el día anterior a tu programa entre 8am y 6pm para el registro y verificar las tallas.`,
     "",
-    "Mi compañero/a de Gili Trawangan te escribe en breve para coordinar el resto 🤿",
+    `Nuestro equipo te escribe en breve para coordinar el resto 🤿`,
+  ].join("\n");
+}
+
+/**
+ * OCR validation failed (amount/currency mismatch or unreadable). Asks the
+ * customer to re-check and resend instead of leaving them in silence. The
+ * deposit step itself is not rolled back — operator decides whether to
+ * accept the discrepancy from the panel.
+ */
+export function buildOcrMismatchText(ctx: {
+  language: string | null;
+  reason: string | null;
+}): string {
+  const lang = (ctx.language ?? "es").slice(0, 2).toLowerCase();
+  const isEn = lang === "en";
+  if (isEn) {
+    return [
+      "Just looked at your receipt 🙏 something does not quite match the deposit on file — could be the amount, the currency, or the screenshot was hard to read.",
+      "",
+      "Could you double-check and resend a clearer PDF? My colleague will also have a look in the meantime.",
+    ].join("\n");
+  }
+  return [
+    "Acabo de revisar tu comprobante 🙏 algo no coincide del todo con el depósito que tengo registrado — puede ser el monto, la moneda o que la captura quedó difícil de leer.",
+    "",
+    "¿Podrías revisarlo y mandarme un PDF más claro? Mi compañero/a también lo revisa mientras tanto.",
   ].join("\n");
 }
 
