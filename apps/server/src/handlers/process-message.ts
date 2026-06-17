@@ -992,15 +992,61 @@ export async function processIncomingMessage(
       if (ocrVerdict !== null) {
         try {
           let resultText: string | null = null;
+          let _staleSuppressed = false;
           if (ocrVerdict.ok === true && ocrVerdict.validated === true) {
             const _freshMeta =
               (conversation.leadMetadata as LeadMetadata | null) ?? null;
-            resultText = buildAutoConfirmedText({
-              programa: (_freshMeta?.programa as string | null) ?? null,
-              fecha: (_freshMeta?.start_date as string | null) ?? null,
-              language: contact.language ?? null,
-              sedeNombre: sede.nombre,
-            });
+            const _freshTotal =
+              (_freshMeta?.deposit_amount_total as number | undefined) ??
+              (_freshMeta?.deposit_amount as number | undefined) ??
+              null;
+            const _freshPerPax =
+              (_freshMeta?.deposit_amount as number | undefined) ?? null;
+            const _freshCurrency =
+              (_freshMeta?.deposit_currency as string | undefined) ?? null;
+            let _stale = false;
+            if (_freshTotal && _freshCurrency) {
+              try {
+                const detected = await detectStaleDepositMetadata(
+                  conversation.id,
+                  _freshTotal,
+                  _freshPerPax,
+                  _freshCurrency,
+                );
+                _stale = detected.stale;
+                if (_stale) {
+                  log.warn(
+                    {
+                      conversationId: conversation.id,
+                      expectedTotal: _freshTotal,
+                      expectedCurrency: _freshCurrency,
+                      perPaxAmount: _freshPerPax,
+                      aiMentioned: detected.aiMentioned,
+                    },
+                    "OCR auto-confirm suppressed — AI quoted amount diverges from lead_metadata.deposit_amount_total (Tony 2026-06-17 stale-metadata defense)",
+                  );
+                }
+              } catch (err) {
+                log.warn(
+                  { err: (err as Error).message },
+                  "detectStaleDepositMetadata threw — falling through to auto-confirm",
+                );
+              }
+            }
+            if (_stale) {
+              _staleSuppressed = true;
+              resultText = buildOcrMismatchText({
+                language: contact.language ?? null,
+                reason: "stale_metadata",
+              });
+            } else {
+              resultText = buildAutoConfirmedText({
+                programa: (_freshMeta?.programa as string | null) ?? null,
+                fecha: (_freshMeta?.start_date as string | null) ?? null,
+                language: contact.language ?? null,
+                sedeNombre: sede.nombre,
+              });
+            }
           } else if (
             ocrVerdict.ok === true &&
             ocrVerdict.validated === false
@@ -1032,8 +1078,9 @@ export async function processIncomingMessage(
                 content: resultText,
                 metadata: {
                   synthetic: true,
-                  reason:
-                    ocrVerdict.ok && ocrVerdict.validated
+                  reason: _staleSuppressed
+                    ? "ocr_stale_metadata_suppressed"
+                    : ocrVerdict.ok && ocrVerdict.validated
                       ? "ocr_auto_confirmed_followup"
                       : "ocr_mismatch_followup",
                 },
@@ -1047,8 +1094,9 @@ export async function processIncomingMessage(
             log.info(
               {
                 conversationId: conversation.id,
-                outcome:
-                  ocrVerdict.ok && ocrVerdict.validated
+                outcome: _staleSuppressed
+                  ? "stale_metadata_suppressed"
+                  : ocrVerdict.ok && ocrVerdict.validated
                     ? "auto_confirmed"
                     : "mismatch",
               },
@@ -3789,6 +3837,72 @@ export function buildOcrMismatchText(ctx: {
     "",
     "¿Podrías revisarlo y mandarme un PDF más claro? Mi compañero/a también lo revisa mientras tanto.",
   ].join("\n");
+}
+
+/**
+ * Tony 2026-06-17 defense — detects stale `lead_metadata.deposit_amount_total`
+ * by scanning recent AI messages for currency amounts the AI quoted that
+ * diverge from the on-file expected total.
+ *
+ * Bug case: customer added pax mid-flow ("2 more people"), AI verbalized the
+ * new total ("80 EUR adicional, mismos datos") WITHOUT re-invoking
+ * `solicitar_deposito`. Metadata stayed at the original 40 EUR. Customer
+ * uploaded a 40 EUR PDF, OCR validated against the stale 40, false success.
+ *
+ * Defense: if the AI mentioned an amount >10% off from the expected total
+ * (and that amount is NOT the per-pax informational figure), treat OCR
+ * auto-confirm as unsafe — emit the mismatch text so a human reviews.
+ */
+async function detectStaleDepositMetadata(
+  conversationId: string,
+  expectedTotal: number,
+  perPaxAmount: number | null,
+  currencyCode: string,
+): Promise<{ stale: boolean; aiMentioned: number[] }> {
+  const recent = await getDb()
+    .select({ content: mensajes.content })
+    .from(mensajes)
+    .where(
+      and(
+        eq(mensajes.conversacionId, conversationId),
+        eq(mensajes.sender, "ai"),
+      ),
+    )
+    .orderBy(drizzleSql`created_at DESC`)
+    .limit(8);
+
+  const mentioned: number[] = [];
+  const curEsc = currencyCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const reBefore = new RegExp(
+    `(\\d{1,3}(?:[.,]\\d{3})*(?:[.,]\\d+)?)\\s*${curEsc}\\b`,
+    "gi",
+  );
+  const reAfter = new RegExp(
+    `\\b${curEsc}\\s*(\\d{1,3}(?:[.,]\\d{3})*(?:[.,]\\d+)?)`,
+    "gi",
+  );
+  for (const r of recent) {
+    const text = (r.content ?? "").toString();
+    for (const re of [reBefore, reAfter]) {
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(text)) !== null) {
+        const captured = m[1];
+        if (!captured) continue;
+        const numStr = captured.replace(/\./g, "").replace(",", ".");
+        const num = parseFloat(numStr);
+        if (Number.isFinite(num) && num >= 10) mentioned.push(num);
+      }
+    }
+  }
+
+  const stale = mentioned.some((a) => {
+    if (perPaxAmount && Math.abs(a - perPaxAmount) / perPaxAmount < 0.05) {
+      return false;
+    }
+    return Math.abs(a - expectedTotal) / expectedTotal > 0.1;
+  });
+  return { stale, aiMentioned: mentioned };
 }
 
 /**
