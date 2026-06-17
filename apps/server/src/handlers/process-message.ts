@@ -1492,12 +1492,57 @@ export async function processIncomingMessage(
   // Drop the bot's own message from the history we send back to Claude;
   // the new client message becomes the dynamic block input.
   const historyExcludingCurrent = history.slice(0, -1);
+
+  // Deposit-step prompt trimming (Tony 2026-06-17 — "naturally like Phi
+  // Phi", not via server bypass). Root cause of production failing
+  // while the simulator succeeds: the simulator passes `roster: null`,
+  // which makes the dynamic block say "roster no disponible — usá
+  // tool_use consultar_disponibilidad si necesitás". That single
+  // line primes Claude to invoke tools naturally; once
+  // consultar_disponibilidad fires, programa + start_date + pax get
+  // stamped on lead_metadata, and the deposit step then has all the
+  // metadata it needs.
+  //
+  // Production used to dump the real 14-day roster into the prompt.
+  // Claude read the availability data directly, decided it didn't
+  // need consultar_disponibilidad, and the metadata stayed empty.
+  // At the deposit step Claude was in unknown territory and stalled.
+  //
+  // Fix: when the customer is in the deposit step (currency just
+  // confirmed, lead_stage qualified/proposed), pass `roster: null`
+  // to buildFourBlockPrompt. The production prompt now looks like
+  // the simulator's at the critical step and Claude behaves the
+  // same way — invoking solicitar_deposito naturally with no
+  // bypass, no force, no prompt edits.
+  const _currencyConfirmedRegexEarly = /^\s*(eur|gbp|aud|usd|idr|thb|euros?|dólares?|dollars?|libras?|pounds?)\s*$/i;
+  const _depositMetaEarly =
+    (conversation.leadMetadata as LeadMetadata | null) ?? null;
+  const _isLeadStageEngagedEarly =
+    conversation.leadStage === "qualified" ||
+    conversation.leadStage === "proposed";
+  const _alreadyDepositPendingEarly =
+    conversation.leadStage === "deposit_pending" ||
+    conversation.leadStage === "deposit_paid" ||
+    !!(_depositMetaEarly?.ref_code && _depositMetaEarly?.deposit_currency);
+  const _depositStepDetected =
+    !!incomingText &&
+    _currencyConfirmedRegexEarly.test(incomingText) &&
+    _isLeadStageEngagedEarly &&
+    !_alreadyDepositPendingEarly;
+  const _rosterForPrompt = _depositStepDetected ? null : roster;
+  if (_depositStepDetected) {
+    log.info(
+      { conversationId: conversation.id },
+      "prompt: deposit step detected — passing roster=null to mirror simulator's natural-tool-use signal",
+    );
+  }
+
   const { system, messages } = buildFourBlockPrompt({
     systemPrompt,
     sedeKb,
     history: historyExcludingCurrent,
     sede,
-    roster,
+    roster: _rosterForPrompt,
     incomingMessage: incomingText,
     detectedLanguage,
     suggestedCurrency,
@@ -2720,112 +2765,6 @@ export async function processIncomingMessage(
       },
       "claude tool_choice forced to solicitar_deposito (currency confirmation detected)",
     );
-
-    // SERVER BYPASS (Tony 2026-06-17 — Claude refused to invoke the
-    // tool reliably even with tool_choice forced + cache busts +
-    // top-level CRÍTICO rules). Call solicitar_deposito directly
-    // here, bypassing Claude entirely for this turn. If the
-    // metadata is sufficient, the tool succeeds and we send the
-    // customer the instrucciones literally — no stalling, no
-    // hallucinated reference lines, no handoff_human. If the
-    // metadata isn't there yet (programa/start_date missing), the
-    // tool returns booking_not_finalized and we send a short
-    // server-side recovery line asking the customer to re-confirm.
-    try {
-      const _currencyUpper = incomingText.trim().toUpperCase();
-      const _moneda = (
-        _currencyUpper === "EUROS" ? "EUR" :
-        _currencyUpper === "DÓLARES" || _currencyUpper === "DOLARES" || _currencyUpper === "DOLLARS" ? "USD" :
-        _currencyUpper === "LIBRAS" || _currencyUpper === "POUNDS" ? "GBP" :
-        _currencyUpper
-      ) as "EUR" | "GBP" | "AUD" | "USD" | "IDR" | "THB";
-      const _pax = Number(_depositMetaForForce?.pax) || 1;
-      const _idioma = (contact.language ?? "es").slice(0, 2);
-
-      const bypassResult = await solicitarDepositoHandler({
-        sede_id: sede.id,
-        cliente_idioma: _idioma,
-        moneda_cliente: _moneda,
-        pax: _pax,
-      });
-
-      let bypassMessage: string;
-      if (bypassResult.ok) {
-        bypassMessage = bypassResult.instrucciones;
-      } else if (bypassResult.reason === "booking_not_finalized") {
-        bypassMessage =
-          _idioma === "es"
-            ? "Antes de generar el código de depósito, ¿me confirmás programa, fecha y cantidad de personas? Así te paso los datos exactos 🙏"
-            : "Before I generate the deposit code, could you confirm the program, date and number of divers? Then I'll send you the exact details 🙏";
-      } else if (bypassResult.reason === "sede_currency_not_supported") {
-        bypassMessage =
-          _idioma === "es"
-            ? `Esta sede no acepta ${_moneda}. ¿Podemos hacerlo en otra moneda?`
-            : `This center does not accept ${_moneda}. Could we do it in another currency?`;
-      } else {
-        bypassMessage =
-          _idioma === "es"
-            ? "Tuve un problemita generando el código. ¿Me confirmás programa + fecha + pax para reintentarlo? 🙏"
-            : "Had a small hiccup generating the code. Could you confirm program + date + pax so I retry? 🙏";
-      }
-
-      await respondIoClient.sendMessage({
-        conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
-        contactId: payload.contact.id,
-        text: bypassMessage,
-      });
-      await getDb()
-        .insert(mensajes)
-        .values({
-          conversacionId: conversation.id,
-          sender: "ai",
-          content: bypassMessage,
-          metadata: {
-            synthetic: true,
-            reason: "server_deposit_bypass",
-            toolOk: bypassResult.ok,
-            ...(bypassResult.ok
-              ? {}
-              : { toolReason: bypassResult.reason }),
-          },
-        })
-        .catch((err) =>
-          log.warn(
-            { err: (err as Error).message },
-            "server_deposit_bypass: failed to persist bypass mensaje",
-          ),
-        );
-
-      log.info(
-        {
-          conversationId: conversation.id,
-          toolOk: bypassResult.ok,
-          messageLen: bypassMessage.length,
-        },
-        "server_deposit_bypass: handled currency confirmation without invoking Claude",
-      );
-
-      releaseAiLock();
-      if (convAiLock.get(conversation.id) === myAiLock) {
-        convAiLock.delete(conversation.id);
-      }
-      return {
-        ok: true,
-        conversationId: conversation.id,
-        sede: sede.nombre,
-        responseSentChars: bypassMessage.length,
-        latencyMs: Date.now() - t0,
-        toolCalls: ["solicitar_deposito"],
-        cacheHitRate: 0,
-        costUsd: 0,
-      };
-    } catch (bypassErr) {
-      log.error(
-        { err: (bypassErr as Error).message, conversationId: conversation.id },
-        "server_deposit_bypass: exception — falling through to Claude",
-      );
-      // fall through to normal Claude path
-    }
   }
 
   const claudeT0 = Date.now();
