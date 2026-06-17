@@ -2744,14 +2744,23 @@ export async function processIncomingMessage(
     conversation.leadStage === "deposit_paid" ||
     !!(_depositMetaForForce?.ref_code &&
       _depositMetaForForce?.deposit_currency);
-  const forceToolChoice =
-    incomingText &&
+  // forceToolChoice removed (Tony 2026-06-17 — "왜 되던 흐름이 되지
+  // 않을가요"). Before today's iterations EUR turns came back within
+  // ~10 seconds with the bank block quoted from the KB. Adding the
+  // forced tool_choice at the API level introduced a hang in
+  // production (Anthropic took >60s and sometimes never returned).
+  // The natural-flow alternatives — KB has the bank numbers
+  // restored, prompt has a top-level CRITICAL deposit block,
+  // production passes roster=null at this step to mirror simulator —
+  // are kept; the hard tool_choice override is not.
+  // Audit only: still surface the detection in logs so we can spot
+  // when Claude failed to invoke the tool on its own.
+  const _wouldHaveBeenForced =
+    !!incomingText &&
     _currencyConfirmedRegex.test(incomingText) &&
     _isLeadStageEngaged &&
-    !_alreadyDepositPending
-      ? "solicitar_deposito"
-      : undefined;
-  if (forceToolChoice) {
+    !_alreadyDepositPending;
+  if (_wouldHaveBeenForced) {
     log.info(
       {
         conversationId: conversation.id,
@@ -2763,7 +2772,7 @@ export async function processIncomingMessage(
           !!_depositMetaForForce?.programa &&
           !!_depositMetaForForce?.start_date,
       },
-      "claude tool_choice forced to solicitar_deposito (currency confirmation detected)",
+      "deposit step detected — relying on prompt + simulator-like roster trim (no tool_choice force)",
     );
   }
 
@@ -2777,7 +2786,6 @@ export async function processIncomingMessage(
     promptVersionId: promptVersion?.id,
     expectedLanguage: detectedLanguage,
     incomingMessage: incomingText,
-    forceToolChoice,
   });
   log.info(
     {
