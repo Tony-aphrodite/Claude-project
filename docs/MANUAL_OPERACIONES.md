@@ -65,10 +65,10 @@ Estos agentes:
 ### URL del panel
 
 ```
-https://panel.dpmdiving.com
+https://claude-project-panel.vercel.app/
 ```
 
-(Si el dominio aún no está activo en tu equipo, te paso la URL temporal de Railway por privado.)
+> En el futuro Miguel quiere apuntar un dominio propio (por ejemplo `panel.dpmdiving.com`) a este panel, pero por ahora usás directamente la URL de Vercel.
 
 ### Primer inicio de sesión
 
@@ -429,10 +429,10 @@ Contactalos si:
 
 | Recurso | URL |
 |---|---|
-| **Panel principal** | `https://panel.dpmdiving.com` |
-| **Depósitos auto-confirmados** | `https://panel.dpmdiving.com/depositos-auto` |
-| **Conversaciones** | `https://panel.dpmdiving.com/conversations` |
-| **Roster** | `https://panel.dpmdiving.com/roster` |
+| **Panel principal** | `https://claude-project-panel.vercel.app/` |
+| **Depósitos auto-confirmados** | `https://claude-project-panel.vercel.app/depositos-auto` |
+| **Conversaciones** | `https://claude-project-panel.vercel.app/conversations` |
+| **Roster** | `https://claude-project-panel.vercel.app/roster` |
 | **Respond.io** | `https://app.respond.io` |
 | **Email operativo** | `gilit@dpmdiving.com` (Wise + Mandiri + BCA llegan acá) |
 
