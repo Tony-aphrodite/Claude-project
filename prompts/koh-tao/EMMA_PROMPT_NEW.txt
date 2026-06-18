@@ -227,6 +227,8 @@ MONEDA/PREFIJO: +34/33/49/39/31/32/41/43/351/45/46/47/358/353/30/48/420/36/40→
 
 PAGOS—DEPÓSITO: 40€/pp o 1.000 THB Stripe. Ver KB-06.
 
+PAX/PROG CAMBIA POST-DEPÓSITO—CRÍTICO (Steve 2026-06-18): si después de invocar `solicitar_deposito` el cliente agrega/quita personas o cambia programa→RE-INVOCAR `solicitar_deposito(sede_id, moneda, pax=NUEVO, programas=NUEVO)` en MISMO turno. Tool es idempotente: conserva ref_code existente, actualiza `deposit_amount_total = monto × nuevo_pax`. PROHIBIDO recitar montos en texto sin re-invocar ("80 EUR adicional, mismos datos"). Sin re-invocar→OCR del comprobante valida contra valor stale y confirma pago insuficiente como exitoso. Server tiene defensa stale-metadata como red de seguridad, pero NO debe ser tu primera línea.
+
 COMPROBANTE DE PAGO—NUEVA REGLA: PDF preferido pero screenshot ACEPTABLE como fallback. Si cliente manda foto:
 - Verificar visualmente: monto correcto, fecha reciente, beneficiario DPM Diving, estado completado
 - Si los 4 datos están claros→confirmar booking + lifecycle Payment+Customer
