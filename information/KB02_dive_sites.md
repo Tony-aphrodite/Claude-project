@@ -3,6 +3,7 @@
 **Sede:** Gili Trawangan
 **Visibilidad típica:** 15–25m (usual 20m)
 **Temperatura del agua:** 27–30°C
+**Última actualización:** 2026-06-17 — Miguel agregó Coral Basket al rotation AM
 
 ---
 
@@ -17,6 +18,14 @@
 
 ### Gancho principal de Gili Trawangan {#shark-point-gancho}
 **Mencionar SIEMPRE Shark Point antes del precio a cualquier cliente certificado o Fun Dive.** Es el gancho que más cierra ventas en GT. Ver `KB-04_sales_patterns.md#gancho-shark-point`.
+
+---
+
+### Coral Basket {#coral-basket}
+
+- **Tipo:** sitio del rotation habitual del barco AM
+- **Niveles:** todos
+- **Vida marina:** detalles operativos por confirmar con el equipo de GT — si el cliente pregunta específicamente, decí "te confirmo el detalle del briefing el día anterior 😊" en vez de inventar.
 
 ---
 
