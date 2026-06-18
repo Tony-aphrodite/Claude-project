@@ -72,7 +72,7 @@ https://claude-project-panel.vercel.app/
 
 ### Primer inicio de sesión
 
-1. Tu administrador (Miguel o Tony) te crea la cuenta con tu email + una contraseña temporal.
+1. Tu administrador (Miguel o Steve) te crea la cuenta con tu email + una contraseña temporal.
 2. Vas al panel, ingresás email + contraseña.
 3. **Cambiá la contraseña inmediatamente** desde el menú "Mi cuenta" → "Cambiar contraseña".
 4. Elegí una contraseña fuerte (mínimo 12 caracteres, mezclá letras, números y símbolos).
@@ -87,7 +87,7 @@ https://claude-project-panel.vercel.app/
 
 - **No compartas tu contraseña con nadie.** Cada persona tiene su propia cuenta para que las acciones queden auditadas.
 - Cerrá sesión cuando termines tu turno, sobre todo en computadoras compartidas.
-- Si sospechás que alguien usó tu cuenta, avisá inmediatamente a Miguel o Tony.
+- Si sospechás que alguien usó tu cuenta, avisá inmediatamente a Miguel o Steve.
 
 ---
 
@@ -97,7 +97,7 @@ Existen dos roles en el panel:
 
 ### Rol `admin`
 
-- Quién: Miguel (dueño), Tony (desarrollador principal)
+- Quién: Miguel (dueño), Steve (desarrollador principal)
 - Qué ve: TODO de las 5 sedes
 - Qué puede hacer:
   - Ver y modificar prompts de los AI
@@ -127,7 +127,7 @@ Existen dos roles en el panel:
 - Ver datos de otras sedes
 - Acceso al simulador o regresión
 
-Si necesitás algo que tu rol no permite, contactá a Miguel o Tony.
+Si necesitás algo que tu rol no permite, contactá a Miguel o Steve.
 
 ---
 
@@ -242,7 +242,7 @@ Marcá 🚩 "Flag para revisar" si:
 
 El sistema:
 1. Stampa `flagged_at` en la conversación
-2. Notifica a Miguel y Tony por email
+2. Notifica a Miguel y Steve por email
 3. Mantiene el lead en estado "deposit_paid" pero marcado para revisión
 4. NO libera el slot del roster automáticamente (Miguel decide caso por caso)
 
@@ -396,7 +396,7 @@ Contactalo si:
 
 **Canal:** WhatsApp directo a Miguel.
 
-### Tony (developer / problemas técnicos)
+### Steve (developer / problemas técnicos)
 
 Contactalo si:
 - El panel no responde / no carga
@@ -406,7 +406,7 @@ Contactalo si:
 - Necesitás crear un usuario nuevo y Miguel está ocupado
 - Tenés error técnico que no podés resolver
 
-**Canal:** WhatsApp directo a Tony, o si es urgente y no responde, escribile a Miguel.
+**Canal:** WhatsApp directo a Steve, o si es urgente y no responde, escribile a Miguel.
 
 ### Equipo de tu sede
 
@@ -466,14 +466,14 @@ Contactalos si:
 - (Datos en `deposit-instructions.ts`)
 - **USD:** Cuenta CFSB compartida con Gili Air
 
-> Si necesitás los datos de PP o KT, pedile a Miguel o a Tony.
+> Si necesitás los datos de PP o KT, pedile a Miguel o a Steve.
 
 ### Contactos
 
 | Persona | Rol | Cómo contactar |
 |---|---|---|
 | Miguel | Dueño DPM Diving | WhatsApp directo |
-| Tony | Developer principal | WhatsApp directo |
+| Steve | Developer principal | WhatsApp directo |
 | (Tu manager de sede) | Operación diaria | Coordinación interna |
 
 ### Cheatsheet rápido — qué hacer en cada situación
@@ -488,11 +488,11 @@ Contactalos si:
 | Cliente pide refund | NO prometo nada, escalar a Miguel |
 | Cliente quiere cambiar fecha | Verificar roster, hacer cambio manual, devolver a AI |
 | PDF duplicado entre sedes | Flagear en ambas, avisar a Miguel |
-| Panel no carga / error técnico | Contactar a Tony |
+| Panel no carga / error técnico | Contactar a Steve |
 | Cliente escribe en idioma raro | AI escala automáticamente — si lo manejás, respondé directo |
 
 ---
 
 **Fin del manual.**
 
-Para sugerencias o correcciones de este documento, contactá a Miguel o a Tony.
+Para sugerencias o correcciones de este documento, contactá a Miguel o a Steve.
