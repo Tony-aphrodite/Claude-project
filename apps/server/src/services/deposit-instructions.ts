@@ -2,8 +2,8 @@
 // Deposit payment instruction blocks — per sede + per currency.
 //
 // Sources of truth:
-//   • Gili Trawangan: information/KB03_payments.md (Miguel mayo 2026)
-//   • Koh Phi Phi:    information/17-information-phi-phi/2026-06-07-phi-phi-bank-details.md
+//   • Gili Trawangan: prompts/gili-trawangan/KB03_payments.md (Miguel mayo 2026)
+//   • Koh Phi Phi:    reference/koh-phi-phi-2026-06-07-phi-phi-bank-details.md
 //                     (Miguel 2026-06-07 — image + follow-up THB details)
 //   • Other sedes:    deferred until their AI activates
 //
@@ -289,7 +289,7 @@ const BANK_BLOCKS_BY_SEDE: Record<string, SedeBankBlocks> = {
 
   // Miguel 2026-06-07 — complete bank details (3 messages: image, THB
   // follow-up, full address + GBP BIC follow-up). See
-  // `information/17-information-phi-phi/2026-06-07-phi-phi-bank-details.md`
+  // `reference/koh-phi-phi-2026-06-07-phi-phi-bank-details.md`
   // for the canonical reference.
   "Koh Phi Phi": {
     EUR: [

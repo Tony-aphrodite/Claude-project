@@ -1,6 +1,6 @@
 // ============================================================================
 // Deposit-confirmation handoff message. Owner spec
-// information/INSTRUCCIONES_PAGO_GiliTrawangansteve.md §7
+// reference/INSTRUCCIONES_PAGO_GiliTrawangansteve.md §7
 // (mensaje-deposito-confirmado).
 //
 // Triggered when an operator clicks "Confirm" in the panel — the panel server

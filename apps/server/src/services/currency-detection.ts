@@ -1,6 +1,6 @@
 // ============================================================================
 // Phone-prefix → deposit currency mapping. Owner spec
-// (information/INSTRUCCIONES_PAGO_GiliTrawangansteve.md §3):
+// (reference/INSTRUCCIONES_PAGO_GiliTrawangansteve.md §3):
 //
 //   +49 +43 +41 +33 +34 +39 +31 +32 +351   →  EUR
 //   +44                                    →  GBP

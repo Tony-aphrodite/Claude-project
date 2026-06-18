@@ -630,7 +630,7 @@ export type AvailabilityResponse = {
    * the script auto-shifted (up to 14 days). The AI can use this to say
    * "el día que pediste no entraba pero 2 días después sí". Field added
    * in Miguel's 2026-05-19 4-sede v2 rollout — see
-   * information/ROSTER_SCRIPT_v2_FULL_ROLLOUT.md.
+   * reference/ROSTER_SCRIPT_v2_FULL_ROLLOUT.md.
    */
   offset_dias?: number;
   /**
@@ -754,7 +754,7 @@ export type EnviarCatalogoResult =
 // Distinct from enviar_catalogo (John/GT): Colomba addresses Meta WhatsApp
 // Business catalog products by their RAW product retailer id (e.g.
 // "eb8phdq04n") and may send up to TWO cards in a single turn for
-// side-by-side comparisons. Spec: 15-information/SPEC_send_product_card.md
+// side-by-side comparisons. Spec: reference/SPEC_send_product_card.md
 // v1.1. The server enforces an allowlist (ALLOWED_PRODUCT_IDS_GA) so a
 // hallucinated id never reaches Meta.
 export const sendProductCardInputSchema = z.object({

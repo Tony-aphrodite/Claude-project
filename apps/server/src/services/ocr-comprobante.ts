@@ -1,6 +1,6 @@
 // ============================================================================
 // Comprobante OCR via Anthropic Vision. Owner spec
-// information/INSTRUCCIONES_PAGO_GiliTrawangansteve.md §5.
+// reference/INSTRUCCIONES_PAGO_GiliTrawangansteve.md §5.
 //
 // Runs when a non-text message lands while the lead is in deposit_pending.
 // Steps:

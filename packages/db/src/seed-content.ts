@@ -1,18 +1,28 @@
 // ============================================================================
 // Content-package seeder.
 //
-// The owner-authored content lives as Markdown files in /information at the
-// repo root: 00_SYSTEM_PROMPT.md (John v1.1), FEW_SHOTS_GiliTrawangan.md
-// (8 anonymized real conversations), KB01..KB06 (knowledge base sections).
+// All seeded prompt + KB content lives under `prompts/<sede>/` at the repo
+// root, one directory per AI agent:
+//   • prompts/gili-trawangan/   — John
+//   • prompts/gili-air/         — Colomba
+//   • prompts/koh-tao/          — Emma
+//   • prompts/koh-phi-phi/      — Francisco Emilio
+//   • prompts/nusa-penida/      — David
 //
-// We seed two database surfaces from these files:
-//   1. prompts_versiones: a single global row for type='system' with the
-//      John prompt + few-shots concatenated as one cacheable block.
-//   2. kb_documents + Supabase Storage: the six KB files concatenated and
-//      uploaded as the active KB blob for the Gili Trawangan sede.
+// Each contains a system prompt file + numbered KB files + (for some)
+// a few-shots corpus. Non-seeded reference material (Miguel's deliveries,
+// specs, feedback logs, catalog CSVs) lives under `reference/` and is NOT
+// touched by this seeder. Reorg landed 2026-06-18.
+//
+// We seed two database surfaces per sede:
+//   1. prompts_versiones: a row per sede with the system prompt + few-shots
+//      concatenated as one cacheable block (GT uses sede_id=NULL for legacy
+//      single-sede compat).
+//   2. kb_documents + Supabase Storage: the KB files concatenated and
+//      uploaded as the active KB blob for that sede.
 //
 // Both upserts are idempotent. Re-running this seeder against a database
-// that already has v1 promotes a v2 only if the content changed; otherwise
+// that already has vN promotes a vN+1 only if the content changed; otherwise
 // it's a no-op. The `sha256(content)` is stamped onto created_by so we can
 // detect drift between the file system and the database.
 // ============================================================================
@@ -28,18 +38,16 @@ import { getDb, getRawClient, kbDocuments, promptsVersiones, sedes } from "./ind
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, "../../..");
-const INFO_DIR = path.resolve(REPO_ROOT, "information");
-// Per-sede Miguel hand-off drops. Each delivery lives in its own
-// numbered subfolder under information/ so the originals stay traceable
-// (we never edit them in place — new versions go in a new numbered dir).
-//   • Colomba/Gili Air — 2026-05-15
-//   • Emma/Koh Tao — 2026-05-16
-//   • Francisco Emilio/Koh Phi Phi — 2026-05-17
-//   • David/Nusa Penida — 2026-05-17
-const GA_INFO_DIR = path.resolve(REPO_ROOT, "information/15-information");
-const KT_INFO_DIR = path.resolve(REPO_ROOT, "information/16-information-koh-tao");
-const PP_INFO_DIR = path.resolve(REPO_ROOT, "information/17-information-phi-phi");
-const NP_INFO_DIR = path.resolve(REPO_ROOT, "information/18-information");
+// Reorg 2026-06-18 (Steve): seeded prompt + KB content lives under
+// `prompts/<sede>/`. Non-seeded reference docs (Miguel's deliveries,
+// specs, feedback logs, catalog CSVs) live under `reference/`. The
+// old `information/` tree is gone; if anything still references it,
+// fix the comment.
+const INFO_DIR = path.resolve(REPO_ROOT, "prompts/gili-trawangan");
+const GA_INFO_DIR = path.resolve(REPO_ROOT, "prompts/gili-air");
+const KT_INFO_DIR = path.resolve(REPO_ROOT, "prompts/koh-tao");
+const PP_INFO_DIR = path.resolve(REPO_ROOT, "prompts/koh-phi-phi");
+const NP_INFO_DIR = path.resolve(REPO_ROOT, "prompts/nusa-penida");
 
 const SYSTEM_PROMPT_FILE = "00_SYSTEM_PROMPT.md";
 const FEW_SHOTS_FILE = "FEW_SHOTS_GiliTrawangan.md";
@@ -63,12 +71,11 @@ const KB_FILES = [
 // curated subset we use for John.
 const GA_SYSTEM_PROMPT_FILE = "COLOMBA_SYSTEM_PROMPT.md";
 const GA_FEW_SHOTS_FILE = "FEW_SHOTS_50_conversations.md";
-// Miguel's v2.0 delivery format (2026-05-16): the 8 KBs come pre-
-// concatenated as a single file, mirroring how the bundle ends up in
-// storage anyway. Preferred path is to read this single file directly;
-// the individual KB files below are kept as fallback in case future
-// deliveries revert to the multi-file shape.
-const GA_KB_BUNDLE_FILE = "COLOMBA_KB_BUNDLE.md";
+// Source of truth for the GA KB is the 8 individual files below — same
+// shape as every other sede. Earlier we preferred a pre-concatenated
+// COLOMBA_KB_BUNDLE.md when present, but that caused silent drift: edits
+// to the individual files were ignored as long as the bundle's hash
+// didn't change. Removed 2026-06-18; the bundle file is gone too.
 const GA_KB_FILES = [
   "KB01_programas_precios.md",
   "KB02_pagos_cuentas.md",
@@ -415,27 +422,21 @@ async function buildGaSystemPromptContent(): Promise<string> {
 }
 
 async function buildGaKbBundle(): Promise<string> {
-  // v2.0+ delivery path: Miguel sends a single pre-concatenated bundle.
-  // Prefer it when present; the shape Miguel delivers is identical to
-  // what the old multi-file loop produced (KB-01 .. KB-08 in order with
-  // hairline dividers), so the SHA-based version bump in seedGaKbBundle
-  // still picks up genuine content changes correctly.
-  try {
-    const bundle = await readGaInfo(GA_KB_BUNDLE_FILE);
-    return bundle.trim();
-  } catch {
-    // Fallback to the v1.x multi-file shape if the bundle isn't present
-    // (older corpora or test fixtures).
-    const parts: string[] = [];
-    for (const file of GA_KB_FILES) {
-      const content = (await readGaInfo(file)).trim();
-      parts.push(content);
-      parts.push("");
-      parts.push("---");
-      parts.push("");
-    }
-    return parts.join("\n");
+  // Concatenate the 8 individual KB files in order with hairline
+  // dividers. Same shape as every other sede now. Earlier this function
+  // preferred a single COLOMBA_KB_BUNDLE.md when present, but that path
+  // was removed 2026-06-18 (Steve reorg) because it caused silent drift
+  // — edits to KB04 etc. were ignored as long as the bundle hash didn't
+  // change.
+  const parts: string[] = [];
+  for (const file of GA_KB_FILES) {
+    const content = (await readGaInfo(file)).trim();
+    parts.push(content);
+    parts.push("");
+    parts.push("---");
+    parts.push("");
   }
+  return parts.join("\n");
 }
 
 // Apps Script roster endpoint for Gili Air, per Miguel's

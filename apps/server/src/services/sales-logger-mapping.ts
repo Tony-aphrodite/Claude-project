@@ -15,7 +15,7 @@ import type { LeadMetadata } from "@dpm/shared";
  *
  * All 5 sedes confirmed by Miguel 2026-06-07. Names match the existing
  * AI persona prompts (Emma/Francisco/John/Colomba/David — each has its
- * own system prompt + KB bundle under `information/<n>-information-<sede>/`).
+ * own system prompt + KB bundle under `prompts/<sede>/`).
  */
 export const SEDE_AI_AGENTE_CIERRE: Record<string, string> = {
   "Koh Tao": "Emma",
@@ -46,7 +46,7 @@ export function agenteCierreFor(sedeNombre: string): string {
  * warning so the operator logs that program manually.
  *
  * Phi Phi entries below come from Miguel's official Phi Phi tarifario
- * (2026-06-07). See `information/17-information-phi-phi/2026-06-07-tarifario-phi-phi.md`
+ * (2026-06-07). See `reference/koh-phi-phi-2026-06-07-tarifario-phi-phi.md`
  * for the full list including prices + gaps analysis.
  */
 export const PROGRAMA_DISPLAY_NAME: Record<string, Record<string, string>> = {

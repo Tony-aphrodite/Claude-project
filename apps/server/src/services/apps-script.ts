@@ -7,7 +7,7 @@
 //     → AvailabilityResponse
 //
 // The pax / curso / mode params were added in Miguel's Koh Tao v2 roster
-// script (see information/16-information-koh-tao/ROSTER_SCRIPT_v2_NOTES.md).
+// script (see reference/koh-tao-ROSTER_SCRIPT_v2_NOTES.md).
 // They let the script filter slots that wouldn't actually fit the
 // customer's request — pre-v2 the script ignored these even when sent,
 // and Emma confirmed bookings on full / wrong-slot boats. Other sedes'
@@ -55,7 +55,7 @@ const FRESHNESS_MS = 30_000; // 30 seconds — short enough that hora_actual_wit
  * out so each sede's .gs can apply its slot/pax filters.
  *
  * The 4-sede v2 rollout (Miguel 2026-05-19) confirmed the canonical
- * keys — see information/ROSTER_SCRIPT_v2_FULL_ROLLOUT.md for the full
+ * keys — see reference/ROSTER_SCRIPT_v2_FULL_ROLLOUT.md for the full
  * per-sede vocabulary tables.
  *
  * Anything not in this table passes through unchanged (TryScuba,

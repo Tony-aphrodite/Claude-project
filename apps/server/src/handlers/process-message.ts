@@ -1781,7 +1781,7 @@ export async function processIncomingMessage(
     // Koh Tao v2 roster script can filter slots by group size / course
     // type / consecutive-window. Older sede scripts (pre-v2) silently
     // ignore unknown params, so this is safe everywhere. See
-    // information/16-information-koh-tao/ROSTER_SCRIPT_v2_NOTES.md for
+    // reference/koh-tao-ROSTER_SCRIPT_v2_NOTES.md for
     // the contract and the AOW→Advanced / RescueDiver→Rescue mapping
     // open question.
     // Miguel rule 2026-06-05 (OW June 22→23 hallucination): fetch a wider
@@ -3411,7 +3411,7 @@ function wITAYmd(): string {
  * program to DPM_Ventas_Master via the SAME Apps Script `/exec` Miguel's
  * human-side workflow uses. AI bypasses the workflow and POSTs directly
  * with real values (no $contact.X variables). Spec lives in
- * `information/2026-06-07-miguel-sales-logger-spec.md`.
+ * `reference/2026-06-07-miguel-sales-logger-spec.md`.
  *
  * Idempotency: each program logged once across the conversation's
  * lifetime via `leadMetadata.sale_logged_at_by_program`. A re-OCR or

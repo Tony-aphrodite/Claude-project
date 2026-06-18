@@ -45,7 +45,7 @@ describe("agenteCierreFor — Miguel confirmed all 5 sedes 2026-06-07", () => {
 
 describe("programaDisplayName — Koh Phi Phi (Miguel's tarifario 2026-06-07)", () => {
   // All assertions below mirror the EXACT strings in Miguel's tarifario
-  // (see information/17-information-phi-phi/2026-06-07-tarifario-phi-phi.md).
+  // (see reference/koh-phi-phi-2026-06-07-tarifario-phi-phi.md).
   // Any mismatch makes his revenue calculator return 0 for the row.
 
   it("OW → 'OW 18'", () => {

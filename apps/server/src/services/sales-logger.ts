@@ -9,7 +9,7 @@
 // SINGLE writer per sale and avoids double-writing when "booked by ai" is
 // a label-only category with no workflow behind it.
 //
-// Full spec: information/2026-06-07-miguel-sales-logger-spec.md
+// Full spec: reference/2026-06-07-miguel-sales-logger-spec.md
 //
 // Authentication: a shared token is sent in the JSON body (not header)
 // and verified by Miguel's Apps Script.

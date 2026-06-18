@@ -4,7 +4,7 @@
 // Distinct from `enviar_catalogo` (John/GT): Colomba addresses Meta WhatsApp
 // Business catalog products by their raw retailer id (e.g. "eb8phdq04n") and
 // may send 1 OR 2 cards per turn for side-by-side comparison. Spec lives at
-// 15-information/SPEC_send_product_card.md (v1.1, 2026-05-15).
+// reference/SPEC_send_product_card.md (v1.1, 2026-05-15).
 //
 // Defense in depth: the prompt embeds the allowlist, but the server also
 // enforces it via ALLOWED_PRODUCT_IDS_GA below. A hallucinated id never

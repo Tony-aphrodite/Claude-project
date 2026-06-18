@@ -2,7 +2,7 @@
 // apps/panel/src/lib/handoff-text.ts; we import it directly from this server-
 // side test because the panel package doesn't have vitest configured and the
 // monorepo allows the cross-package relative import. Owner spec:
-// information/INSTRUCCIONES_PAGO_GiliTrawangansteve.md §7 mensaje-deposito-confirmado.
+// reference/INSTRUCCIONES_PAGO_GiliTrawangansteve.md §7 mensaje-deposito-confirmado.
 
 import { describe, expect, it } from "vitest";
 
