@@ -705,9 +705,12 @@ Los sitios de buceo se **confirman el día anterior** según condiciones meteoro
 - **Excelente para buceo macro.**
 - **Diferenciador GA:** este sitio es exclusivo de Gili Air, no se accede desde GT.
 
-### Halik PM
+### Air Wall {#air-wall}
 
-Mismas características que el sitio descrito arriba — disponible también en tarde.
+- **Tipo:** sitio del rotation PM de Gili Air
+- **Nivel:** todos los niveles
+- **Visibilidad:** 15–25 m | **Temperatura:** 27–30 °C
+- **Vida marina:** detalles operativos por confirmar con el equipo de GA — si el cliente pregunta específicamente, decí "te confirmo el detalle del briefing el día anterior 😊" en vez de inventar.
 
 ---
 
