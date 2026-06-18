@@ -48,6 +48,14 @@ const SEDE_AI_USERS: Readonly<Record<string, { assigneeId: number; welcome: stri
     assigneeId: 464075,
     welcome: "¡Hola! Soy David de DPM Diving Nusa Penida 🤿 ¿En qué te puedo ayudar?",
   },
+  // Miguel 2026-06-18: kohtao@dpmdiving.com → assigneeId 973488. Same shape
+  // as the other 4. Koh Tao serves a heavier English audience than the
+  // Indo sedes; keeping the welcome in Spanish for parity since Emma's
+  // prompt handles language detection internally.
+  "Koh Tao": {
+    assigneeId: 973488,
+    welcome: "¡Hola! Soy Emma de DPM Diving Koh Tao 🤿 ¿En qué te puedo ayudar?",
+  },
 };
 
 type IncomingPayload = {
