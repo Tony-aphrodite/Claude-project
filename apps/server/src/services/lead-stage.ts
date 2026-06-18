@@ -180,11 +180,27 @@ export class LeadStageService {
     // 5-12-feedback-round2 Option D — fire the matching lifecycle webhook
     // so Miguel's Respond.io workflow updates the contact's lifecycle.
     // Fire-and-forget; the function logs failures and never throws.
-    if (updated.respondIoContactId) {
+    //
+    // Exception (Miguel 2026-06-18): when the transition is driven by a
+    // human takeover, do NOT fire the lifecycle webhook. handed_off
+    // overloads two meanings — (1) post-deposit grace expired (legit
+    // "Customer" lifecycle) and (2) manual takeover (assignee change
+    // shouldn't move the customer through the sales journey). Firing
+    // the webhook on case (2) was inflating the Customer bucket in
+    // Respond.io with non-paying leads. Detect via the note prefix
+    // stamped at contact-state-event.ts:481.
+    const isTakeoverTransition = typeof input.note === "string"
+      && input.note.startsWith("respond_io_human_takeover:");
+    if (updated.respondIoContactId && !isTakeoverTransition) {
       void triggerLifecycleWebhook({
         leadStage: input.to,
         respondIoContactId: updated.respondIoContactId,
       });
+    } else if (isTakeoverTransition) {
+      log.info(
+        { convId: input.conversacionId, to: input.to },
+        "lead_stage transition: skipping lifecycle webhook — human takeover (Miguel 2026-06-18)",
+      );
     }
 
     return { ok: true, conversation: updated, from, to: input.to };

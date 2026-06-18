@@ -23,7 +23,7 @@
   derivar a Gili Air (Colomba).
 
 ### Hora de llegada del cliente al centro
-- **Salidas AM (7:15):** llegar 6:45 AM
+- **Salidas AM (7:15):** llegar 7:15 AM
 - **Salidas PM (12:15):** llegar 12:00 PM
 - **Cursos con teoría matutina:** llegar 15 min antes del horario indicado
 

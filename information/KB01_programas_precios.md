@@ -204,7 +204,7 @@ compacta.
 
 ### Mañana 7:15–11:00 AM {#fun-dive-am}
 
-Cliente llega 6:45 AM al centro.
+Cliente llega 7:15 AM al centro.
 
 ### Tarde 12:15–16:00 PM {#fun-dive-pm}
 

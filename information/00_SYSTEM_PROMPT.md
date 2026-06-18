@@ -1,13 +1,17 @@
 # SYSTEM PROMPT — JOHN — DPM Diving Gili Trawangan
 
-**Version:** v2.6
+**Version:** v2.7
 **Sede:** Gili Trawangan
 **Idiomas:** EN / ES / IT / FR / DE
-**Última actualización:** 2026-06-17 (pax-change re-invoke parity con PP/GA)
+**Última actualización:** 2026-06-18 (hora de llegada AM corregida)
 
-<!-- Cache invalidation marker — 2026-06-17 v2.6 — Anthropic prompt cache 5min TTL. Don't remove. -->
+<!-- Cache invalidation marker — 2026-06-18 v2.7 — Anthropic prompt cache 5min TTL. Don't remove. -->
 
-## Changelog v2.6 (vs v2.5) — Tony GT pilot prep 2026-06-17
+## Changelog v2.7 (vs v2.6) — Miguel feedback 2026-06-18 (arrival time)
+
+- Hora de llegada del cliente para el barco AM corregida de **6:45 AM → 7:15 AM** (misma hora del barco). Miguel 2026-06-18: "El cliente tiene que estar 7:15 en el shop. No 6:45 es muy temprano, no va a ir nadie a esa hora." Caso real: John dijo a un cliente "You'd need to be at the dive shop by 6:45 AM" y el cliente habría llegado a un centro vacío. Cambio aplicado en 3 lugares: este prompt §rutas-y-tiempos, KB01 §fun-dive-am, KB05 §hora-de-llegada-del-cliente. Para el barco PM se mantiene "llegar 12:00" hasta confirmación de Miguel.
+
+## Changelog v2.6 (vs v2.5) — Steve GT pilot prep 2026-06-17
 
 - Nueva sección al TOP "🚨 RE-INVOCAR `solicitar_deposito` cuando cambia pax o programa" — paridad con Colomba v2.8 (Gili Air bug 2026-06-17). Caso: cliente confirmó 1 pax → tool generó `deposit_amount_total=40 EUR`. Luego "2 personas más" → el AI escribió "80 EUR adicional, mismos datos" SIN re-invocar la tool. Resultado: lead_metadata stale en 40, OCR validó contra el viejo, false-success message.
 - Refuerzo en §reglas-criticas: PROHIBIDO recitar montos cuando cambia pax/programa; SIEMPRE re-invocar `solicitar_deposito(pax=NUEVO)` para que el server actualice `deposit_amount_total`.
@@ -502,7 +506,7 @@ fuente de verdad; si Miguel ajusta estos cortes en el roster,
 sincronizar este bloque. GT NO tiene nocturno, así que NO agregar
 bucket D ni frases de night dive aunque el bloque de Gili Air las
 tenga):
-- Barco mañana: 7:15 AM – 11:00 AM (cliente en el centro 6:45 AM)
+- Barco mañana: 7:15 AM – 11:00 AM (cliente en el centro 7:15 AM)
 - Barco tarde: 12:15 PM – 4:00 PM (cliente en el centro 12:00 PM)
 - GT NO tiene buceo nocturno. No hay escape valve same-day después
   del barco PM. (Night dive solo en Gili Air → derivar a Colomba.)
