@@ -38,6 +38,7 @@ DPM Diving usa un asistente AI en WhatsApp para cada una de las 5 sedes. Cada se
 
 Estos agentes:
 - Reciben los mensajes nuevos en WhatsApp 24/7
+- **Esperan ~5 segundos** después de cada mensaje del cliente antes de responder. Esto es a propósito: si el cliente manda varios mensajes seguidos rápidos, el AI los junta y contesta UNA sola vez en vez de soltar 3 burbujas seguidas — más parecido a un humano.
 - Califican al cliente (qué curso quiere, cuántas personas, qué fechas)
 - Mandan catálogos visuales con precios
 - Consultan disponibilidad en el roster

@@ -25,6 +25,10 @@ import { processAgentMessage } from "../handlers/process-agent-message.js";
 import { processIncomingMessage } from "../handlers/process-message.js";
 import { handleContactStateEvent } from "../handlers/contact-state-event.js";
 import { withConversationLock } from "../services/conversation-lock.js";
+import {
+  enqueueOrBatch,
+  isBatchEligible,
+} from "../services/message-batcher.js";
 import { sedeSlugToName, SEDE_SLUGS } from "../services/sede.js";
 import {
   authenticateWebhook,
@@ -236,6 +240,20 @@ export async function webhookRoutes(app: FastifyInstance) {
           await processAgentMessage(parsed.data, dispatch.agentName, req.log);
           return;
         }
+
+        // Debounce-and-coalesce text bursts (Steve 2026-06-18). Multiple
+        // quick customer messages on the same contact get merged into
+        // ONE Claude call. Attachments, button clicks, etc. bypass and
+        // are processed immediately as before.
+        if (isBatchEligible(parsed.data)) {
+          enqueueOrBatch(parsed.data, req.log, (merged, log) =>
+            withConversationLock(merged.contact.id, () =>
+              processIncomingMessage(merged, log).then(() => undefined),
+            ),
+          );
+          return;
+        }
+
         await withConversationLock(parsed.data.contact.id, () =>
           processIncomingMessage(parsed.data, req.log),
         );
