@@ -232,29 +232,34 @@ export async function webhookRoutes(app: FastifyInstance) {
       captureWebhookDebug({ body: normalized, classifiedAs: "bot_outbound" });
       return reply.send({ ok: true, ignored: "bot_outbound" });
     }
+    // Dedupe by message.messageId (Miguel 2026-06-18, hoisted out of
+    // the async handle 2026-06-19 perf pass). Respond.io fans out the
+    // same customer message to every active webhook subscription, so
+    // we see 3-6 webhooks per real message. Checking BEFORE the async
+    // handle dispatch means we don't even allocate the closure / event
+    // loop slot for duplicates — they return 200 immediately on the
+    // synchronous fast path.
+    if (isDuplicateMessageId(parsed.data)) {
+      req.log.info(
+        {
+          contactId: parsed.data.contact?.id ?? null,
+          messageId: parsed.data.message.messageId,
+          dispatchKind: dispatch.kind,
+        },
+        "duplicate message_id — Respond.io fan-out; dropping (fast path)",
+      );
+      captureWebhookDebug({
+        body: normalized,
+        classifiedAs: `duplicate_message_id:${parsed.data.message.messageId ?? "unknown"}`,
+      });
+      return reply.status(200).send({ ok: true, deduped: true });
+    }
+
     captureWebhookDebug({ body: normalized, classifiedAs: `processing:${dispatch.kind}` });
 
     const handle = (async () => {
       const t0 = Date.now();
       try {
-        // Dedupe by message.messageId (Miguel 2026-06-18). Respond.io
-        // fans out the same customer message to every active webhook
-        // subscription, so we see 3-6 webhooks per real message. Drop
-        // any webhook whose messageId we've already accepted — including
-        // agent/bot outbound copies and PDF/image attachments — so no
-        // downstream handler runs twice for the same underlying event.
-        if (isDuplicateMessageId(parsed.data)) {
-          req.log.info(
-            {
-              contactId: parsed.data.contact?.id ?? null,
-              messageId: parsed.data.message.messageId,
-              dispatchKind: dispatch.kind,
-            },
-            "duplicate message_id — Respond.io fan-out; dropping",
-          );
-          return;
-        }
-
         if (dispatch.kind === "agent_outbound") {
           await processAgentMessage(parsed.data, dispatch.agentName, req.log);
           return;

@@ -29,9 +29,13 @@
 const inFlight = new Map<string, Promise<unknown>>();
 
 // Hard cap so a hung Claude/Respond.io call can't permanently block a
-// conversation. 60s comfortably covers the worst observed end-to-end
-// latency (PDF OCR + send + transitions ≈ 15-25s).
-const LOCK_TIMEOUT_MS = 60_000;
+// conversation. Tightened 60s → 15s 2026-06-19 (Steve perf pass): a
+// truly stuck lock used to wedge the next inbound for a full minute,
+// magnifying the perceived latency hit when Respond.io itself was
+// already delivering webhooks slowly. 15s still comfortably covers a
+// normal PDF OCR + Claude tool-call cycle; a single legitimate request
+// that exceeds this is rare and the next inbound just recovers.
+const LOCK_TIMEOUT_MS = 15_000;
 
 /**
  * Run `fn` exclusively for the given conversation id. If another caller is

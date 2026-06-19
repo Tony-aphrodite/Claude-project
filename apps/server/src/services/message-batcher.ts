@@ -37,15 +37,19 @@ import { pickFirstAttachment } from "./respond-io-attachment.js";
 import { AI_ENABLED_SEDE_NAMES_CONST } from "./sede.js";
 
 // Debounce window: how long we wait after the most recent message
-// before firing the batch. 5s is the sweet spot — long enough to catch
-// rapid typing pauses, short enough that the customer doesn't feel
-// abandoned waiting for a reply.
-const DEBOUNCE_MS = 5_000;
+// before firing the batch. Tightened 5s → 2s 2026-06-19 (Steve perf
+// pass): under high webhook-fanout load, the original 5s window plus
+// Respond.io's ~90s delivery jitter made the customer perceive ~2-3
+// min total latency. 2s still catches paragraph-style typing pauses
+// (humans rarely type a single thought split across <2s gaps) and is
+// short enough that the per-turn overhead drops from 5s to 2s.
+const DEBOUNCE_MS = 2_000;
 
 // Hard cap on total wait time from the first message in a batch. If a
-// customer types nonstop for 15s, we fire whatever we have rather than
-// keep extending. Prevents pathological "AI never replies" cases.
-const HARD_CAP_MS = 15_000;
+// customer types nonstop, we fire whatever we have rather than keep
+// extending. Lowered 15s → 6s 2026-06-19 to match the tightened
+// debounce — when the debounce is 2s, a 15s cap is dead weight.
+const HARD_CAP_MS = 6_000;
 
 // ─── Message-id dedup (Miguel 2026-06-18 feedback) ──────────────────────────
 // Respond.io fires multiple webhooks per customer message because we have

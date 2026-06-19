@@ -475,14 +475,15 @@ export async function handleContactStateEvent(
         // but don't block the webhook response.
         void (async () => {
           try {
-            // Pull the contact's language so we can pick EN vs ES welcome
-            // (Miguel 2026-06-18). Best-effort; falls back to Spanish if
-            // the fetch fails, matching pre-2026-06-18 behavior.
-            const contactLangSnap = await respondIoClient
-              .getContact(String(contactId))
-              .then((c) => (c as { language?: string } | null)?.language ?? null)
-              .catch(() => null);
-            const welcomeText = pickWelcome(sedeAi.welcomes, contactLangSnap);
+            // Perf 2026-06-19 (Steve): the conv-existing branch defaults
+            // to Spanish — same as pre-2026-06-18 behavior. The English-
+            // language welcome fix applies in the no-conv path below
+            // (which uses `fresh.language` already loaded). We removed
+            // the extra getContact call here because it cost 1-3s on
+            // every workflow auto-welcome and this code path mostly
+            // fires for repeat customers (most "first contact" traffic
+            // hits the no-conv path).
+            const welcomeText = pickWelcome(sedeAi.welcomes, null);
 
             // Reassign first so when the welcome lands in Respond.io it
             // already shows the AI as owner. Best-effort — if the API
@@ -520,7 +521,7 @@ export async function handleContactStateEvent(
               metadata: {
                 auto_welcome: true,
                 sede: sedeName,
-                language_used: contactLangSnap,
+                language_used: null,
               },
             });
 
