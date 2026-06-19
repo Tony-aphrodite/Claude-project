@@ -1208,8 +1208,84 @@ export async function processIncomingMessage(
   // When either trips, the message is still persisted above (panel
   // timeline stays complete) but the AI does not generate or send a reply.
   // ────────────────────────────────────────────────────────────────────────
-  const persistedHumanTookOver =
+  let persistedHumanTookOver =
     (conversation.leadMetadata as LeadMetadata | null)?.human_took_over === true;
+
+  // Stale-flag self-heal (Miguel 2026-06-18 feedback "AI stops mid-conv").
+  //
+  // The race we hit before: Respond.io's welcome workflow temporarily
+  // assigns the conversation to a human (Laura/Fabiola/etc.), then the
+  // "API" rule re-assigns it to the sede AI bot. The two assignee.updated
+  // webhooks fire within milliseconds of each other; sometimes our
+  // contact-state handler sees them in reverse order (release first, then
+  // takeover) — the release no-ops because no flag is set yet, then the
+  // takeover stamps a flag that never gets cleared. Result: AI is silent
+  // for the rest of the conversation even though the current assignee is
+  // its own bot user.
+  //
+  // Defense: if the flag is set BUT the incoming message's `conversation.
+  // assignee` is the AI bot, the flag is provably stale (the AI IS the
+  // current owner — there's no human in the picture). We clear the flag
+  // in the DB, mirror the change locally, and reset lead_stage from
+  // `handed_off` → `qualified` to match the explicit-release path.
+  if (persistedHumanTookOver) {
+    const incomingAssigneeForHeal = payload.conversation?.assignee;
+    const incomingIsAiBot =
+      incomingAssigneeForHeal !== undefined &&
+      incomingAssigneeForHeal !== null &&
+      incomingAssigneeForHeal !== "" &&
+      isAiAssignee(incomingAssigneeForHeal);
+    if (incomingIsAiBot) {
+      const oldMeta =
+        (conversation.leadMetadata as LeadMetadata | null) ?? ({} as LeadMetadata);
+      const {
+        human_took_over: _ht,
+        human_took_over_at: _hta,
+        human_took_over_by: _htb,
+        ...restMeta
+      } = oldMeta;
+      void _ht;
+      void _hta;
+      void _htb;
+      await getDb()
+        .update(conversaciones)
+        .set({ leadMetadata: restMeta as LeadMetadata, updatedAt: new Date() })
+        .where(eq(conversaciones.id, conversation.id))
+        .catch((err) =>
+          log.warn(
+            { err: (err as Error).message, conversationId: conversation.id },
+            "stale-flag self-heal: flag clear failed",
+          ),
+        );
+      conversation.leadMetadata = restMeta as LeadMetadata;
+      persistedHumanTookOver = false;
+      if (conversation.leadStage === "handed_off") {
+        const stageResult = await leadStageService.forceTransition({
+          conversacionId: conversation.id,
+          to: "qualified",
+          by: "system",
+          note: `stale_flag_self_heal:${incomingAssigneeForHeal}`,
+        });
+        if (stageResult.ok) {
+          conversation.leadStage = "qualified";
+        } else {
+          log.warn(
+            { conversationId: conversation.id, reason: stageResult.reason },
+            "stale-flag self-heal: stage reset failed (flag still cleared)",
+          );
+        }
+      }
+      log.info(
+        {
+          conversationId: conversation.id,
+          contactId: payload.contact.id,
+          incomingAssignee: incomingAssigneeForHeal,
+        },
+        "human_took_over flag was stale (current assignee is AI bot) — self-healed (Miguel 2026-06-18)",
+      );
+    }
+  }
+
   if (persistedHumanTookOver) {
     log.info(
       {

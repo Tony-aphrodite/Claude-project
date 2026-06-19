@@ -31,32 +31,76 @@ import { respondIoClient } from "../services/respond-io.js";
 // 2026-06-15: GA / KT / GT / NP must match PP's flow — sede AI sends "I'm
 // X from Y" greeting automatically right after sede selection, no
 // customer message needed in between.
-const SEDE_AI_USERS: Readonly<Record<string, { assigneeId: number; welcome: string }>> = {
+//
+// Miguel 2026-06-18 feedback: when a customer wrote the first message in
+// English, the Spanish-only welcome confused them ("the AI uses the wrong
+// language"). The welcomes now carry both EN and ES variants; pickWelcome()
+// chooses based on the contact's `language` field (set by Respond.io's
+// welcome workflow). Unknown language → Spanish default, preserving the
+// pre-2026-06-18 behavior for ES + uncertain cases.
+type SedeWelcomes = { en: string; es: string };
+
+const SEDE_AI_USERS: Readonly<
+  Record<string, { assigneeId: number; welcomes: SedeWelcomes }>
+> = {
   "Koh Phi Phi": {
     assigneeId: 440519,
-    welcome: "¡Hola! Soy Francisco Emilio de DPM Diving Koh Phi Phi 🤿 ¿En qué te puedo ayudar?",
+    welcomes: {
+      es: "¡Hola! Soy Francisco Emilio de DPM Diving Koh Phi Phi 🤿 ¿En qué te puedo ayudar?",
+      en: "Hi! I'm Francisco Emilio from DPM Diving Koh Phi Phi 🤿 How can I help you?",
+    },
   },
   "Gili Air": {
     assigneeId: 441308,
-    welcome: "¡Hola! Soy Colomba de DPM Diving Gili Air 🤿 ¿En qué te puedo ayudar?",
+    welcomes: {
+      es: "¡Hola! Soy Colomba de DPM Diving Gili Air 🤿 ¿En qué te puedo ayudar?",
+      en: "Hi! I'm Colomba from DPM Diving Gili Air 🤿 How can I help you?",
+    },
   },
   "Gili Trawangan": {
     assigneeId: 462203,
-    welcome: "¡Hola! Soy John de DPM Diving Gili Trawangan 🤿 ¿En qué te puedo ayudar?",
+    welcomes: {
+      es: "¡Hola! Soy John de DPM Diving Gili Trawangan 🤿 ¿En qué te puedo ayudar?",
+      en: "Hi! I'm John from DPM Diving Gili Trawangan 🤿 How can I help you?",
+    },
   },
   "Nusa Penida": {
     assigneeId: 464075,
-    welcome: "¡Hola! Soy David de DPM Diving Nusa Penida 🤿 ¿En qué te puedo ayudar?",
+    welcomes: {
+      es: "¡Hola! Soy David de DPM Diving Nusa Penida 🤿 ¿En qué te puedo ayudar?",
+      en: "Hi! I'm David from DPM Diving Nusa Penida 🤿 How can I help you?",
+    },
   },
-  // Miguel 2026-06-18: kohtao@dpmdiving.com → assigneeId 973488. Same shape
-  // as the other 4. Koh Tao serves a heavier English audience than the
-  // Indo sedes; keeping the welcome in Spanish for parity since Emma's
-  // prompt handles language detection internally.
+  // Miguel 2026-06-18: kohtao@dpmdiving.com → assigneeId 973488.
   "Koh Tao": {
     assigneeId: 973488,
-    welcome: "¡Hola! Soy Emma de DPM Diving Koh Tao 🤿 ¿En qué te puedo ayudar?",
+    welcomes: {
+      es: "¡Hola! Soy Emma de DPM Diving Koh Tao 🤿 ¿En qué te puedo ayudar?",
+      en: "Hi! I'm Emma from DPM Diving Koh Tao 🤿 How can I help you?",
+    },
   },
 };
+
+/**
+ * Pick a welcome string by language (Miguel 2026-06-18 feedback).
+ *
+ * Respond.io's contact.language field uses long-form names ("English",
+ * "Spanish", "Italian", "French", etc.). We match on the first two
+ * characters (case-insensitive) since that disambiguates the languages
+ * we care about without false positives.
+ *
+ * Anything we can't classify falls through to Spanish — that matches the
+ * pre-2026-06-18 behavior so the change is strictly additive (English
+ * customers get a better experience; nobody regresses).
+ */
+function pickWelcome(
+  welcomes: SedeWelcomes,
+  language: string | null | undefined,
+): string {
+  const lang = (language ?? "").trim().toLowerCase();
+  if (lang.startsWith("en")) return welcomes.en;
+  return welcomes.es;
+}
 
 type IncomingPayload = {
   contact?: { id?: string | number };
@@ -431,6 +475,15 @@ export async function handleContactStateEvent(
         // but don't block the webhook response.
         void (async () => {
           try {
+            // Pull the contact's language so we can pick EN vs ES welcome
+            // (Miguel 2026-06-18). Best-effort; falls back to Spanish if
+            // the fetch fails, matching pre-2026-06-18 behavior.
+            const contactLangSnap = await respondIoClient
+              .getContact(String(contactId))
+              .then((c) => (c as { language?: string } | null)?.language ?? null)
+              .catch(() => null);
+            const welcomeText = pickWelcome(sedeAi.welcomes, contactLangSnap);
+
             // Reassign first so when the welcome lands in Respond.io it
             // already shows the AI as owner. Best-effort — if the API
             // call fails the welcome still sends.
@@ -457,14 +510,18 @@ export async function handleContactStateEvent(
             await respondIoClient.sendMessage({
               conversationId: respondIoConvId,
               contactId: String(contactId),
-              text: sedeAi.welcome,
+              text: welcomeText,
             });
 
             await db.insert(mensajes).values({
               conversacionId: conv.id,
               sender: "ai",
-              content: sedeAi.welcome,
-              metadata: { auto_welcome: true, sede: sedeName },
+              content: welcomeText,
+              metadata: {
+                auto_welcome: true,
+                sede: sedeName,
+                language_used: contactLangSnap,
+              },
             });
 
             log.info(
@@ -732,6 +789,14 @@ async function maybeSendWorkflowAutoWelcome(args: {
       return;
     }
 
+    // Pick EN vs ES welcome from the contact's `language` field
+    // (Miguel 2026-06-18). The `fresh` object came from getContact
+    // above, so the language we read here is the same one Respond.io's
+    // workflow already set when the customer chose their preference.
+    const contactLangForWelcome =
+      (fresh as { language?: string } | null)?.language ?? null;
+    const welcomeText = pickWelcome(sedeAi.welcomes, contactLangForWelcome);
+
     // Pilot gate (Tony 2026-06-17): respect the PILOT_REQUIRE_TAG
     // env CSV here too — without this, the auto-welcome fires for
     // every sede the SEDE_AI_USERS map knows about (GT John / NP
@@ -771,7 +836,7 @@ async function maybeSendWorkflowAutoWelcome(args: {
     await respondIoClient.sendMessage({
       conversationId: "$conversation.id",
       contactId,
-      text: sedeAi.welcome,
+      text: welcomeText,
     });
 
     // Persist the conv + welcome in our DB so the customer's NEXT message
@@ -805,8 +870,12 @@ async function maybeSendWorkflowAutoWelcome(args: {
         await db.insert(mensajes).values({
           conversacionId: conv.id,
           sender: "ai",
-          content: sedeAi.welcome,
-          metadata: { auto_welcome: true, sede: branch },
+          content: welcomeText,
+          metadata: {
+            auto_welcome: true,
+            sede: branch,
+            language_used: contactLangForWelcome,
+          },
         });
         log.info(
           { contactId, conversationId: conv.id, branch },

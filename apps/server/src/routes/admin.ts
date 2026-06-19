@@ -28,7 +28,7 @@
 
 import type { FastifyInstance } from "fastify";
 
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import {
   chatContacts,
@@ -39,7 +39,10 @@ import {
 } from "@dpm/db";
 import { LEAD_STAGES, type LeadStage } from "@dpm/shared";
 
+import type { LeadMetadata, RespondIoIncomingMessage } from "@dpm/shared";
+
 import { loadEnv } from "../env.js";
+import { processIncomingMessage } from "../handlers/process-message.js";
 import {
   getReplayRun,
   listReplayRunsForConversation,
@@ -1433,5 +1436,182 @@ export async function adminRoutes(app: FastifyInstance) {
     }
     const runs = await listReplayRunsForConversation(q.conversacionId);
     return reply.send({ ok: true, runs });
+  });
+
+  // ─── POST /admin/conversations/:id/reroll ─────────────────────────────
+  // Miguel 2026-06-18 feedback: "AI se queda colgada en medio de una
+  // conversación; escribimos algo y cuando el cliente contesta, la AI
+  // vuelve a contestar normal." His proposed solution was a "re-roll"
+  // button to make the AI take a fresh turn without needing the
+  // operator to write a manual message first.
+  //
+  // What this endpoint does:
+  //   1. Clears `lead_metadata.human_took_over` if set (stale-flag
+  //      recovery — same as the new server-side self-heal but here
+  //      operator-triggered).
+  //   2. Resets `lead_stage` from `handed_off` → `qualified` so the
+  //      post-handoff silence guard in process-message no longer
+  //      trips.
+  //   3. Reads the most recent `cliente` message in `mensajes` for
+  //      this conversation.
+  //   4. Synthesizes a minimal Respond.io webhook payload from that
+  //      message and pipes it through processIncomingMessage. The AI
+  //      generates and sends a fresh response.
+  //
+  // Safety: synthesizes a new `messageId` (`reroll-...`) so the
+  // dedup layer doesn't see this as a duplicate of the original
+  // customer webhook. Skips the batcher path (immediate processing).
+  //
+  // Returns 200 immediately with `{ ok: true, queued: true, ... }`
+  // and processes the AI turn asynchronously.
+  app.post("/admin/conversations/:id/reroll", async (req, reply) => {
+    const auth = requireAdminAuth(req.headers);
+    if (auth === "no_token") {
+      return reply.status(503).send({ error: { code: "admin_disabled" } });
+    }
+    if (auth === "bad_auth") {
+      return reply.status(401).send({ error: { code: "unauthorized" } });
+    }
+
+    const conversationId = (req.params as { id?: string })?.id;
+    if (!conversationId) {
+      return reply.status(400).send({
+        error: { code: "bad_request", message: "Missing :id path param" },
+      });
+    }
+
+    const db = getDb();
+    const [conv] = await db
+      .select()
+      .from(conversaciones)
+      .where(eq(conversaciones.id, conversationId))
+      .limit(1);
+    if (!conv) {
+      return reply.status(404).send({
+        error: { code: "not_found", message: "Conversation not found" },
+      });
+    }
+    if (!conv.respondIoContactId) {
+      return reply.status(400).send({
+        error: {
+          code: "no_contact_id",
+          message: "Conversation has no respondIoContactId — cannot re-roll",
+        },
+      });
+    }
+
+    // (1) Clear stale takeover flag if set.
+    const oldMeta = (conv.leadMetadata as LeadMetadata | null) ?? ({} as LeadMetadata);
+    let clearedFlag = false;
+    if (oldMeta.human_took_over === true) {
+      const {
+        human_took_over: _ht,
+        human_took_over_at: _hta,
+        human_took_over_by: _htb,
+        ...restMeta
+      } = oldMeta;
+      void _ht;
+      void _hta;
+      void _htb;
+      await db
+        .update(conversaciones)
+        .set({ leadMetadata: restMeta as LeadMetadata, updatedAt: new Date() })
+        .where(eq(conversaciones.id, conversationId));
+      clearedFlag = true;
+    }
+
+    // (2) Reset stage from handed_off.
+    let stageResetTo: string | null = null;
+    if (conv.leadStage === "handed_off") {
+      const stageResult = await leadStageService.forceTransition({
+        conversacionId: conversationId,
+        to: "qualified",
+        by: "human",
+        note: `reroll_admin:${req.ip ?? "unknown"}`,
+      });
+      if (stageResult.ok) {
+        stageResetTo = "qualified";
+      } else {
+        req.log.warn(
+          { conversationId, reason: stageResult.reason },
+          "reroll: stage reset failed (continuing with flag-clear only)",
+        );
+      }
+    }
+
+    // (3) Find the most recent customer message.
+    const [lastCustomerMsg] = await db
+      .select({
+        id: mensajes.id,
+        content: mensajes.content,
+        createdAt: mensajes.createdAt,
+      })
+      .from(mensajes)
+      .where(
+        and(
+          eq(mensajes.conversacionId, conversationId),
+          eq(mensajes.sender, "cliente"),
+        ),
+      )
+      .orderBy(desc(mensajes.createdAt))
+      .limit(1);
+    if (!lastCustomerMsg) {
+      return reply.status(400).send({
+        error: {
+          code: "no_customer_message",
+          message:
+            "No customer messages found in this conversation — nothing to re-roll. The AI needs at least one prior customer turn to respond to.",
+        },
+      });
+    }
+
+    // (4) Synthesize a minimal webhook payload and pipe through
+    // processIncomingMessage. Schema requires `event`, `contact`, `message`;
+    // optional fields filled with sensible defaults so the strict parser
+    // accepts it.
+    const syntheticMessageId = `reroll-${Date.now()}-${conversationId.slice(0, 6)}`;
+    const synthetic: RespondIoIncomingMessage = {
+      event: "message.received",
+      contact: {
+        id: conv.respondIoContactId,
+      },
+      message: {
+        messageId: syntheticMessageId,
+        type: "text",
+        text: lastCustomerMsg.content,
+        direction: "incoming",
+      },
+    } as RespondIoIncomingMessage;
+
+    // Fire-and-forget: the HTTP response returns immediately; the AI work
+    // happens in the background and the customer gets the reply via the
+    // normal sendMessage path.
+    void processIncomingMessage(synthetic, req.log).catch((err) =>
+      req.log.error(
+        { err: (err as Error).message, conversationId },
+        "reroll: processIncomingMessage failed",
+      ),
+    );
+
+    req.log.info(
+      {
+        conversationId,
+        contactId: conv.respondIoContactId,
+        clearedFlag,
+        stageResetTo,
+        rerolledFromMessageId: lastCustomerMsg.id,
+        syntheticMessageId,
+      },
+      "reroll triggered — async processing started",
+    );
+
+    return reply.send({
+      ok: true,
+      queued: true,
+      conversationId,
+      clearedFlag,
+      stageResetTo,
+      rerolledFromMessageId: lastCustomerMsg.id,
+    });
   });
 }

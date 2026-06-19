@@ -28,6 +28,7 @@ import { withConversationLock } from "../services/conversation-lock.js";
 import {
   enqueueOrBatch,
   isBatchEligible,
+  isDuplicateMessageId,
 } from "../services/message-batcher.js";
 import { sedeSlugToName, SEDE_SLUGS } from "../services/sede.js";
 import {
@@ -236,6 +237,24 @@ export async function webhookRoutes(app: FastifyInstance) {
     const handle = (async () => {
       const t0 = Date.now();
       try {
+        // Dedupe by message.messageId (Miguel 2026-06-18). Respond.io
+        // fans out the same customer message to every active webhook
+        // subscription, so we see 3-6 webhooks per real message. Drop
+        // any webhook whose messageId we've already accepted — including
+        // agent/bot outbound copies and PDF/image attachments — so no
+        // downstream handler runs twice for the same underlying event.
+        if (isDuplicateMessageId(parsed.data)) {
+          req.log.info(
+            {
+              contactId: parsed.data.contact?.id ?? null,
+              messageId: parsed.data.message.messageId,
+              dispatchKind: dispatch.kind,
+            },
+            "duplicate message_id — Respond.io fan-out; dropping",
+          );
+          return;
+        }
+
         if (dispatch.kind === "agent_outbound") {
           await processAgentMessage(parsed.data, dispatch.agentName, req.log);
           return;

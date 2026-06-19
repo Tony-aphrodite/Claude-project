@@ -47,6 +47,64 @@ const DEBOUNCE_MS = 5_000;
 // keep extending. Prevents pathological "AI never replies" cases.
 const HARD_CAP_MS = 15_000;
 
+// ─── Message-id dedup (Miguel 2026-06-18 feedback) ──────────────────────────
+// Respond.io fires multiple webhooks per customer message because we have
+// multiple subscriptions active (per-sede webhook + Sync workflow webhooks
+// + the shared workspace one). webhook_debug_log confirms 3-6 webhook
+// arrivals for a single customer message, sometimes spread over 6+ seconds.
+//
+// Customer-facing symptom (Miguel): "muchas veces repite el mensaje varias
+// veces el mismo — es como si la AI recibiera el webhook varias veces y
+// repite el mensaje". The batcher catches duplicates that arrive within
+// its 5s window; this dedup layer catches the ones that arrive later by
+// matching on `payload.message.messageId` (which is the same across every
+// Respond.io duplicate webhook for one underlying message).
+//
+// Storage: in-memory Map<messageId, timestamp> with LRU eviction at the
+// cap. Cap is generous because a duplicate ALWAYS arrives within seconds
+// of the original; a one-day pilot session won't come close to filling
+// 10k entries.
+const SEEN_MSGID_CAP = 10_000;
+const SEEN_MSGID_EVICT_PCT = 10;
+const seenMessageIds = new Map<string, number>();
+
+/**
+ * True if we've already accepted this exact `message.messageId` recently.
+ * Caller should drop the webhook silently (it's a duplicate fan-out from
+ * Respond.io, not a real new customer message).
+ *
+ * Idempotent: calling this twice for the same id is fine. The first call
+ * records the id; subsequent calls return `true`. Race-safe because Node
+ * is single-threaded.
+ *
+ * No-op (returns false) when the payload has no messageId. Some Respond.io
+ * payload shapes legitimately omit it; we don't want to dedupe those by
+ * mistake.
+ */
+export function isDuplicateMessageId(
+  payload: RespondIoIncomingMessage,
+): boolean {
+  const id = payload.message.messageId;
+  if (!id) return false;
+  if (seenMessageIds.has(id)) return true;
+
+  if (seenMessageIds.size >= SEEN_MSGID_CAP) {
+    const evictCount = Math.floor(
+      (SEEN_MSGID_CAP * SEEN_MSGID_EVICT_PCT) / 100,
+    );
+    const sortedByTime = Array.from(seenMessageIds.entries()).sort(
+      (a, b) => a[1] - b[1],
+    );
+    for (let i = 0; i < evictCount && i < sortedByTime.length; i++) {
+      const [oldestId] = sortedByTime[i]!;
+      seenMessageIds.delete(oldestId);
+    }
+  }
+
+  seenMessageIds.set(id, Date.now());
+  return false;
+}
+
 type PendingBatch = {
   payloads: RespondIoIncomingMessage[];
   timer: NodeJS.Timeout;

@@ -8,7 +8,7 @@ import {
 } from "@dpm/shared";
 
 import { StageChip, STAGE_META } from "~/app/_components/stage";
-import { overrideLeadStage } from "~/app/actions/leads";
+import { overrideLeadStage, triggerReroll } from "~/app/actions/leads";
 import { requireUserContext } from "~/lib/auth-context";
 import { getConversation } from "~/lib/db-queries";
 
@@ -128,6 +128,27 @@ export default async function ConversationDetail({
             <input type="text" name="note" className="input" placeholder="motivo del override" />
           </label>
           <button className="btn-primary">Aplicar</button>
+        </form>
+      </section>
+
+      <section className="card">
+        <header className="flex items-baseline justify-between mb-3">
+          <h2 className="h-section">Re-roll AI</h2>
+          <span className="text-[11px] text-ink-500">
+            Miguel 2026-06-18 — destrabar conversación
+          </span>
+        </header>
+        <p className="text-xs text-ink-600 mb-3 max-w-prose">
+          Si la AI dejó de contestar en medio de una conversación (race de
+          asignación humano→bot), este botón limpia la bandera
+          `human_took_over`, vuelve la etapa de `handed_off` a `qualified`
+          si aplica, y dispara una respuesta nueva contra el último
+          mensaje del cliente. La AI vuelve a escribir sin que tengas
+          que mandar mensaje manual primero.
+        </p>
+        <form action={triggerReroll}>
+          <input type="hidden" name="conversacionId" value={conv.conv.id} />
+          <button className="btn-primary">Re-roll AI ahora</button>
         </form>
       </section>
 

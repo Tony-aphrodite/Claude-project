@@ -321,3 +321,63 @@ export async function overrideLeadStage(formData: FormData) {
   revalidatePath("/pipeline");
   revalidatePath(`/conversations/${conversacionId}`);
 }
+
+/**
+ * Miguel 2026-06-18: "AI sometimes goes silent mid-conversation. We write
+ * something manually so the customer replies, and then the AI resumes
+ * normally. Why not a re-roll button so the AI takes a fresh turn without
+ * us having to intervene?"
+ *
+ * This action POSTs to the server's /admin/conversations/:id/reroll
+ * endpoint which:
+ *   • Clears the stale `human_took_over` flag if set
+ *   • Resets lead_stage from `handed_off` back to `qualified`
+ *   • Synthesizes a re-trigger from the last customer message
+ *   • Pipes it through processIncomingMessage so the AI generates +
+ *     sends a fresh response immediately
+ *
+ * Sede gate: office users can only re-roll their own sede's leads.
+ * Admins pass through.
+ */
+export async function triggerReroll(formData: FormData) {
+  const conversacionId = String(formData.get("conversacionId") ?? "");
+  if (!conversacionId) return;
+
+  const db = getDb();
+  const [conv] = await db
+    .select({ sedeId: conversaciones.sedeId })
+    .from(conversaciones)
+    .where(eq(conversaciones.id, conversacionId))
+    .limit(1);
+  if (!conv) return;
+  if (!(await assertSedeAccess(conv.sedeId))) return;
+
+  const baseUrl = process.env.DPM_SERVER_URL;
+  const token = process.env.ADMIN_RESET_TOKEN;
+  if (!baseUrl || !token) {
+    throw new Error(
+      "triggerReroll: DPM_SERVER_URL and ADMIN_RESET_TOKEN must be set in panel env",
+    );
+  }
+  const url = `${baseUrl.replace(/\/+$/, "")}/admin/conversations/${encodeURIComponent(conversacionId)}/reroll`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${token}`,
+      },
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`reroll ${res.status}: ${body.slice(0, 200)}`);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+
+  revalidatePath(`/conversations/${conversacionId}`);
+}
