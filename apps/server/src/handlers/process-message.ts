@@ -1229,12 +1229,49 @@ export async function processIncomingMessage(
   // in the DB, mirror the change locally, and reset lead_stage from
   // `handed_off` → `qualified` to match the explicit-release path.
   if (persistedHumanTookOver) {
-    const incomingAssigneeForHeal = payload.conversation?.assignee;
-    const incomingIsAiBot =
+    let incomingAssigneeForHeal: string | number | null | undefined =
+      payload.conversation?.assignee;
+    let incomingIsAiBot =
       incomingAssigneeForHeal !== undefined &&
       incomingAssigneeForHeal !== null &&
       incomingAssigneeForHeal !== "" &&
       isAiAssignee(incomingAssigneeForHeal);
+
+    // Steve 2026-06-20: when the message.received webhook payload omits
+    // `conversation.assignee` (which Respond.io frequently does), the
+    // payload-only check above stays inconclusive and the conversation
+    // stays silenced. Stuck contact 464223998 hit this all day. Fallback:
+    // when the flag is set AND the payload didn't give us an assignee,
+    // do ONE getContact() to find out the truth from Respond.io. The
+    // call only runs on flagged conversations (rare), so the ~300ms it
+    // adds is paid only when we'd otherwise be stuck.
+    if (!incomingIsAiBot) {
+      const liveAssigneeRaw = await respondIoClient
+        .getContact(String(payload.contact.id))
+        .then((c) => (c as { assignee?: unknown } | null)?.assignee ?? null)
+        .catch(() => null);
+      const liveAssignee =
+        typeof liveAssigneeRaw === "string" || typeof liveAssigneeRaw === "number"
+          ? liveAssigneeRaw
+          : null;
+      if (
+        liveAssignee !== null &&
+        liveAssignee !== "" &&
+        isAiAssignee(liveAssignee)
+      ) {
+        incomingAssigneeForHeal = liveAssignee;
+        incomingIsAiBot = true;
+        log.info(
+          {
+            conversationId: conversation.id,
+            contactId: payload.contact.id,
+            liveAssignee,
+          },
+          "stale-flag self-heal: payload lacked assignee; fresh getContact confirms AI bot is current owner",
+        );
+      }
+    }
+
     if (incomingIsAiBot) {
       const oldMeta =
         (conversation.leadMetadata as LeadMetadata | null) ?? ({} as LeadMetadata);
