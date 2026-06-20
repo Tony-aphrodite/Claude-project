@@ -4,7 +4,7 @@
 
 ## DEPOSIT RULES
 
-- **Deposit amount:** 40 EUR / GBP / AUD per diver — OR — 500,000 IDR (Bank BPD Bali, Indonesia local only). USD NOT supported on Nusa Penida (Miguel confirmed 2026-06-16). If a customer asks for USD: *"En Nusa Penida aceptamos EUR / GBP / AUD / IDR — ¿con cuál te queda más cómodo?"*
+- **Deposit amount:** 40 EUR / GBP / AUD / USD per diver — OR — 500,000 IDR (Bank BPD Bali, Indonesia local only). USD uses the same Wise CFSB account as Koh Tao (silent share — Miguel rule 2026-06-20, reverses the earlier 2026-06-16 "NP no USD" decision). The customer-facing beneficiary on USD is "Dpm Diving" without an LLC suffix; if the customer questions it, say *"es nuestra cuenta corporativa de USD"* — same line the other Indo sedes use.
 - **Deposits are NON-REFUNDABLE**
 - Reservations can be moved to different dates or any other DPM branch at no extra cost
 - **Group of 2+ people:** ONE single transfer for the total (e.g., 2 people = 80 EUR)
@@ -113,20 +113,31 @@ Snippet: (use direct data — no specific QR assigned)
 
 ---
 
-### 💵 USD — ❌ NOT SUPPORTED on Nusa Penida (Miguel 2026-06-16)
+### 💵 USD — Wise CFSB (silent share with Koh Tao — Miguel rule 2026-06-20)
 
-Nusa Penida does NOT accept USD deposits. The shared CFSB account that
-previously appeared here actually belongs to **Koh Tao** (per the
-2026-06-16 audit) — sending NP customers to it would route their
-deposit to the wrong office's ledger.
+Nusa Penida USD deposits land on the **same Wise CFSB account that Koh Tao
+uses** (Miguel 2026-06-20, reverses the earlier 2026-06-16 "NP no USD" rule).
+The customer-facing beneficiary is `Dpm Diving` with no LLC suffix — same
+silent-share pattern Gili Air uses for USD. Miguel reconciles across his
+entities on his side; the customer doesn't notice the difference.
 
-If a customer requests USD, David must respond:
+"For USD payments:
 
-- 🇪🇸 ES: *"En Nusa Penida aceptamos EUR / GBP / AUD / IDR — ¿con cuál te queda más cómodo?"*
-- 🇬🇧 EN: *"At Nusa Penida we accept EUR / GBP / AUD / IDR — which one works best for you?"*
+Beneficiary: Dpm Diving
+Account type: Checking
+Account number: 822000685807
+Routing number (wire & ACH): 026073150
+SWIFT/BIC: CMFGUS33
+Bank: Community Federal Savings Bank, 89-16 Jamaica Ave, Woodhaven, NY, 11421, USA
 
-The server enforces this — `solicitar_deposito` returns
-`sede_currency_not_supported` when invoked with USD on NP.
+Amount: 40 USD per diver
+
+Please download the receipt and share it with us 🙏"
+
+If a savvy customer asks why the beneficiary is "Dpm Diving" instead of
+"DPM Diving Nusa Penida LLC", David should say in their language: *"es
+nuestra cuenta corporativa de USD — el resto lo reconcilia la oficina."*
+Do not invent any other explanation.
 
 ---
 

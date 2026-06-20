@@ -121,11 +121,11 @@ function referenceBlock(
  */
 type SedeBankBlocks = Partial<Record<DepositCurrency, string[]>>;
 
-// Shared KT USD block — re-used by Gili Air per Miguel's silent-share
-// instruction (2026-06-16). The customer-facing beneficiary stays as
-// "Dpm Diving" with no LLC suffix; if the customer questions it
-// Colomba responds per the prompt rule ("nuestra cuenta corporativa
-// para USD"). NP does NOT share USD — it rejects the currency.
+// Shared KT USD block — re-used by Gili Air (Miguel 2026-06-16) and
+// Nusa Penida (Miguel 2026-06-20, reverses an earlier "NP no USD"
+// rule). The customer-facing beneficiary stays as "Dpm Diving" with
+// no LLC suffix; if the customer questions it the sede AI responds
+// per the prompt rule ("nuestra cuenta corporativa para USD").
 const KT_USD_BLOCK: string[] = [
   "Beneficiary: Dpm Diving",
   "Account type: Checking",
@@ -216,10 +216,12 @@ const BANK_BLOCKS_BY_SEDE: Record<string, SedeBankBlocks> = {
     ],
   },
 
-  // Miguel 2026-06-16 — NP block. USD NOT supported (Miguel: "Nusa
-  // penida no usa cuenta en dólares"). Old NP KB wrongly listed
-  // CFSB shared USD; that's actually KT's account. NP rejects USD
-  // — no silent fallback.
+  // Miguel 2026-06-16 → 2026-06-20 — NP block. USD now SUPPORTED via
+  // the same silent-share with KT that GA uses (Miguel's 2026-06-20
+  // bank-info dump confirmed account 822000685807 / CFSB for NP USD,
+  // which is exactly the KT_USD_BLOCK). The earlier "NP no USD" rule
+  // (2026-06-16) is reversed. EUR / GBP / AUD / IDR unchanged from
+  // the original NP delivery.
   "Nusa Penida": {
     EUR: [
       "Beneficiary: DPM Diving Nusa Penida LLC",
@@ -242,8 +244,7 @@ const BANK_BLOCKS_BY_SEDE: Record<string, SedeBankBlocks> = {
       "BIC/SWIFT: TRWIAUS1XXX",
       "Bank: Wise Australia Pty Ltd, Suite 1, Level 11, 66 Goulburn Street, Sydney, NSW, 2000, Australia",
     ],
-    // USD intentionally omitted — sedeSupportsCurrency() returns
-    // false; solicitar_deposito returns sede_currency_not_supported.
+    USD: KT_USD_BLOCK, // silent share with KT (Miguel 2026-06-20, reverses 2026-06-16 "no USD")
     IDR: [
       "Beneficiary: PT DPM DIVING NUSA PENIDA",
       "Bank: Bank BPD Bali",
