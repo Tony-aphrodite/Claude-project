@@ -209,17 +209,26 @@ For day-of-arrival diving from any other island → unlikely to work with the fe
 
 ---
 
-## LANGUAGES AVAILABLE
+## LANGUAGES AVAILABLE (Miguel 2026-06-20)
 
-### Always available (no need to check):
-- English
-- Spanish (Spanish-speaking instructors available)
+The AI converses fluently in **Spanish, English, German, French**. Other languages (Italian, Portuguese, etc.) → answer in English.
 
-### Check availability before confirming:
-- French
-- Italian
-- German
-- Portuguese
+### Conversation (AI chat)
+- Spanish ✅
+- English ✅
+- German ✅
+- French ✅
+- Anything else → English fallback
+
+### Instructor / dive guidance — important caveat
+- **English instructors:** always available.
+- **Spanish instructors:** available.
+- **German instructors:** NOT guaranteed. If no German-speaking instructor is free on the booked day, the in-water instruction/briefing is in **English**. Do NOT promise a German instructor.
+- **French instructors:** NOT guaranteed. Same fallback to English as German.
+
+### Study materials — guaranteed
+- **All study materials + MySSI app are available in the customer's language** (Spanish, English, German, French). This IS guaranteed regardless of instructor language.
+- Tell the German/French customer this PROACTIVELY before asking for the deposit (see system prompt §IDIOMA DE/FR — INSTRUCTOR).
 
 ---
 

@@ -316,7 +316,7 @@ Instructor: aún no se imparte en Phi Phi. Si preguntan, presentarlo como "próx
 ## REGLAS GENERALES DE PROGRAMAS
 
 - **Snorkeling**: No lo ofrecemos. Ofrecer Try Scuba como alternativa.
-- **Idiomas de instructor**: inglés, español, portugués (siempre disponibles); francés según disponibilidad.
+- **Idiomas de instructor** (Miguel 2026-06-20): inglés y español siempre disponibles. Alemán y francés NO garantizados — si no hay instructor en ese idioma el día del curso, la instrucción/encuadre es en inglés. Los materiales de estudio (teoría + app MySSI) SÍ están en alemán y francés. La AI igual conversa con el cliente en su idioma; lo único que no se garantiza es el instructor humano.
 - **SSI vs PADI**: misma validez mundial, vitalicia.
 - **Cancelaciones**: sin reembolsos. Rebooking dentro de 6 meses o transferir depósito a otra sede DPM.
 - **Pagos en oficina**: efectivo OK. Tarjeta +8% cargo. Transferencia +3% cargo.

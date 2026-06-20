@@ -118,18 +118,26 @@ Our afternoon boat returns around 5:00 PM and the last ferry from Koh Tao to Koh
 
 ---
 
-## LANGUAGES AVAILABLE
+## LANGUAGES AVAILABLE (Miguel 2026-06-20)
 
-### Always available (no need to check):
-- English
-- Spanish (note: Spanish programs start at 9:30 AM instead of 8:30 AM)
+The AI converses fluently in **Spanish, English, German, French**. Other languages (Italian, Portuguese, Thai, etc.) → answer in English.
 
-### Check availability before confirming:
-- German
-- Thai
-- Italian
-- Portuguese
-- French
+### Conversation (AI chat)
+- Spanish ✅ (note: Spanish programs start at 9:30 AM instead of 8:30 AM — operational only, not language related)
+- English ✅
+- German ✅
+- French ✅
+- Anything else → English fallback
+
+### Instructor / dive guidance — important caveat
+- **English instructors:** always available.
+- **Spanish instructors:** available.
+- **German instructors:** NOT guaranteed. If no German-speaking instructor is free on the booked day, the in-water instruction/briefing is in **English**. Do NOT promise a German instructor.
+- **French instructors:** NOT guaranteed. Same fallback to English as German.
+
+### Study materials — guaranteed
+- **All study materials + MySSI app are available in the customer's language** (Spanish, English, German, French). This IS guaranteed regardless of instructor language.
+- Tell the German/French customer this PROACTIVELY before asking for the deposit (see Emma prompt §IDIOMA DE/FR — INSTRUCTOR).
 
 ---
 
