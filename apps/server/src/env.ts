@@ -179,6 +179,18 @@ const envSchema = z.object({
   APPS_SCRIPT_TIMEOUT_MS: z.coerce.number().int().positive().default(2000),
 
   /**
+   * Feature flag for the Apps Script push-back (Miguel feedback 2026-06-20
+   * "ninguna AI descuenta disponibilidad del roster"). When set to "true",
+   * every confirmed roster booking also POSTs a deduction to Miguel's
+   * Apps Script so his Google Sheet reflects the booking. Defaults to off
+   * because Miguel's Apps Script side needs an `action=confirmBooking`
+   * handler that doesn't exist yet — flip this to "true" only AFTER his
+   * Apps Script is updated to accept the POST shape documented in
+   * services/apps-script.ts:pushBookingBackToSheet.
+   */
+  APPS_SCRIPT_PUSH_BACK_ENABLED: z.string().optional().or(z.literal("")),
+
+  /**
    * Bearer token required to hit /admin/* endpoints. The reset-conversation
    * endpoint blows away mensajes + lead_metadata + lead_stage for a contact
    * so testers can start a fresh scenario from the same WhatsApp number

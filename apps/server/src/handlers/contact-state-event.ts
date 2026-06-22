@@ -15,7 +15,7 @@
 
 import type { FastifyBaseLogger } from "fastify";
 
-import { and, eq, sql as drizzleSql } from "drizzle-orm";
+import { and, desc, eq, sql as drizzleSql } from "drizzle-orm";
 
 import { conversaciones, getDb, mensajes, sedes } from "@dpm/db";
 import type { LeadMetadata } from "@dpm/shared";
@@ -100,6 +100,47 @@ function pickWelcome(
   const lang = (language ?? "").trim().toLowerCase();
   if (lang.startsWith("en")) return welcomes.en;
   return welcomes.es;
+}
+
+/**
+ * Light-weight language guess for very short first messages where
+ * `detectLanguage()` returns undefined (its 60-char floor is far above
+ * the length of typical first WhatsApp greetings like "hi" or "hola").
+ *
+ * Miguel feedback 2026-06-20: English customers were systematically
+ * getting Spanish welcomes because (a) Respond.io's `contact.language`
+ * field is unreliable for first contact, and (b) our existing detector
+ * needs more text than the customer's first message usually has.
+ *
+ * Returns "en" or "es" when there's a strong signal, null when uncertain.
+ * Falls through to the caller's existing fallback in that case.
+ */
+function quickGuessFirstMessageLanguage(text: string): "en" | "es" | null {
+  const t = text.toLowerCase().trim();
+  if (!t) return null;
+
+  // Spanish-specific anchors (accents, ñ, distinctive short greetings).
+  // We accept these even on tiny inputs.
+  if (/[ñáéíóúü¿¡]/.test(t)) return "es";
+  if (
+    /^(hola|holaaa+|hi hola|buenas|buen día|buenos días|buenas tardes|buenas noches|qué tal|que tal|cómo estás|como estas|necesito|quiero|me interesa|por favor|gracias|tengo una pregunta|tengo una duda)\b/i.test(
+      t,
+    )
+  ) {
+    return "es";
+  }
+
+  // English-specific anchors. "Hi", "hello", "hey", common short openings.
+  if (
+    /^(hi|hello|hey|good morning|good afternoon|good evening|i'd like|i would like|i want|i need|can you|could you|please|thanks|thank you|help|i have a question)\b/i.test(
+      t,
+    )
+  ) {
+    return "en";
+  }
+
+  // No strong signal — let caller fall back.
+  return null;
 }
 
 type IncomingPayload = {
@@ -479,11 +520,27 @@ export async function handleContactStateEvent(
             // to Spanish — same as pre-2026-06-18 behavior. The English-
             // language welcome fix applies in the no-conv path below
             // (which uses `fresh.language` already loaded). We removed
-            // the extra getContact call here because it cost 1-3s on
-            // every workflow auto-welcome and this code path mostly
-            // fires for repeat customers (most "first contact" traffic
-            // hits the no-conv path).
-            const welcomeText = pickWelcome(sedeAi.welcomes, null);
+            // Miguel 2026-06-20: detect language from the customer's
+            // actual first message text, not from Respond.io's
+            // contact.language (which is unreliable for first contact).
+            // Read the most recent `cliente` mensaje from our DB — it's
+            // a cheap lookup (~5ms) and bypasses the slow getContact
+            // entirely. Falls back to Spanish only when no signal.
+            const [latestCustomerMsg] = await db
+              .select({ content: mensajes.content })
+              .from(mensajes)
+              .where(
+                and(
+                  eq(mensajes.conversacionId, conv.id),
+                  eq(mensajes.sender, "cliente"),
+                ),
+              )
+              .orderBy(desc(mensajes.createdAt))
+              .limit(1);
+            const guessedLang = latestCustomerMsg?.content
+              ? quickGuessFirstMessageLanguage(latestCustomerMsg.content)
+              : null;
+            const welcomeText = pickWelcome(sedeAi.welcomes, guessedLang);
 
             // Reassign first so when the welcome lands in Respond.io it
             // already shows the AI as owner. Best-effort — if the API

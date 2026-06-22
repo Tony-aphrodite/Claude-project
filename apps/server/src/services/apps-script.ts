@@ -327,6 +327,112 @@ export class AppsScriptService {
       clearTimeout(timer);
     }
   }
+
+  /**
+   * Push a confirmed booking back to Miguel's Apps Script so his Google
+   * Sheet's availability column decrements (Miguel feedback 2026-06-20
+   * "ninguna AI descuenta disponibilidad del roster"). The AI reads
+   * availability from Apps Script but the deduction we do is to our
+   * own roster_bookings table — without this push-back, Miguel's sheet
+   * never reflects the booking.
+   *
+   * Contract (Miguel's Apps Script side, expected):
+   *   POST <sede.rosterConfig.url>
+   *   Content-Type: application/json
+   *   { "action": "confirmBooking",
+   *     "date": "YYYY-MM-DD",
+   *     "turno": "AM"|"PM"|"Nocturno"|"Confinadas",
+   *     "curso": "OW"|...,        // translated to Miguel's CURSOS key
+   *     "pax": 2,
+   *     "bookingId": "<uuid>",    // for idempotency on Miguel's side
+   *     "ref_code": "DPM-NP-..." }
+   *   →  { ok: true } or { ok: false, reason: "..." }
+   *
+   * Fire-and-forget. If Miguel hasn't deployed the `action=confirmBooking`
+   * handler yet, the POST 4xx/5xx is logged but doesn't break the AI
+   * flow — our DB still has the authoritative booking. Gated by the
+   * `APPS_SCRIPT_PUSH_BACK_ENABLED` env var so we can turn it off
+   * cleanly until Miguel finishes the Apps Script side.
+   */
+  async pushBookingBackToSheet(input: {
+    sede: Sede;
+    date: string;
+    turno: string;
+    curso: string;
+    pax: number;
+    bookingId: string;
+    refCode: string | null;
+  }): Promise<void> {
+    const log = getLogger();
+    if (loadEnv().APPS_SCRIPT_PUSH_BACK_ENABLED !== "true") {
+      return;
+    }
+    const url = (input.sede.rosterConfig as { url?: string } | null)?.url;
+    if (!url) {
+      log.warn(
+        { sede: input.sede.nombre },
+        "apps_script push-back skipped — sede has no rosterConfig.url",
+      );
+      return;
+    }
+    const translatedCurso = PROGRAMA_TO_CURSO[input.curso] ?? input.curso;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body: JSON.stringify({
+          action: "confirmBooking",
+          date: input.date,
+          turno: input.turno,
+          curso: translatedCurso,
+          pax: input.pax,
+          bookingId: input.bookingId,
+          ref_code: input.refCode,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        log.warn(
+          {
+            sede: input.sede.nombre,
+            status: res.status,
+            bookingId: input.bookingId,
+            body: body.slice(0, 200),
+          },
+          "apps_script push-back non-2xx — Miguel's sheet may not reflect this booking",
+        );
+        return;
+      }
+      log.info(
+        {
+          sede: input.sede.nombre,
+          bookingId: input.bookingId,
+          date: input.date,
+          turno: input.turno,
+        },
+        "apps_script push-back ok — Miguel's sheet updated",
+      );
+    } catch (err) {
+      const aborted = (err as { name?: string }).name === "AbortError";
+      log.warn(
+        {
+          sede: input.sede.nombre,
+          bookingId: input.bookingId,
+          aborted,
+          err: aborted ? "timeout" : (err as Error).message,
+        },
+        "apps_script push-back failed (non-blocking)",
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
 
 export const appsScriptService = new AppsScriptService();

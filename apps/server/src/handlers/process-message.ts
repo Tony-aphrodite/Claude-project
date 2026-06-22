@@ -549,6 +549,58 @@ export async function processIncomingMessage(
         ? EXPECTED_BENEFICIARY_BY_CURRENCY[expected.currency] ?? undefined
         : undefined;
 
+      // Mime-type filter (Miguel 2026-06-20 — "voice messages read as
+      // payment file"). Previously ANY attachment in deposit_pending got
+      // routed to OCR; audio/video attachments returned a silent
+      // "unsupported_mime" failure and the customer received the standard
+      // comprobante-received ACK — making them think a voice message was
+      // processed as a payment receipt. Filter early instead: audio /
+      // video → send a polite "please type your question" and skip OCR
+      // entirely.
+      const attachmentMimeLower = (attachment?.mimeType ?? "").toLowerCase();
+      const isAudioOrVideo =
+        attachmentMimeLower.startsWith("audio/") ||
+        attachmentMimeLower.startsWith("video/");
+      if (attachment && isAudioOrVideo) {
+        const voiceReplyText = pickVoiceUnsupportedMessage(
+          contact.language ?? null,
+        );
+        try {
+          await respondIoClient.sendMessage({
+            conversationId:
+              payload.conversation?.id ?? conversation.respondIoConversationId,
+            contactId: payload.contact.id,
+            text: voiceReplyText,
+          });
+          await getDb()
+            .insert(mensajes)
+            .values({
+              conversacionId: conversation.id,
+              sender: "ai",
+              content: voiceReplyText,
+              metadata: { synthetic: true, reason: "voice_message_unsupported" },
+            });
+        } catch (err) {
+          log.error(
+            { err: (err as Error).message },
+            "voice-unsupported reply failed",
+          );
+        }
+        log.info(
+          {
+            conversationId: conversation.id,
+            attachmentMime: attachment.mimeType,
+          },
+          "attachment is audio/video — skipped OCR, asked customer to type",
+        );
+        return {
+          ok: true,
+          acknowledgedAttachment: true,
+          conversationId: conversation.id,
+          latencyMs: Date.now() - t0,
+        };
+      }
+
       let ocrVerdict: OcrVerdict | null = null;
       if (attachment && expected) {
         ocrVerdict = await runOcrOnAttachment({
@@ -737,6 +789,22 @@ export async function processIncomingMessage(
                   },
                   "roster_db: booking written on OCR auto-confirm",
                 );
+                // Miguel 2026-06-20 — push the deduction back to his
+                // Apps Script (his Google Sheet) so his manual availability
+                // view reflects the booking. Fire-and-forget; gated by
+                // APPS_SCRIPT_PUSH_BACK_ENABLED env var (off by default
+                // until Miguel's Apps Script accepts the confirmBooking
+                // action). Failures don't block — our DB still has the
+                // authoritative state.
+                void appsScriptService.pushBookingBackToSheet({
+                  sede,
+                  date: fecha,
+                  turno: slot.slot,
+                  curso: programa,
+                  pax,
+                  bookingId: result.booking.id,
+                  refCode: (freshMeta?.ref_code as string | null) ?? null,
+                });
               } else {
                 log.warn(
                   {
@@ -3117,6 +3185,57 @@ export async function processIncomingMessage(
     }
   }
 
+  // State-based ref-code stamp (Miguel 2026-06-20 — "no manda el código
+  // único en algunos mensajes"). The regex-based post-process above
+  // handles the most common bank-block phrasings, but misses creative
+  // wording, IDR-only blocks (no "IBAN"/"BIC" keyword), abbreviated
+  // text, etc. This second pass is authoritative: if lead_metadata has
+  // a ref_code (= a deposit was issued) AND Claude's reply doesn't
+  // already contain it AND Claude's reply doesn't already cite ANOTHER
+  // ref code from this conv (multi-pax case) — append the canonical
+  // code line. Uses DB state, not regex pattern matching.
+  const _depositMetaForStamp = (conversation.leadMetadata as LeadMetadata | null) ?? null;
+  const _stampableRefCodes: string[] = [];
+  if (_depositMetaForStamp?.ref_code && typeof _depositMetaForStamp.ref_code === "string") {
+    _stampableRefCodes.push(_depositMetaForStamp.ref_code);
+  }
+  if (Array.isArray(_depositMetaForStamp?.ref_codes_by_pax)) {
+    for (const c of _depositMetaForStamp.ref_codes_by_pax) {
+      if (typeof c === "string" && !_stampableRefCodes.includes(c)) {
+        _stampableRefCodes.push(c);
+      }
+    }
+  }
+  if (_stampableRefCodes.length > 0) {
+    const _replyLower = claudeResult.text;
+    const _alreadyHasAnyRef = _stampableRefCodes.some((c) => _replyLower.includes(c));
+    // Only stamp when the reply LOOKS like it should have the code —
+    // i.e. the reply mentions a deposit-related concept. Otherwise we'd
+    // append a stray "Reference: ..." line to unrelated turns (e.g. an
+    // FAQ answer after the deposit was already paid). Conservative
+    // signal: reply mentions any of "depósito", "deposit", "transfer",
+    // "transferencia", "Wise", "IBAN", "Mandiri", "BPD", "Bangkok", or
+    // a currency code, AND ref_code is not already there.
+    const _replyTriggersStamp =
+      !_alreadyHasAnyRef &&
+      (/\b(dep[oó]sito|deposit|transfer(?:encia)?|wise|iban|mandiri|bpd|bangkok|cfsb|account)\b/i.test(
+        claudeResult.text,
+      ) ||
+        /\b(EUR|USD|GBP|AUD|IDR|THB)\b/.test(claudeResult.text));
+    if (_replyTriggersStamp) {
+      const _refToAppend = _stampableRefCodes[0]!;
+      claudeResult.text = `${claudeResult.text}\n\nReference: ${_refToAppend}`;
+      log.info(
+        {
+          conversationId: conversation.id,
+          refCode: _refToAppend,
+          additionalRefsAvailable: _stampableRefCodes.length - 1,
+        },
+        "state-based ref-code stamp: appended ref to AI reply (authoritative path, no regex)",
+      );
+    }
+  }
+
   // Step 9: persist AI message with citations
   await conversationService.appendAiMessage(conversation.id, claudeResult.text, {
     fuentes: claudeResult.fuentes,
@@ -3552,7 +3671,7 @@ function wITAYmd(): string {
  * Failures are logged to the `errores` table so the panel can surface
  * "AI tried to log sale, write failed" — operator logs manually.
  */
-async function logSaleRowsForBooking(input: {
+export async function logSaleRowsForBooking(input: {
   sede: Sede;
   conversation: { id: string; leadMetadata: unknown };
   contact: {
@@ -3871,6 +3990,29 @@ export function pickPreDepositAttachmentAck(language: string | null): string {
     return "Got your file 🙏 Let me take a look and I'll get back to you in a moment.";
   }
   return "¡Recibí tu archivo 🙏! Lo reviso y te respondo en un momento.";
+}
+
+/**
+ * Voice/audio/video messages reach our server with an attachment that
+ * isn't OCR-readable. Miguel 2026-06-20 — customers were sending voice
+ * notes and our system was treating them as payment receipts (silent OCR
+ * failure + comprobante-received ACK). Now we filter audio/video early
+ * and send a polite "please type" message in the customer's language.
+ */
+export function pickVoiceUnsupportedMessage(
+  language: string | null,
+): string {
+  const lang = (language ?? "es").slice(0, 2).toLowerCase();
+  if (lang === "en") {
+    return "Thanks for the message 🙏 We're not able to listen to voice notes here — could you type out your question so I can help right away?";
+  }
+  if (lang === "de") {
+    return "Danke für deine Nachricht 🙏 Sprachnachrichten können wir hier leider nicht abhören — magst du deine Frage kurz tippen, damit ich dir sofort helfen kann?";
+  }
+  if (lang === "fr") {
+    return "Merci pour ton message 🙏 Nous ne pouvons pas écouter les messages vocaux ici — pourrais-tu écrire ta question pour que je puisse t'aider tout de suite ?";
+  }
+  return "¡Gracias por el mensaje 🙏! Acá no podemos escuchar audios — ¿podés escribirme tu pregunta así te ayudo enseguida?";
 }
 
 /**

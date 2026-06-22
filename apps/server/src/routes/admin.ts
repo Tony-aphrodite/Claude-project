@@ -36,13 +36,17 @@ import {
   errores,
   getDb,
   mensajes,
+  sedes,
 } from "@dpm/db";
 import { LEAD_STAGES, type LeadStage } from "@dpm/shared";
 
 import type { LeadMetadata, RespondIoIncomingMessage } from "@dpm/shared";
 
 import { loadEnv } from "../env.js";
-import { processIncomingMessage } from "../handlers/process-message.js";
+import {
+  logSaleRowsForBooking,
+  processIncomingMessage,
+} from "../handlers/process-message.js";
 import {
   getReplayRun,
   listReplayRunsForConversation,
@@ -305,6 +309,67 @@ export async function adminRoutes(app: FastifyInstance) {
       { convId: body.conversacionId, from: result.from, to: result.to },
       "admin force-transition ok",
     );
+
+    // Sales-logger side effect (Miguel 2026-06-20 "no escribe las ventas
+    // en el Excel"). When the panel's "Confirmar depósito" button drives
+    // the transition to deposit_paid, fire the sales-logger so the
+    // master sheet gets a row — same way the OCR auto-confirm path does
+    // it. logSaleRowsForBooking is idempotent (checks
+    // sale_logged_at_by_program in lead_metadata), so even if the OCR
+    // path already wrote rows, this is a no-op. Best-effort; failures
+    // here don't block the panel response.
+    if (body.to === "deposit_paid") {
+      void (async () => {
+        try {
+          const db = getDb();
+          const [row] = await db
+            .select({
+              conv: conversaciones,
+              contact: chatContacts,
+              sede: sedes,
+            })
+            .from(conversaciones)
+            .leftJoin(
+              chatContacts,
+              eq(chatContacts.respondIoContactId, conversaciones.respondIoContactId),
+            )
+            .leftJoin(sedes, eq(sedes.id, conversaciones.sedeId))
+            .where(eq(conversaciones.id, body.conversacionId!))
+            .limit(1);
+          if (!row?.sede || !row?.conv || !row?.contact) {
+            req.log.warn(
+              { convId: body.conversacionId },
+              "force-transition: sales-logger skipped — could not load sede/conv/contact for sales row",
+            );
+            return;
+          }
+          await logSaleRowsForBooking({
+            sede: row.sede,
+            conversation: {
+              id: row.conv.id,
+              leadMetadata: row.conv.leadMetadata,
+            },
+            contact: {
+              id: row.contact.respondIoContactId,
+              name: row.contact.name ?? null,
+              phone: row.contact.phone ?? null,
+              language: row.contact.language ?? null,
+            },
+            log: req.log,
+          });
+          req.log.info(
+            { convId: body.conversacionId },
+            "force-transition: sales-logger fired (panel-driven deposit_paid)",
+          );
+        } catch (err) {
+          req.log.warn(
+            { err: (err as Error).message, convId: body.conversacionId },
+            "force-transition: sales-logger side effect failed (non-blocking)",
+          );
+        }
+      })();
+    }
+
     return reply.send({
       ok: true,
       from: result.from,
