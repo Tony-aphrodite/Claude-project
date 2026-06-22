@@ -3157,13 +3157,26 @@ export async function processIncomingMessage(
       /\bRouting number\b/i.test(claudeResult.text);
     if (_looksLikeBankBlock) {
       try {
-        const _currencyUpper = incomingText.trim().toUpperCase();
+        // 2026-06-22: extract the currency TOKEN from the message, not the
+        // whole message. Earlier code did `incomingText.toUpperCase()` and
+        // compared the entire string to "EUROS"/"DÓLARES" — that worked
+        // when customers typed bare "EUR" but broke once we loosened the
+        // regex above to allow natural-language ("Pagamos en EUR"). The
+        // full uppercased message would then be passed as moneda_cliente
+        // and sedeSupportsCurrency() correctly rejected it as
+        // sede_currency_not_supported. Now we match the same currency
+        // alternation the upstream gate used and normalize the token.
+        const _currencyTokenMatch = incomingText.match(
+          /\b(eur|usd|gbp|aud|idr|thb|euros?|dólares?|dollars?|libras?|pounds?)\b/i,
+        );
+        const _currencyToken = (_currencyTokenMatch?.[1] ?? "").toUpperCase();
         const _moneda = (
-          _currencyUpper === "EUROS" ? "EUR" :
-          _currencyUpper === "DÓLARES" || _currencyUpper === "DOLARES" || _currencyUpper === "DOLLARS" ? "USD" :
-          _currencyUpper === "LIBRAS" || _currencyUpper === "POUNDS" ? "GBP" :
-          _currencyUpper === "EUROS" ? "EUR" :
-          _currencyUpper
+          _currencyToken === "EUROS" || _currencyToken === "EURO" ? "EUR" :
+          _currencyToken === "DÓLARES" || _currencyToken === "DOLARES" ||
+          _currencyToken === "DOLLARS" || _currencyToken === "DOLLAR" ? "USD" :
+          _currencyToken === "LIBRAS" || _currencyToken === "LIBRA" ||
+          _currencyToken === "POUNDS" || _currencyToken === "POUND" ? "GBP" :
+          _currencyToken
         ) as "EUR" | "GBP" | "AUD" | "USD" | "IDR" | "THB";
         const _pax = Number(_depositMetaForForce?.pax) || 1;
         const _idioma = (contact.language ?? "es").slice(0, 2);
