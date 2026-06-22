@@ -23,6 +23,10 @@ import type { LeadMetadata } from "@dpm/shared";
 import { getAiAssigneeIds, isAiAssignee, loadEnv } from "../env.js";
 import { chatContactsService } from "../services/chat-contacts.js";
 import { conversationService } from "../services/conversation.js";
+import {
+  clearFirstMessage,
+  peekFirstMessage,
+} from "../services/first-message-cache.js";
 import { leadStageService } from "../services/lead-stage.js";
 import { respondIoClient } from "../services/respond-io.js";
 
@@ -847,13 +851,29 @@ async function maybeSendWorkflowAutoWelcome(args: {
       return;
     }
 
-    // Pick EN vs ES welcome from the contact's `language` field
-    // (Miguel 2026-06-18). The `fresh` object came from getContact
-    // above, so the language we read here is the same one Respond.io's
-    // workflow already set when the customer chose their preference.
+    // Pick EN vs ES welcome from the customer's actual first-message
+    // text when available — falling back to the contact.language field
+    // only when we have no message text to go on.
+    //
+    // 2026-06-22: customers writing English first messages (e.g. "Good
+    // day! How much time per day does the 2 day scuba diver course
+    // take?") were getting the Spanish welcome because Respond.io leaves
+    // contact.language at its default for fresh contacts. The first
+    // message lives in our in-memory cache (process-message stashes it
+    // on the branch_empty rejection that fires BEFORE the workflow
+    // assigns the AI). We prefer that signal — actual customer text —
+    // over the stale field.
+    let guessedLang: "en" | "es" | null = null;
+    const cachedFirstMessage = peekFirstMessage(contactId);
+    if (cachedFirstMessage) {
+      guessedLang = quickGuessFirstMessageLanguage(cachedFirstMessage);
+    }
     const contactLangForWelcome =
-      (fresh as { language?: string } | null)?.language ?? null;
+      guessedLang ?? (fresh as { language?: string } | null)?.language ?? null;
     const welcomeText = pickWelcome(sedeAi.welcomes, contactLangForWelcome);
+    // Best-effort cleanup — keeps the cache small. Not fatal if missed
+    // (TTL will reap it).
+    clearFirstMessage(contactId);
 
     // Pilot gate (Tony 2026-06-17): respect the PILOT_REQUIRE_TAG
     // env CSV here too — without this, the auto-welcome fires for

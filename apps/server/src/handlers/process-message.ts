@@ -90,6 +90,7 @@ import {
   programaDisplayName,
   splitContactName,
 } from "../services/sales-logger-mapping.js";
+import { stashFirstMessage } from "../services/first-message-cache.js";
 import { detectLanguage, languageLabelToIso2 } from "../services/language.js";
 import { isNewTopicAfterHandoff } from "../services/new-topic-detector.js";
 import { leadStageService } from "../services/lead-stage.js";
@@ -260,6 +261,17 @@ export async function processIncomingMessage(
       },
       "pilot gate rejected message",
     );
+    // Stash the first-message text on branch_empty so the auto-welcome
+    // (fired later from the assignee.changed event, after the customer
+    // picks a sede in the workflow) can detect language from the
+    // customer's actual words instead of Respond.io's stale default.
+    // See services/first-message-cache.ts for the why.
+    if (resolution.reason === "branch_empty") {
+      const firstText = (payload.message.text ?? "").trim();
+      if (firstText && payload.contact.id) {
+        stashFirstMessage(String(payload.contact.id), firstText);
+      }
+    }
     return {
       ok: false,
       ignored: true,
