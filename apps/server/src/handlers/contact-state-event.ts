@@ -134,9 +134,15 @@ function quickGuessFirstMessageLanguage(text: string): "en" | "es" | null {
     return "es";
   }
 
-  // English-specific anchors. "Hi", "hello", "hey", common short openings.
+  // English-specific anchors. Common short greetings + question openers.
+  // Expanded 2026-06-22 — "Good day, how much…" was failing because the
+  // original list only had "good morning/afternoon/evening", not "good day"
+  // or "how much/how many/how long". Added the natural English question
+  // openers and the "I'm …" / "do you …" / "is it …" patterns that are
+  // extremely English-skewed (Spanish equivalents use distinct forms:
+  // dónde, cuándo, hay, está, eres, soy, etc.).
   if (
-    /^(hi|hello|hey|good morning|good afternoon|good evening|i'd like|i would like|i want|i need|can you|could you|please|thanks|thank you|help|i have a question)\b/i.test(
+    /^(hi\b|hello|hey|good morning|good afternoon|good evening|good day|good night|i'd like|i would like|i want|i need|i'm |im |im\s|i am |can you|could you|would you|do you|are you|is it|is there|please|thanks|thank you|help|i have a question|how much|how many|how long|how do|how can|when (?:can|do|is|are|will)|where (?:can|do|is|are|will)|what (?:is|are|do|does|'s)|what's|what is|why is|why are)\b/i.test(
       t,
     )
   ) {
