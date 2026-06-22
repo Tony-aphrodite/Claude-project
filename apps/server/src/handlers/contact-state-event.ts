@@ -123,33 +123,43 @@ function quickGuessFirstMessageLanguage(text: string): "en" | "es" | null {
   const t = text.toLowerCase().trim();
   if (!t) return null;
 
-  // Spanish-specific anchors (accents, ñ, distinctive short greetings).
-  // We accept these even on tiny inputs.
+  // Spanish accents are unambiguous — claim ES immediately on any
+  // ñáéíóúü¿¡ presence. English never uses these characters.
   if (/[ñáéíóúü¿¡]/.test(t)) return "es";
-  if (
-    /^(hola|holaaa+|hi hola|buenas|buen día|buenos días|buenas tardes|buenas noches|qué tal|que tal|cómo estás|como estas|necesito|quiero|me interesa|por favor|gracias|tengo una pregunta|tengo una duda)\b/i.test(
-      t,
-    )
-  ) {
-    return "es";
-  }
 
-  // English-specific anchors. Common short greetings + question openers.
-  // Expanded 2026-06-22 — "Good day, how much…" was failing because the
-  // original list only had "good morning/afternoon/evening", not "good day"
-  // or "how much/how many/how long". Added the natural English question
-  // openers and the "I'm …" / "do you …" / "is it …" patterns that are
-  // extremely English-skewed (Spanish equivalents use distinct forms:
-  // dónde, cuándo, hay, está, eres, soy, etc.).
-  if (
-    /^(hi\b|hello|hey|good morning|good afternoon|good evening|good day|good night|i'd like|i would like|i want|i need|i'm |im |im\s|i am |can you|could you|would you|do you|are you|is it|is there|please|thanks|thank you|help|i have a question|how much|how many|how long|how do|how can|when (?:can|do|is|are|will)|where (?:can|do|is|are|will)|what (?:is|are|do|does|'s)|what's|what is|why is|why are)\b/i.test(
-      t,
-    )
-  ) {
-    return "en";
-  }
+  // 2026-06-22 rewrite — word-frequency vote rather than starts-with
+  // patterns. The pattern-based approach (just expanded to include "good
+  // day" / "how much") was still missing arbitrary English phrasings
+  // ("Diving prices?", "Tomorrow available?", "Need accommodation"). The
+  // root issue is that English first messages don't all start with the
+  // same canonical openers. Counting characteristic CONTENT words gives
+  // us coverage regardless of phrasing.
+  //
+  // Word lists are intentionally large for English (function words +
+  // diving-domain vocabulary the business sees) and Spanish (same), so
+  // any 2-3 word real customer message hits at least one. False
+  // positives are bounded by requiring (a) >=2 hits and (b) a clear
+  // margin over the other language's count.
+  const countMatches = (pattern: RegExp): number =>
+    (t.match(pattern) || []).length;
 
-  // No strong signal — let caller fall back.
+  const enHits = countMatches(
+    /\b(the|and|or|but|for|with|to|of|in|on|at|by|from|are|is|was|were|will|would|could|should|have|has|had|i|i'm|im|i'd|you|your|we|our|my|me|us|how|what|when|where|why|who|much|many|long|good|night|hi|hello|hey|please|thanks|thank|need|want|like|book|booking|available|price|prices|free|cheap|day|days|night|nights|week|weeks|month|months|hour|hours|time|times|water|reef|dive|diver|divers|diving|dives|course|courses|class|classes|gear|equipment|tank|tanks|mask|fin|fins|trip|trips|package|packages|certified|beginner|advanced|professional|instructor|tomorrow|today|yesterday|morning|afternoon|evening|can|can't|don't|doesn't|isn't|won't|do|does)\b/gi,
+  );
+
+  const esHits = countMatches(
+    /\b(el|la|los|las|un|una|unos|unas|de|del|al|por|para|con|sin|sobre|bajo|que|quien|donde|como|cuando|este|esta|estos|estas|ese|esa|esos|esas|me|te|se|nos|le|les|mi|tu|su|nuestro|y|o|pero|si|no|en|hasta|desde|hola|hey|buenas|gracias|favor|quiero|quieres|quiere|queremos|quieren|necesito|necesitas|necesita|necesitamos|tengo|tienes|tiene|tenemos|soy|eres|es|somos|son|estoy|estas|esta|estamos|estan|fui|fue|hacer|hago|haces|hace|hacemos|hacen|puedo|puedes|puede|podemos|pueden|voy|vas|va|vamos|van|persona|personas|dia|dias|noche|noches|hora|horas|fecha|fechas|semana|semanas|mes|meses|ano|anos|bucear|buceo|inmersion|curso|cursos|clase|clases|hospedaje|alojamiento|equipo|mascara|aleta|aletas|tanque|profesor|instructor|principiante|avanzado|certificado|maniana|hoy|ayer|disponibilidad|reserva|reservar|precio|precios|gratis|barato|caro)\b/gi,
+  );
+
+  // Decisive winner: at least 2 hits AND strictly more than the other.
+  if (enHits >= 2 && enHits > esHits) return "en";
+  if (esHits >= 2 && esHits > enHits) return "es";
+  // Single strong signal with no opposing hits (covers ultra-short
+  // messages like "Hi" or "Hola").
+  if (enHits >= 1 && esHits === 0) return "en";
+  if (esHits >= 1 && enHits === 0) return "es";
+
+  // No strong signal — let caller fall back to contact.language.
   return null;
 }
 
