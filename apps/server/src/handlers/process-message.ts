@@ -3212,6 +3212,70 @@ export async function processIncomingMessage(
             { conversationId: conversation.id, reason: postResult.reason },
             "ref_code post-processing: solicitar_deposito returned not-ok, leaving Claude's reply untouched",
           );
+
+          // Recovery fallback for booking_not_finalized (2026-06-22): the AI
+          // claimed availability ("tenemos disponibilidad para el 24 de
+          // junio") without actually calling consultar_disponibilidad, so
+          // lead_metadata has no programa/start_date and the preflight in
+          // solicitar_deposito rejects. Without this fallback the customer
+          // sees bank info with no Reference line → they pay and Miguel
+          // has no way to match the deposit to this conversation.
+          //
+          // We mint a ref code anyway, stamp the conversation with the
+          // currency/pax/amount we DO know, and append the Reference line.
+          // The lead_metadata stamp is what lets the OCR auto-confirm path
+          // later link the receipt back to this conversation. We don't
+          // stamp programa/start_date — leaving those empty signals the
+          // panel-confirm path to ask the human operator to fill them in
+          // before the booking lands in roster_bookings.
+          if (postResult.reason === "booking_not_finalized") {
+            try {
+              const _fallbackRefCode = generateRefCode(sede.nombre);
+              const _existingMeta =
+                (conversation.leadMetadata as LeadMetadata | null) ?? null;
+              const _alreadyHadRef =
+                !!_existingMeta?.ref_code &&
+                isValidRefCode(_existingMeta.ref_code);
+              const _refToUse = _alreadyHadRef
+                ? _existingMeta!.ref_code!
+                : _fallbackRefCode;
+              if (!_alreadyHadRef) {
+                const _amount = depositAmountFor(_moneda);
+                await getDb()
+                  .update(conversaciones)
+                  .set({
+                    leadMetadata: {
+                      ...(_existingMeta ?? {}),
+                      ref_code: _refToUse,
+                      deposit_currency: _moneda,
+                      pax: _pax,
+                      monto_esperado: _amount * _pax,
+                    } as LeadMetadata,
+                    updatedAt: new Date(),
+                  })
+                  .where(eq(conversaciones.id, conversation.id));
+              }
+              if (!claudeResult.text.includes(_refToUse)) {
+                claudeResult.text = `${claudeResult.text}\n\nReference: ${_refToUse}`;
+              }
+              log.info(
+                {
+                  conversationId: conversation.id,
+                  refCode: _refToUse,
+                  reused: _alreadyHadRef,
+                },
+                "ref_code post-processing: AI bypassed consultar_disponibilidad — minted fallback ref code so the customer's receipt can still be matched",
+              );
+            } catch (fallbackErr) {
+              log.warn(
+                {
+                  err: (fallbackErr as Error).message,
+                  conversationId: conversation.id,
+                },
+                "ref_code post-processing: fallback ref-code generation failed",
+              );
+            }
+          }
         }
       } catch (postErr) {
         log.warn(
