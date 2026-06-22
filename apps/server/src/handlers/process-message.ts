@@ -1835,7 +1835,16 @@ export async function processIncomingMessage(
   // the simulator's at the critical step and Claude behaves the
   // same way — invoking solicitar_deposito naturally with no
   // bypass, no force, no prompt edits.
-  const _currencyConfirmedRegexEarly = /^\s*(eur|gbp|aud|usd|idr|thb|euros?|dólares?|dollars?|libras?|pounds?)\s*$/i;
+  // Loosened 2026-06-22 (KT regression — "EUR por favor" did not match the
+  // anchored regex below, so post-process ref-code stamp was skipped and
+  // the customer received a bank block with no Reference line). Word-
+  // boundary form catches natural-language phrasings ("EUR por favor",
+  // "Pago en USD", "Quiero euros gracias") that strict anchors missed.
+  // Safe because (a) lead-stage gates (qualified/proposed only) and
+  // (b) the downstream bank-block regex are the real guardrails against
+  // false positives — a currency word appearing mid-conversation outside
+  // the bank-block context won't cause a stamp.
+  const _currencyConfirmedRegexEarly = /\b(eur|gbp|aud|usd|idr|thb|euros?|dólares?|dollars?|libras?|pounds?)\b/i;
   const _depositMetaEarly =
     (conversation.leadMetadata as LeadMetadata | null) ?? null;
   const _isLeadStageEngagedEarly =
@@ -3054,7 +3063,10 @@ export async function processIncomingMessage(
   // the customer to re-confirm program + date). Far better than the
   // failure mode we had — Claude silently quoting bank info from the
   // KB with no ref_code stamped.
-  const _currencyConfirmedRegex = /^\s*(eur|gbp|aud|usd|idr|thb|euros?|dólares?|dollars?|libras?|pounds?)\s*$/i;
+  // Loosened 2026-06-22 — see _currencyConfirmedRegexEarly comment above.
+  // Same pattern; kept as a separate constant so the two checks (roster
+  // trim + post-process ref-code stamp) stay independently auditable.
+  const _currencyConfirmedRegex = /\b(eur|gbp|aud|usd|idr|thb|euros?|dólares?|dollars?|libras?|pounds?)\b/i;
   const _depositMetaForForce =
     (conversation.leadMetadata as LeadMetadata | null) ?? null;
   const _isLeadStageEngaged =
