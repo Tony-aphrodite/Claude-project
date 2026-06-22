@@ -26,10 +26,10 @@ Also ask politely **only when relevant** (Try Scuba or client mentions nerves):
 - Available for 3+ days → **OPEN WATER 30 first** (9,500,000 IDR), then Open Water Conventional (6,400,000 IDR) as alternative if budget is the issue
 
 ### Customer HAS Open Water certification:
-- Last dive less than 12 months → Fun Dives (1,800,000 IDR)
+- Last dive **≤12 months** → Fun Dives (1,800,000 IDR). NO mencionar Refresh ni recomendarlo. Miguel rule 2026-06-20.
   - **ALWAYS upsell**: Deep Adventure + Fun Dive (2,600,000 IDR) or Advanced (5,500,000 IDR). Never quote Fun Dives without offering the next step.
-- Last dive 6–12 months → Refresh recommended (safety)
-- Last dive more than 12 months → Refresh **mandatory** (2,100,000 IDR)
+- Last dive **>12 months** → Refresh **mandatory** (2,100,000 IDR). Combo Refresh + Deep Adventure (4,700,000 IDR) when applicable.
+- **QUALIFY-FIRST rule (Miguel 2026-06-20):** ALWAYS ask "when was your last dive?" BEFORE quoting Fun Dive or Refresh prices. The question goes in the SAME turn as pax confirmation, not as an afterthought.
 - Wants 30m depth without full Advanced → Deep Adventure + Fun Dive (2,600,000 IDR)
 - Wants to upgrade certification → Advanced Course (5,500,000 IDR, 2 days, 5 specialty dives)
 

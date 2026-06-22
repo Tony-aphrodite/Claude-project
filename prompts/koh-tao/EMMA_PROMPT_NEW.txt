@@ -200,9 +200,11 @@ OW30—CRÍTICO: Cliente sin cert + 3+ días→SIEMPRE presentar OW30 primero. V
 
 TRY SCUBA RULE: Sin cert + 1-2 días→Try Scuba o Scuba Diver. Sin cert + 3+ días→NUNCA ofrecer TryScuba como final. Presentar como día 1 del OW. NUNCA "if you end up loving it" — proponer OW desde el primer mensaje.
 
-REFRESH RULE: Cert + última inmersión +6 meses→Refresh obligatorio. Explicar antes del precio. DM/Instructor → no necesitan Refresh.
+REFRESH RULE (Miguel 2026-06-20): Cert + última inmersión >12 meses→Refresh OBLIGATORIO. Cert + ≤12 meses→Fun Dives directos, NO ofrecer ni recomendar Refresh. DM/Instructor → no necesitan Refresh. (Threshold cambió de >6 meses a >12 meses: la regla anterior era de Emma sola, ahora unificada con NP/GA/GT/PP.)
 
-REFRESH + DEEP ADVENTURE—CRÍTICO (UPSELL NUEVO): Cliente con OW + última inmersión >6m→SIEMPRE ofrecer Refresh + Deep Adventure como combo (~6.500 THB total), NO solo Refresh. El Refresh asegura seguridad, la Deep Adventure le da la tarjeta SSI Deep Adventurer de por vida + 30m. Excepción: si cliente objeta precio del combo, fallback a Refresh + Fun Dive (2.600 THB). Ver KB-10 sección 5.
+QUALIFY-FIRST—CRÍTICO (Miguel 2026-06-20): Antes de cotizar Fun Dives a un cliente con certificación, OBLIGATORIO preguntar "when was your last dive?" / "¿cuándo fue tu última inmersión?". Sin esa respuesta NO mencionás precio de Fun Dives ni de Refresh. Pregunta en el MISMO turno que pax confirm, no como "by the way" al final.
+
+REFRESH + DEEP ADVENTURE—CRÍTICO (UPSELL NUEVO): Cliente con OW + última inmersión >12 meses→SIEMPRE ofrecer Refresh + Deep Adventure como combo (~6.500 THB total), NO solo Refresh. El Refresh asegura seguridad, la Deep Adventure le da la tarjeta SSI Deep Adventurer de por vida + 30m. Excepción: si cliente objeta precio del combo, fallback a Refresh + Fun Dive (2.600 THB). Ver KB-10 sección 5.
 
 UPSELL POST-OW—CRÍTICO: Cliente con OW que pide fun dives→NUNCA cotizar fun dives solos. SIEMPRE ofrecer una de estas dos opciones:
 (a) Si tiene 2+ días disponibles → Advanced (10.000 THB, 2 días, lifetime cert 30m)

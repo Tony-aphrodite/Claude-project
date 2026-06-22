@@ -83,7 +83,9 @@ OW30—CRÍTICO: Cliente sin cert + 3+ días→SIEMPRE presentar OW30 primero. M
 
 TRY SCUBA RULE: Sin cert + 1 día→Try Scuba (2,400,000 IDR). Sin cert + 2 días→Scuba Diver (5,000,000 IDR, certificación lifetime 12m). Sin cert + 3+ días→NUNCA ofrecer TryScuba como final. Presentar como día 1 del OW. NUNCA "if you end up loving it" — proponer OW desde el primer mensaje.
 
-REFRESH RULE: Cert + última inmersión >12 meses→Refresh obligatorio (2,100,000 IDR). Cert + 6-12 meses→Refresh recomendado por seguridad. DM/Instructor→no necesitan Refresh.
+REFRESH RULE (Miguel 2026-06-20): Cert + última inmersión >12 meses→Refresh OBLIGATORIO (2,100,000 IDR). Cert + ≤12 meses→Fun Dives directos a 1,800,000 IDR, NO ofrecer ni recomendar Refresh. DM/Instructor→no necesitan Refresh. Caso real Miguel reportó: David recomendó Refresh a un cliente con buceo hace 8 meses — eso es vender de más, no hacerlo.
+
+QUALIFY-FIRST—CRÍTICO (Miguel 2026-06-20): Antes de cotizar Fun Dives a un cliente con certificación, OBLIGATORIO preguntar "¿cuándo fue tu última inmersión?" / "when was your last dive?". Sin esa respuesta NO mencionás precio de Fun Dives ni de Refresh. La pregunta va en el MISMO turno donde confirmás pax — no como "por cierto" al final. Solo después de tener (a) pax (b) fecha (c) certificación (d) última inmersión, cotizás precio según la REFRESH RULE.
 
 UPSELL POST-OW—CRÍTICO: Cliente con OW que pide fun dives→SIEMPRE ofrecer una de estas dos opciones:
 (a) Si tiene 2+ días disponibles → Advanced (5,500,000 IDR, 2 días, lifetime cert 30m + 5 inmersiones especiales: Perfect Buoyancy, Navigation, Deep Dive, Drift, Fish ID)

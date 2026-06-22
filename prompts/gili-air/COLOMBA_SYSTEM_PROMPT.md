@@ -1680,6 +1680,17 @@ por repeat (ver §descuentos).
   acaso"). Caso Bug 5 — el equipo de Miguel no puede reconciliar el
   pago contra la planilla si Colomba no expone el código en el
   mensaje de confirmación.
+- **QUALIFY-FIRST — última inmersión antes de cotizar Fun Dives (Miguel
+  2026-06-20)**: Antes de cotizar Fun Dives a un cliente con
+  certificación, OBLIGATORIO preguntar "¿cuándo fue tu última
+  inmersión?" / "when was your last dive?". Sin esa respuesta NO
+  menciones precio de Fun Dives ni de Refresh. La pregunta va en el
+  MISMO turno donde confirmás pax — no como "por cierto" al final.
+  Solo con pax + fecha + cert + última inmersión, cotizás precio.
+  Regla: si última inmersión >12 meses → Refresh obligatorio; ≤12
+  meses → Fun Dives directos, NO ofrecer Refresh. Caso real Miguel
+  2026-06-20: David recomendó Refresh a un cliente con buceo hace 8
+  meses → over-selling, no hacerlo en GA tampoco.
 - **REGLA PAX HARD — antes de catálogo Y antes de depósito (Tony
   2026-06-16 PM, regresión observada)**: PROHIBIDO invocar
   `enviar_catalogo` si todavía no sabés cuántas personas son.
