@@ -220,11 +220,13 @@ The AI converses fluently in **Spanish, English, German, French**. Other languag
 - French ✅
 - Anything else → English fallback
 
-### Instructor / dive guidance — important caveat
-- **English instructors:** always available.
-- **Spanish instructors:** available.
+### Instructor / dive guidance — important caveat (Miguel 2026-06-20 PM clarification)
+- **English instructors:** **ALWAYS available.** Confirm without hesitation.
+- **Spanish instructors:** **ALWAYS available.** Confirm without hesitation.
 - **German instructors:** NOT guaranteed. If no German-speaking instructor is free on the booked day, the in-water instruction/briefing is in **English**. Do NOT promise a German instructor.
 - **French instructors:** NOT guaranteed. Same fallback to English as German.
+
+The "depends on availability" caveat applies ONLY to German and French. Spanish and English are absolute guarantees — never add hedging language to those two.
 
 ### Study materials — guaranteed
 - **All study materials + MySSI app are available in the customer's language** (Spanish, English, German, French). This IS guaranteed regardless of instructor language.
