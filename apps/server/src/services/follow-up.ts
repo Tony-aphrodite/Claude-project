@@ -529,13 +529,19 @@ export class FollowUpProcessor {
       .limit(20);
     recent.reverse();
 
-    // CRITICAL re-check (2026-05-11): the scheduler may have queued this
-    // follow-up off a stale snapshot. Before actually firing the message,
-    // verify the conversation has been quiet for at least the sede's
-    // shortest follow-up gap (LEVEL_1 / followUpHours[0]). If activity is
-    // fresher than that, cancel rather than send — sending a "still
-    // there?" prompt minutes after an AI reply was the bug Miguel flagged
-    // during his pilot test.
+    // CRITICAL re-check (2026-05-11, tightened 2026-06-23): the scheduler
+    // may have queued this follow-up off a stale snapshot. Before firing
+    // the message, verify the conversation has been GENUINELY quiet.
+    //
+    // Two-layer check:
+    //  1. ANY message (cliente OR ai) in the last 10 minutes → cancel.
+    //     Tight window catches the race Miguel flagged 2026-06-23 — AI
+    //     replied to the customer's "Hi" right around the 4h mark, then
+    //     the scheduler-queued LEVEL_1 fired ~30s later because the old
+    //     "< followUpHours[0]" check is satisfied by ANY message within
+    //     4 hours, but the scheduler already knew the conversation had
+    //     been quiet for 4h — so the check was tautological.
+    //  2. Then the original sede-cadence check as a backstop.
     const sedeBehavior = conv.sedeId
       ? resolveSedeBehavior(
           (
@@ -547,21 +553,33 @@ export class FollowUpProcessor {
           )[0]?.behaviorConfig as SedeBehaviorConfig | null,
         )
       : DEFAULT_BEHAVIOR;
+    const RECENT_ACTIVITY_GUARD_MIN = 10;
     const minQuietHours = sedeBehavior.followUpHours[0] ?? FOLLOW_UP_LEVELS.LEVEL_1.hours;
     const newestMsg = recent[recent.length - 1];
     if (newestMsg) {
-      const elapsedHours =
-        (Date.now() - newestMsg.createdAt.getTime()) / (60 * 60 * 1000);
-      if (elapsedHours < minQuietHours) {
+      const elapsedMs = Date.now() - newestMsg.createdAt.getTime();
+      const elapsedMin = elapsedMs / (60 * 1000);
+      const elapsedHours = elapsedMs / (60 * 60 * 1000);
+      const tooRecent = elapsedMin < RECENT_ACTIVITY_GUARD_MIN;
+      const insideQuietWindow = elapsedHours < minQuietHours;
+      if (tooRecent || insideQuietWindow) {
         await db
           .update(followUps)
           .set({
             cancelledAt: new Date(),
-            cancellationReason: "recent_activity_at_send_time",
+            cancellationReason: tooRecent
+              ? "recent_activity_at_send_time_<10min"
+              : "recent_activity_at_send_time",
           })
           .where(eq(followUps.id, fu.id));
         log.info(
-          { convId: conv.id, elapsedHours, followUpId: fu.id },
+          {
+            convId: conv.id,
+            elapsedMin,
+            elapsedHours,
+            followUpId: fu.id,
+            triggeredBy: tooRecent ? "10min_guard" : "sede_cadence",
+          },
           "follow-up cancelled — conversation has recent activity",
         );
         return "cancelled";

@@ -37,19 +37,21 @@ import { pickFirstAttachment } from "./respond-io-attachment.js";
 import { AI_ENABLED_SEDE_NAMES_CONST } from "./sede.js";
 
 // Debounce window: how long we wait after the most recent message
-// before firing the batch. Tightened 5s → 2s 2026-06-19 (Steve perf
-// pass): under high webhook-fanout load, the original 5s window plus
-// Respond.io's ~90s delivery jitter made the customer perceive ~2-3
-// min total latency. 2s still catches paragraph-style typing pauses
-// (humans rarely type a single thought split across <2s gaps) and is
-// short enough that the per-turn overhead drops from 5s to 2s.
-const DEBOUNCE_MS = 2_000;
+// before firing the batch. Tightened 5s → 2s 2026-06-19 then raised to
+// 5s 2026-06-23 — Miguel screenshot 2026-06-23 showed AI replying twice
+// to "Yes" + "I have Open and Nitrox" because the second message
+// arrived ~3s after the first (slow mobile typing) and the 2s window
+// had already expired. WhatsApp customers commonly take 3-5s between
+// short follow-on messages, so 2s missed the common case. 5s catches
+// it; the extra perceived latency on single messages is acceptable
+// (still feels like a human composing).
+const DEBOUNCE_MS = 5_000;
 
 // Hard cap on total wait time from the first message in a batch. If a
 // customer types nonstop, we fire whatever we have rather than keep
-// extending. Lowered 15s → 6s 2026-06-19 to match the tightened
-// debounce — when the debounce is 2s, a 15s cap is dead weight.
-const HARD_CAP_MS = 6_000;
+// extending. Raised 6s → 12s 2026-06-23 to match the wider debounce
+// (need cap > 2 × debounce for the cap to actually do work).
+const HARD_CAP_MS = 12_000;
 
 // ─── Message-id dedup (Miguel 2026-06-18 feedback) ──────────────────────────
 // Respond.io fires multiple webhooks per customer message because we have
