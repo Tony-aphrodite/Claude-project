@@ -728,6 +728,91 @@ export const enviarCatalogoInputSchema = z.object({
 
 export type EnviarCatalogoInput = z.infer<typeof enviarCatalogoInputSchema>;
 
+// ─── validar_cupo_grupo — intelligent roster engine sale-time check ────────
+//
+// Spec: reference/roster-engine-spec-2026-06-24.md §6.1
+// Arch: docs/roster-engine-architecture.md §5
+//
+// The AI calls this tool BEFORE solicitar_deposito when the new
+// instructor-aware roster engine is enabled for the sede. It runs
+// buildRoster() in simulation mode for EVERY day the program occupies
+// (OW = 3 days, AOW = 2 days, etc.) and reports whether the sale can
+// proceed.
+//
+// Failure modes the tool reports back to the AI:
+//   - "no_instructor"        primary constraint short (spec §6.5)
+//   - "no_boat_capacity"     secondary constraint short (spec §6.6)
+//   - "program_not_scheduled" the program has no roster footprint
+//                            (DM / Instructor / unsupported specialty)
+//                            → AI must escalate, not validate.
+//
+// The "candidate" mirrors the customer being quoted — name + cert
+// level + pax + optional acceptsCap (only the AI sets acceptsCap=true
+// when it explicitly asked the customer and the customer agreed).
+export const NIVEL_CERTIFICACION_VALUES = [
+  "BEG",
+  "OW",
+  "AA",
+  "RES",
+  "DM",
+  "INS",
+] as const;
+export type NivelCertificacionZ = (typeof NIVEL_CERTIFICACION_VALUES)[number];
+
+export const validarCupoGrupoInputSchema = z.object({
+  sede_id: z.string().uuid(),
+  programa: z.enum(AVAILABILITY_PROGRAMS),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "ISO date YYYY-MM-DD"),
+  candidato: z.object({
+    nombre: z.string().min(1),
+    nivel_certificacion: z.enum(NIVEL_CERTIFICACION_VALUES),
+    pax: z.number().int().min(1).max(20),
+    /**
+     * Only set TRUE when the AI explicitly asked the customer whether
+     * they accept diving at the more restrictive depth and the customer
+     * said yes. Default false — the engine never assumes consent.
+     */
+    acepta_capar: z.boolean().optional().default(false),
+  }),
+  /** For FunDive / DeepAdvFD where the customer chose AM or PM. */
+  fundive_slot: z.enum(SLOT_KEYS).optional(),
+});
+
+export type ValidarCupoGrupoInput = z.infer<typeof validarCupoGrupoInputSchema>;
+
+/**
+ * Tool response shape — designed so the AI can render directly to the
+ * customer. `failing_days` lists every day that doesn't fit, plus the
+ * structured reason for each, so the AI can either offer a different
+ * date (single-day failures) or escalate (program_not_scheduled).
+ */
+export type ValidarCupoGrupoResult =
+  | {
+      ok: true;
+      /** Days the program occupies, in chronological order. */
+      days: Array<{
+        fecha: string;
+        slot: "AM" | "PM" | "POOL" | "NIGHT";
+        activity: string;
+      }>;
+    }
+  | {
+      ok: false;
+      reason:
+        | "no_instructor"
+        | "no_boat_capacity"
+        | "program_not_scheduled"
+        | "mixed_failures";
+      failing_days: Array<{
+        fecha: string;
+        slot: "AM" | "PM" | "POOL" | "NIGHT";
+        activity: string;
+        reason: "no_instructor" | "no_boat_capacity";
+      }>;
+      /** Human-friendly summary the AI can quote verbatim. */
+      message: string;
+    };
+
 export type EnviarCatalogoResult =
   | {
       ok: true;
