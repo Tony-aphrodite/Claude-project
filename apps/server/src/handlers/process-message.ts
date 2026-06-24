@@ -1135,6 +1135,19 @@ export async function processIncomingMessage(
               language: contact.language ?? null,
               reason: ocrVerdict.mismatches[0] ?? null,
             });
+          } else if (
+            ocrVerdict.ok === false &&
+            ocrVerdict.reason !== "screenshot_rejected"
+          ) {
+            // OCR pipeline failed (extraction, mime, timeout, anthropic 5xx).
+            // Without this branch the customer only sees "Lo reviso y te
+            // respondo en un momento" and never hears back — the Larita
+            // LOST LEAD case Miguel flagged 2026-06-23 (feedback #4).
+            // Screenshot rejections already have their own upstream
+            // message asking for a PDF, so exclude them here.
+            resultText = buildOcrManualReviewText({
+              language: contact.language ?? null,
+            });
           }
           if (resultText) {
             await respondIoClient
@@ -1187,6 +1200,58 @@ export async function processIncomingMessage(
           log.error(
             { err: (sendErr as Error).message },
             "ocr result message branch threw",
+          );
+        }
+      } else if (attachment) {
+        // Attachment arrived but OCR was skipped because `expected` was
+        // null (deposit_pending stage reached without the full triplet —
+        // missing ref_code OR amount OR currency on lead_metadata). The
+        // generic ACK fired upstream; without this fallback the customer
+        // would be ghosted just like the Larita LOST LEAD case
+        // (Miguel 2026-06-23 feedback #4). Send the manual-review text
+        // so they know a human is involved.
+        try {
+          const manualText = buildOcrManualReviewText({
+            language: contact.language ?? null,
+          });
+          await respondIoClient
+            .sendMessage({
+              conversationId:
+                payload.conversation?.id ?? conversation.respondIoConversationId,
+              contactId: payload.contact.id,
+              text: manualText,
+            })
+            .catch((err) =>
+              log.error(
+                { err: (err as Error).message },
+                "manual-review fallback send failed",
+              ),
+            );
+          await getDb()
+            .insert(mensajes)
+            .values({
+              conversacionId: conversation.id,
+              sender: "ai",
+              content: manualText,
+              metadata: {
+                synthetic: true,
+                reason: "ocr_skipped_no_expected_manual_review_fallback",
+              },
+            })
+            .catch((err) =>
+              log.warn(
+                { err: (err as Error).message },
+                "manual-review fallback mensaje insert failed",
+              ),
+            );
+          log.info(
+            { conversationId: conversation.id },
+            "manual-review fallback sent — attachment arrived without OCR expected metadata",
+          );
+        } catch (err) {
+          log.error(
+            { err: (err as Error).message },
+            "manual-review fallback branch threw",
           );
         }
       }
@@ -4192,6 +4257,47 @@ export function buildOcrMismatchText(ctx: {
     "Acabo de revisar tu comprobante 🙏 algo no coincide del todo con el depósito que tengo registrado — puede ser el monto, la moneda o que la captura quedó difícil de leer.",
     "",
     "¿Podrías revisarlo y mandarme un PDF más claro? Mi compañero/a también lo revisa mientras tanto.",
+  ].join("\n");
+}
+
+/**
+ * Fallback follow-up message when the immediate "Recibí tu archivo, lo
+ * reviso y te respondo en un momento" ACK fired but the OCR pipeline did
+ * NOT produce a customer-facing result message (= no auto-confirm, no
+ * mismatch text). Without this fallback the customer is silently
+ * ghosted — exactly the Larita LOST LEAD scenario Miguel flagged
+ * 2026-06-23 (feedback #4).
+ *
+ * Cases this covers:
+ *   - OCR ran but failed (extraction error, mime issue, API timeout,
+ *     anthropic 5xx) — `ocrVerdict.ok === false` with any reason other
+ *     than `screenshot_rejected` (which already emits its own upstream
+ *     message asking for a PDF).
+ *   - OCR was SKIPPED because `expected` was null — happens when the
+ *     stage is deposit_pending but lead_metadata is missing one of
+ *     ref_code / amount / currency. Customer's attachment arrives, ACK
+ *     goes out, OCR doesn't run, no follow-up emitted. Same silence
+ *     symptom.
+ *
+ * The text sets expectation that a human is involved without sounding
+ * alarming. Aligned with Miguel's WhatsApp-natural tone preference.
+ */
+export function buildOcrManualReviewText(ctx: {
+  language: string | null;
+}): string {
+  const lang = (ctx.language ?? "es").slice(0, 2).toLowerCase();
+  const isEn = lang === "en";
+  if (isEn) {
+    return [
+      "Got your file 🙏 the team is double-checking it on our side — I'll confirm everything in a few minutes.",
+      "",
+      "If it's been longer than 30 minutes and you haven't heard back, give us a nudge here.",
+    ].join("\n");
+  }
+  return [
+    "Recibí tu archivo 🙏 el equipo lo está chequeando del lado nuestro — te confirmo todo en unos minutos.",
+    "",
+    "Si pasaron más de 30 minutos y no te avisamos, escribime de nuevo así te resuelvo.",
   ].join("\n");
 }
 
