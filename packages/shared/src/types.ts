@@ -689,7 +689,7 @@ export const CATALOG_PROGRAMS = [
   "OW", // Open Water
   "OW30", // Open Water 30 (3-day intensive)
   "AOW", // Advanced Open Water
-  "Adventures", // SSI Adventure Diver (2 specialty dives, pre-AOW)
+  "Adventures", // SSI Deep Adventurer — KT-only as of 2026-06-24 is a 2-dive package at 3,900 THB (was 1 dive at 2,900)
   "OWAOWCombo", // Open Water + Advanced bundled
   "OWDeepCombo", // Open Water + Deep Specialty bundled
   "DeepSpecialty",
@@ -709,6 +709,15 @@ export const CATALOG_PROGRAMS = [
   "BlueOceans",
   "SeaTurtleEcology",
   "SharkEcology",
+  // KT additions (Miguel 2026-06-23 catalog QA — 6 new programs):
+  // Night dives (2 variants), Perfect Buoyancy specialty,
+  // 2 SSI-only upgrade paths (Basic→OW, ScubaDiver→OW), and Instructor.
+  "NightAdventure", // 1 guided night dive, certifies SSI Night Recognition — 2,900 THB (KT)
+  "NightFunDive", // single fun-dive after dark — 1,200 THB (KT) — requires Advanced or NightAdventure
+  "PerfectBuoyancy", // SSI buoyancy specialty (2 dives) — 7,900 THB (KT)
+  "UpgradeBasic", // SSI Basic Diver → full OW (4 dives) — 7,400 THB (KT only, SSI-only)
+  "UpgradeScuba", // SSI Scuba Diver → full OW (2 dives) — 5,000 THB (KT only, SSI-only)
+  "Instructor", // OWSI Instructor course — 80,000 THB — "starting soon" until launched
 ] as const;
 export type CatalogProgram = (typeof CATALOG_PROGRAMS)[number];
 
