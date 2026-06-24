@@ -48,6 +48,16 @@ import {
   solicitarDepositoTool,
   type SolicitarDepositoHandler,
 } from "../tools/solicitar-deposito.js";
+import { validarCupoGrupoTool } from "../tools/validar-cupo-grupo.js";
+import {
+  validarCupoGrupoInputSchema,
+  type ValidarCupoGrupoInput,
+  type ValidarCupoGrupoResult,
+} from "@dpm/shared";
+
+export type ValidarCupoGrupoHandler = (
+  input: ValidarCupoGrupoInput,
+) => Promise<ValidarCupoGrupoResult>;
 
 let _client: Anthropic | undefined;
 
@@ -71,6 +81,11 @@ export type ToolHandlers = {
   solicitar_deposito?: SolicitarDepositoHandler;
   enviar_catalogo?: EnviarCatalogoHandler;
   send_product_card?: SendProductCardHandler;
+  /**
+   * Intelligent roster engine — added 2026-06-24 (Phase 3.5 of Miguel
+   * v2.1 spec). Per-sede activation via env ROSTER_ENGINE_ENABLED_SEDES.
+   */
+  validar_cupo_grupo?: ValidarCupoGrupoHandler;
 };
 
 export type CallClaudeInput = {
@@ -204,6 +219,7 @@ export async function callClaude(input: CallClaudeInput): Promise<CallClaudeResu
   if (input.toolHandlers.solicitar_deposito) tools.push(solicitarDepositoTool);
   if (input.toolHandlers.enviar_catalogo) tools.push(enviarCatalogoTool);
   if (input.toolHandlers.send_product_card) tools.push(sendProductCardTool);
+  if (input.toolHandlers.validar_cupo_grupo) tools.push(validarCupoGrupoTool);
 
   // Tool-call rounds budget. Bumped from 2 → 3 on 2026-06-10 after a
   // Miguel-reported "queda colgado" incident where a 6-day diving request
@@ -566,6 +582,36 @@ async function dispatchTool(
         type: "tool_result",
         tool_use_id: tu.id,
         content: `Error enviando product card: ${(err as Error).message}`,
+        is_error: true,
+      };
+    }
+  }
+
+  if (tu.name === "validar_cupo_grupo") {
+    if (!handlers.validar_cupo_grupo) {
+      return notSupported(tu);
+    }
+    const parsedRaw = validarCupoGrupoInputSchema.safeParse(tu.input);
+    if (!parsedRaw.success) {
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: `validar_cupo_grupo input inválido: ${parsedRaw.error.message}`,
+        is_error: true,
+      };
+    }
+    try {
+      const result = await handlers.validar_cupo_grupo(parsedRaw.data);
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: JSON.stringify(result),
+      };
+    } catch (err) {
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: `Error validando cupo de grupo: ${(err as Error).message}`,
         is_error: true,
       };
     }

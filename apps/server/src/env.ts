@@ -191,6 +191,44 @@ const envSchema = z.object({
   APPS_SCRIPT_PUSH_BACK_ENABLED: z.string().optional().or(z.literal("")),
 
   /**
+   * Per-sede activation of the intelligent roster engine (Miguel
+   * 2026-06-24 spec v2.1).
+   *
+   * CSV of sede names. Empty / unset = engine OFF for every sede
+   * (current behaviour — boat-counter model owns availability).
+   *
+   * Example: ROSTER_ENGINE_ENABLED_SEDES="Koh Tao,Phi Phi"
+   *
+   * For a sede in this list, the AI's tool surface gains
+   * `validar_cupo_grupo` and the prompt should call it BEFORE
+   * solicitar_deposito. Without it, the AI behaves as today
+   * (consultar_disponibilidad + solicitar_deposito only).
+   *
+   * Whitespace around commas is tolerated. Per-sede toggle so we can
+   * roll out one sede at a time per spec §9 (shadow mode → KT live →
+   * replicate).
+   */
+  ROSTER_ENGINE_ENABLED_SEDES: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .transform((raw) => {
+      if (!raw) return [] as string[];
+      return raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+    }),
+
+  /**
+   * When set to "true", every `validar_cupo_grupo` call also runs the
+   * legacy `consultar_disponibilidad` and logs both verdicts
+   * side-by-side. Lets us monitor divergence during the shadow rollout
+   * without flipping the engine to authoritative. Default off.
+   */
+  ROSTER_ENGINE_SHADOW_LOGGING: z.string().optional().or(z.literal("")),
+
+  /**
    * Bearer token required to hit /admin/* endpoints. The reset-conversation
    * endpoint blows away mensajes + lead_metadata + lead_stage for a contact
    * so testers can start a fresh scenario from the same WhatsApp number
@@ -310,4 +348,25 @@ export function isAiAssignee(id: string | number | null | undefined): boolean {
   if (id === null || id === undefined || id === "") return false;
   const target = String(id);
   return getAiAssigneeIds().some((aiId) => String(aiId) === target);
+}
+
+/**
+ * True iff the intelligent roster engine is enabled for `sedeNombre`.
+ * Matches `sedes.nombre` verbatim (e.g. "Koh Tao", "Gili Air").
+ * Defaults to false when the env var is empty / unset.
+ */
+export function isRosterEngineEnabled(sedeNombre: string): boolean {
+  const env = loadEnv();
+  return env.ROSTER_ENGINE_ENABLED_SEDES.includes(sedeNombre);
+}
+
+/**
+ * True iff the shadow-mode comparison logging is enabled. Shadow mode
+ * still routes sales through the legacy consultar_disponibilidad
+ * verdict — the engine output is logged side-by-side for divergence
+ * audit (spec §9).
+ */
+export function isRosterEngineShadowLoggingEnabled(): boolean {
+  const env = loadEnv();
+  return env.ROSTER_ENGINE_SHADOW_LOGGING === "true";
 }

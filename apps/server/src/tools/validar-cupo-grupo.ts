@@ -21,6 +21,8 @@
 //     surface (KT first, per spec §9 shadow-mode rollout).
 // ============================================================================
 
+import type Anthropic from "@anthropic-ai/sdk";
+
 import type { ValidarCupoGrupoInput, ValidarCupoGrupoResult } from "@dpm/shared";
 
 import {
@@ -140,35 +142,67 @@ function buildHumanMessage(
 }
 
 /**
- * Anthropic tool schema. Re-exported from here so the per-sede tool
- * surface in process-message.ts has a single import path for the new
- * tool. Phase 3.5 wires this into the relevant sedes.
+ * Anthropic tool schema. Wired into anthropic.ts so it shows up in the
+ * AI's `tools[]` array when the per-sede handler is registered.
+ *
+ * The description is written so the AI knows to call this BEFORE
+ * `solicitar_deposito` — instructor availability is the primary
+ * constraint, so we'd rather discover "no instructor" before the
+ * deposit step than after.
  */
-export const validarCupoGrupoToolDefinition = {
+export const validarCupoGrupoTool: Anthropic.Tool = {
   name: "validar_cupo_grupo",
   description:
-    "Validate whether a candidate diver can be added to the roster across all days their program occupies, considering both instructor availability (primary constraint) and boat capacity (secondary). Returns ok=true with the day-by-day footprint when the sale fits, or ok=false with the failing days + reason when it doesn't. Call this BEFORE solicitar_deposito when the sede has the intelligent roster engine enabled.",
+    "Verifica si un buceador candidato puede agregarse al roster en TODOS los días que ocupa su programa, considerando la disponibilidad de instructores (restricción primaria) y la capacidad del barco (secundaria). " +
+    "USAR SIEMPRE antes de solicitar_deposito cuando esta tool esté disponible para tu sede. " +
+    "Si ok=true devuelve el cronograma por día (fecha + slot + activity). " +
+    "Si ok=false devuelve los días que no encajan + el motivo (no_instructor / no_boat_capacity / program_not_scheduled / mixed_failures). " +
+    "Cuando un día falle por no_instructor, ofrecé otra fecha al cliente — no negocies el cupo. " +
+    "Cuando reason=program_not_scheduled (Divemaster/Instructor/Specialty sin agendamiento), escalá a la oficina — no calcules disponibilidad.",
   input_schema: {
-    type: "object" as const,
+    type: "object",
     properties: {
-      sede_id: { type: "string", format: "uuid" },
-      programa: { type: "string" },
-      start_date: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+      sede_id: {
+        type: "string",
+        description: "UUID de la sede (provisto en el bloque dinámico)",
+      },
+      programa: {
+        type: "string",
+        description: "Programa vendido (TryScuba / ScubaDiver / OW / OW30 / AOW / FunDive / DeepAdvFD / Refresh / RefreshAdv / ReactRight / etc.)",
+      },
+      start_date: {
+        type: "string",
+        description: "Fecha de inicio en formato YYYY-MM-DD",
+      },
       candidato: {
         type: "object",
+        description: "Datos del buceador a verificar",
         properties: {
-          nombre: { type: "string" },
+          nombre: { type: "string", description: "Nombre del cliente" },
           nivel_certificacion: {
             type: "string",
             enum: ["BEG", "OW", "AA", "RES", "DM", "INS"],
+            description: "Nivel de certificación. BEG = sin certificar (Try Scuba o futuro alumno OW)",
           },
-          pax: { type: "integer", minimum: 1, maximum: 20 },
-          acepta_capar: { type: "boolean" },
+          pax: {
+            type: "integer",
+            minimum: 1,
+            maximum: 20,
+            description: "Cantidad de personas (todas con el mismo nivel)",
+          },
+          acepta_capar: {
+            type: "boolean",
+            description: "Solo true cuando explícitamente preguntaste y el cliente AA aceptó bucear a 18m para juntarse con un grupo OW. Default false.",
+          },
         },
         required: ["nombre", "nivel_certificacion", "pax"],
       },
-      fundive_slot: { type: "string", enum: ["AM", "PM"] },
+      fundive_slot: {
+        type: "string",
+        enum: ["AM", "PM"],
+        description: "Para FunDive / DeepAdvFD donde el cliente elige turno. Ignorado para programas con cronograma fijo.",
+      },
     },
     required: ["sede_id", "programa", "start_date", "candidato"],
   },
-} as const;
+};

@@ -46,7 +46,15 @@ import { depositAmountFor } from "@dpm/shared";
 import { and, eq, sql as drizzleSql } from "drizzle-orm";
 import { conversaciones, errores, getDb, mensajes, type Sede } from "@dpm/db";
 
-import { getAiAssigneeIds, isAiAssignee, loadEnv, resolveHandoffEmail } from "../env.js";
+import {
+  getAiAssigneeIds,
+  isAiAssignee,
+  isRosterEngineEnabled,
+  loadEnv,
+  resolveHandoffEmail,
+} from "../env.js";
+import type { ValidarCupoGrupoInput, ValidarCupoGrupoResult } from "@dpm/shared";
+import { validarCupoGrupoHandler } from "../tools/validar-cupo-grupo.js";
 import { callClaude } from "../services/anthropic.js";
 import { appsScriptService } from "../services/apps-script.js";
 import { bookableSlots } from "../services/bookable-slots.js";
@@ -3121,6 +3129,32 @@ export async function processIncomingMessage(
   //     there's no Meta catalog setup yet for KT, so no card tool.
   //   • Everyone else (John for GT) — keeps the original triad:
   //     consultar + solicitar_deposito + enviar_catalogo.
+  //
+  // Phase 3.5 addition (2026-06-24): when the sede is in
+  // ROSTER_ENGINE_ENABLED_SEDES (Miguel v2.1 spec), the surface ALSO
+  // gets `validar_cupo_grupo`. The AI calls this BEFORE
+  // solicitar_deposito to check instructor + boat capacity across the
+  // full multi-day footprint. Without instructor data in the DB the
+  // tool returns no_instructor → all sales blocked; operators must
+  // backfill instructors + instructor_availability before flipping a
+  // sede into the enabled list.
+  const rosterEngineActive = isRosterEngineEnabled(sede.nombre);
+  const rosterEngineToolHandler = rosterEngineActive
+    ? async (input: ValidarCupoGrupoInput): Promise<ValidarCupoGrupoResult> => {
+        log.info(
+          {
+            sede: sede.nombre,
+            programa: input.programa,
+            startDate: input.start_date,
+            pax: input.candidato.pax,
+            nivel: input.candidato.nivel_certificacion,
+          },
+          "validar_cupo_grupo invoked",
+        );
+        return validarCupoGrupoHandler(input, { sedeNombre: sede.nombre });
+      }
+    : undefined;
+
   const toolHandlers: Parameters<typeof callClaude>[0]["toolHandlers"] =
     sede.nombre === "Gili Air"
       ? {
@@ -3135,6 +3169,9 @@ export async function processIncomingMessage(
           consultar_disponibilidad: consultarDisponibilidadHandler,
           enviar_catalogo: enviarCatalogoHandler,
           send_product_card: sendProductCardHandler,
+          ...(rosterEngineToolHandler
+            ? { validar_cupo_grupo: rosterEngineToolHandler }
+            : {}),
         }
       : sede.nombre === "Koh Tao"
         ? {
@@ -3145,11 +3182,17 @@ export async function processIncomingMessage(
             // Emma can deliver the image cards.
             consultar_disponibilidad: consultarDisponibilidadHandler,
             enviar_catalogo: enviarCatalogoHandler,
+            ...(rosterEngineToolHandler
+              ? { validar_cupo_grupo: rosterEngineToolHandler }
+              : {}),
           }
         : {
             consultar_disponibilidad: consultarDisponibilidadHandler,
             solicitar_deposito: solicitarDepositoHandler,
             enviar_catalogo: enviarCatalogoHandler,
+            ...(rosterEngineToolHandler
+              ? { validar_cupo_grupo: rosterEngineToolHandler }
+              : {}),
           };
 
   // Tony perf feedback 2026-06-07: "3 minutes to respond". The Claude
