@@ -649,6 +649,223 @@ export const rosterBookingsSandbox = pgTable(
   }),
 );
 
+// ────────────────────────────────────────────────────────────────────────────
+// ── INTELLIGENT ROSTER ENGINE (Miguel 2026-06-24 spec) ──────────────────────
+// Added 2026-06-24 to replace the boat-capacity-counter model with the
+// instructor-grouping engine described in Miguel's v2.1 spec.
+//
+// Four new tables:
+//   • instructors                — master list per sede
+//   • instructor_availability    — per-day staffing per sede
+//   • roster_divers              — one row per diver per dive-day
+//   • roster_groups              — engine output, one row per group
+//
+// See `docs/roster-engine-architecture.md` for the full implementation
+// guide. See `reference/roster-engine-spec-2026-06-24.md` for Miguel's
+// canonical spec (English).
+//
+// Coexistence with the existing `roster_bookings` and
+// `roster_bookings_sandbox` tables: kept side-by-side during the
+// shadow-mode rollout (spec §9). Once the engine drives sales, the
+// per-pax detail moves to `roster_divers` and `roster_bookings` becomes
+// a legacy/audit surface.
+// ────────────────────────────────────────────────────────────────────────────
+
+export const instructors = pgTable(
+  "instructors",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    sedeId: uuid("sede_id")
+      .notNull()
+      .references(() => sedes.id, { onDelete: "cascade" }),
+    // The short name as it appears in Miguel's Sheet (MIGUE, BILLY, ESTE,
+    // YOUNNES, TUTU, ARI, KIELE, Freelance1-3). This is the display label
+    // and primary lookup key from the office side.
+    nombre: text("nombre").notNull(),
+    // Full legal name — used for payroll / SSI paperwork. Optional.
+    nombreLegal: text("nombre_legal"),
+    // ISO-639-1 codes the instructor can teach in. Office uses this for
+    // language-driven group reassignment (spec §6.3 — "language swap").
+    // Engine itself is language-blind; assignment is round-robin first.
+    languages: text("languages").array(),
+    // Soft delete — false = no longer with DPM, never auto-assigned. Kept
+    // for historical bookings that reference this instructor.
+    active: boolean("active").notNull().default(true),
+    // Free-form notes ("no deep dives", "prefers AM", etc.).
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    // Unique (sede, nombre) so MIGUE@KT ≠ MIGUE@PP would still be allowed
+    // by table-level constraint but each sede sees one MIGUE.
+    sedeNombreUnique: uniqueIndex("instructors_sede_nombre_unique").on(
+      t.sedeId,
+      t.nombre,
+    ),
+    sedeActiveIdx: index("instructors_sede_active_idx").on(t.sedeId, t.active),
+  }),
+);
+
+export const instructorAvailability = pgTable(
+  "instructor_availability",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    sedeId: uuid("sede_id")
+      .notNull()
+      .references(() => sedes.id, { onDelete: "cascade" }),
+    fecha: text("fecha").notNull(),
+    instructorId: uuid("instructor_id")
+      .notNull()
+      .references(() => instructors.id, { onDelete: "cascade" }),
+    // Which slots the instructor is available for that day. Subset of
+    // ['AM','PM','POOL','NIGHT']. Empty = off (caller should DELETE the
+    // row instead of writing []).
+    slots: text("slots").array().notNull(),
+    // How this row got created. 'default' = derived from a weekly recurring
+    // schedule (Phase 4 admin). 'manual' = office override for this day.
+    source: text("source").notNull().default("manual"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    // One availability row per (sede, fecha, instructor). Office overrides
+    // mutate the same row instead of inserting duplicates.
+    sedeFechaInstructorUnique: uniqueIndex("instructor_availability_sfi_unique").on(
+      t.sedeId,
+      t.fecha,
+      t.instructorId,
+    ),
+    // Engine's primary lookup pattern: "which instructors are available
+    // on sede X for date Y?".
+    sedeFechaIdx: index("instructor_availability_sede_fecha_idx").on(
+      t.sedeId,
+      t.fecha,
+    ),
+  }),
+);
+
+// Activity codes match the Activity enum in @dpm/shared. Stored as text
+// here so adding a code in TS doesn't require a migration.
+//   BD_CONFINADA / BD_BARCO / OW1 / OW2 / OW3 / FD / AA / AA2 /
+//   ADV / SP / RES / REF_FASE1 / REF_FASE2
+//
+// nivel_certificacion: BEG / OW / AA / RES / DM / INS
+//
+// slot: AM / PM / POOL / NIGHT
+//
+// origen: AI / Manual
+//
+// estado_pago: pending / deposit_paid / full_paid / cancelled
+export const rosterDivers = pgTable(
+  "roster_divers",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    sedeId: uuid("sede_id")
+      .notNull()
+      .references(() => sedes.id, { onDelete: "cascade" }),
+    fecha: text("fecha").notNull(),
+    slot: text("slot").notNull(),
+    // The AI's ref_code (DPM-XX-MMDD-XXXXXX). Same value spans multiple
+    // rows when a program covers multiple days (OW = 3 rows, one per
+    // diver-day) — that's intentional.
+    codigoBuceador: text("codigo_buceador").notNull(),
+    nombre: text("nombre").notNull(),
+    nivelCertificacion: text("nivel_certificacion").notNull(),
+    activity: text("activity").notNull(),
+    // SP / ADV subtype: 'nitrox', 'deep', 'wreck', 'night', 'buoyancy',
+    // 'navigation', 'fish_id' — used to keep dedicated_sp groups truly
+    // dedicated per subtype.
+    activityDetail: text("activity_detail"),
+    // Computed depth ceiling: 5 (BD-pool), 12 (BD-boat / OW2), 18 (OW3 /
+    // FD@OW), 30 (FD@AA / profunda), 40 (Deep Specialty). Stored
+    // (not derived at read time) so queries can filter by depth fast.
+    perfilProfundidad: integer("perfil_profundidad").notNull(),
+    acceptsCap: boolean("accepts_cap").notNull().default(false),
+    origen: text("origen").notNull(),
+    estadoPago: text("estado_pago").notNull().default("pending"),
+    conversacionId: uuid("conversacion_id").references(() => conversaciones.id, {
+      onDelete: "set null",
+    }),
+    // Set by the engine on the grouping pass. NULL during the "candidate"
+    // phase before the sale closes or during sim-only runs.
+    instructorId: uuid("instructor_id").references(() => instructors.id, {
+      onDelete: "set null",
+    }),
+    groupId: uuid("group_id"),
+    // 1-based position within the group — matches the Sheet's "Ratio" column.
+    groupOrder: integer("group_order"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    // Engine's main query: every diver in a slot.
+    sedeFechaSlotIdx: index("roster_divers_sede_fecha_slot_idx").on(
+      t.sedeId,
+      t.fecha,
+      t.slot,
+    ),
+    // Reverse lookup: which divers does this conversation own?
+    conversacionIdx: index("roster_divers_conv_idx").on(t.conversacionId),
+    // Ref code lookup.
+    codigoIdx: index("roster_divers_codigo_idx").on(t.codigoBuceador),
+    // Instructor's daily load: "how many divers is ARI carrying today?".
+    instructorFechaIdx: index("roster_divers_instructor_fecha_idx").on(
+      t.instructorId,
+      t.fecha,
+    ),
+  }),
+);
+
+// grupo_actividad values:
+//   pool_inicial / mar_12m / ow_18m / fundive_18m / fundive_30m /
+//   fundive_40m / profunda / dedicado_sp / dedicado_res
+export const rosterGroups = pgTable(
+  "roster_groups",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    sedeId: uuid("sede_id")
+      .notNull()
+      .references(() => sedes.id, { onDelete: "cascade" }),
+    fecha: text("fecha").notNull(),
+    slot: text("slot").notNull(),
+    // NULL when the engine couldn't assign (capacity short). Diver rows
+    // still point at this group via `group_id` so the office sees the
+    // unassigned bundle and can fix it.
+    instructorId: uuid("instructor_id").references(() => instructors.id, {
+      onDelete: "set null",
+    }),
+    grupoActividad: text("grupo_actividad").notNull(),
+    perfilProfundidad: integer("perfil_profundidad").notNull(),
+    ratioMax: integer("ratio_max").notNull(),
+    site1: text("site_1"),
+    site2: text("site_2"),
+    diversCount: integer("divers_count").notNull().default(0),
+    // All groups generated in the same engine run share this id — lets
+    // the panel show "here's the engine's view of the day, vs Miguel's
+    // sheet" coherently. Also used for shadow-mode comparisons.
+    engineRunId: uuid("engine_run_id"),
+    // 'live' = drives operations / sales. 'shadow' = engine ran but not
+    // authoritative. During the shadow rollout (spec §9), groups are
+    // written with source='shadow' first.
+    source: text("source").notNull().default("shadow"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    sedeFechaSlotIdx: index("roster_groups_sede_fecha_slot_idx").on(
+      t.sedeId,
+      t.fecha,
+      t.slot,
+    ),
+    engineRunIdx: index("roster_groups_engine_run_idx").on(t.engineRunId),
+    sourceIdx: index("roster_groups_source_idx").on(t.source),
+  }),
+);
+
 // ── webhook_debug_log ──────────────────────────────────────────────────────
 // Forensic capture of every inbound webhook payload. Added 2026-06-03 to
 // root-cause "first customer message for a new lead doesn't reach the
@@ -701,3 +918,11 @@ export type ReplayRun = typeof replayRuns.$inferSelect;
 export type NewReplayRun = typeof replayRuns.$inferInsert;
 export type ReplayMessage = typeof replayMessages.$inferSelect;
 export type NewReplayMessage = typeof replayMessages.$inferInsert;
+export type Instructor = typeof instructors.$inferSelect;
+export type NewInstructor = typeof instructors.$inferInsert;
+export type InstructorAvailability = typeof instructorAvailability.$inferSelect;
+export type NewInstructorAvailability = typeof instructorAvailability.$inferInsert;
+export type RosterDiver = typeof rosterDivers.$inferSelect;
+export type NewRosterDiver = typeof rosterDivers.$inferInsert;
+export type RosterGroup = typeof rosterGroups.$inferSelect;
+export type NewRosterGroup = typeof rosterGroups.$inferInsert;
