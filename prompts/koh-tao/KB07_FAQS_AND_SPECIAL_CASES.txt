@@ -70,16 +70,16 @@ Quick reply: KTENPhotoVideo / KTESPhotoVideo
 We use Yoke Valve tanks. Customers bringing their own DIN regulators will need an adapter.
 
 ### Do you offer snorkeling?
-No. DPM Koh Tao offers scuba diving activities only.
+We don't run general snorkeling trips, but **two of our SSI ecology specialty courses ARE snorkel-based** — Sea Turtle Ecology (3,500 THB, Shark Bay) and Shark Ecology (3,500 THB, Aow Leuk Bay). Both are 1-day courses led by our in-house marine biologist with a workshop + snorkel survey session, and both award a lifetime SSI recognition card. If the customer just wants to snorkel without the course, refer them to other Koh Tao operators. (Miguel 2026-06-23: previously this entry was a flat "no snorkeling" — that contradicted the ecology specialties we DO offer.)
 
 ### Do you go to Sail Rock?
 No. DPM Koh Tao does not run trips to Sail Rock. For wreck diving, we offer the HTMS Sattakut shipwreck as an excellent alternative.
 
 ### Do you offer eco-dives or ocean clean-up dives?
-No. We do not currently offer this type of program.
+Yes — we offer **6 SSI Marine-Biology Ecology specialties** (Coral / Fish / Marine / Blue Oceans / Sea Turtle / Shark) led by our in-house marine biologist. Blue Oceans specifically includes a clean-up dive component. See KB-01 §Marine-Biology Ecology Specialties for full pricing and format. (Miguel 2026-06-23: previously this entry was "we don't offer this" — that was wrong, the ecology specialties have been running with the in-house biologist all along.)
 
 ### Can I do a single dive (just 1 dive)?
-No. All our programs include a minimum of 2 dives per outing. The only exception is the Night Adventure Dive (2,900 THB).
+Most programs require a minimum of 2 dives per outing. The exceptions are: **Night Adventure** (2,900 THB — single dive that earns the SSI Night recognition) and **Night Fun Dive** (1,200 THB — single guided night dive for already night-certified divers).
 
 ### I want to dive tomorrow but arriving from Koh Phangan — is that possible?
 Our afternoon boat returns around 5:00 PM and the last ferry from Koh Tao to Koh Phangan departs around 4:30–5:00 PM, so a day trip is not feasible. We recommend staying 1–2 nights in Koh Tao. We have accommodation available (subject to availability).
@@ -98,9 +98,10 @@ Our afternoon boat returns around 5:00 PM and the last ferry from Koh Tao to Koh
 - Open Water course requires basic swimming ability
 - Always ask politely: "How would you rate your swimming skills? Do you feel comfortable floating?"
 
-### Certified diver, last dive more than 6 months ago
+### Certified diver, last dive more than 12 months ago
 - Refresh + Fun Dive is mandatory (2,600 THB) — this is a safety requirement, not optional
 - Exception: Divemaster and Instructor level do not need a Refresh
+- (Miguel 2026-06-23: unified to >12 months across the prompt + KB-01 + KB-05; was previously 6 months here.)
 
 ### Customer asks for a specific instructor
 - Never make promises about specific instructor assignments
@@ -145,10 +146,10 @@ The "depends on availability" caveat applies ONLY to German and French. Spanish 
 
 ## WHAT WE DO NOT OFFER
 - Sail Rock trips
-- Single dives (minimum 2 dives per outing, except Night Adventure)
+- Single dives (minimum 2 dives per outing, except Night Adventure 2,900 + Night Fun Dive 1,200)
 - Beach dives (all dives are boat dives)
-- Snorkeling
-- Eco-dives or ocean clean-up dives
+- General/casual snorkeling trips (BUT we DO offer the snorkel-based ecology specialties — Sea Turtle Ecology + Shark Ecology — see KB-01)
+- (Eco-dives / clean-up dives ARE offered as the SSI ecology specialties — see KB-01 §Marine-Biology Ecology)
 - Photos or videos included in programs
 - Pickup or drop-off service
 - Private rooms (shared dorms only)

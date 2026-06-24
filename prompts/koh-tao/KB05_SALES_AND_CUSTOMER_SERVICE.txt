@@ -25,10 +25,10 @@ Also ask politely:
 - Available for 3+ days → offer Open Water 30 (17,900 THB) first, then Open Water Conventional (11,000 THB)
 
 ### Customer HAS certification:
-- Last dive less than 6 months ago → Fun Dives (2,100 THB) — **ALWAYS upsell to Advanced or Deep Adventure if customer has OW. Never just quote Fun Dives without offering the next step.**
-- Last dive more than 6 months ago → Refresh + Fun Dive (2,600 THB) is mandatory for safety. **ALWAYS upsell to Refresh + Deep Adventure (combo total ~6,500 THB) — Refresh gets them back in the water safely, Deep Adventure earns them the SSI Deep Adventurer lifetime card to dive 30m anywhere in the world.**
+- Last dive less than **12 months** ago → Fun Dives (2,100 THB) — **ALWAYS upsell to Advanced or Deep Adventure if customer has OW. Never just quote Fun Dives without offering the next step.** (Miguel 2026-06-23: aligned to 12-month rule from system prompt)
+- Last dive **more than 12 months** ago → Refresh + Fun Dive (2,600 THB) is mandatory for safety. **ALWAYS upsell to Refresh + Deep Adventure (combo total ~6,500 THB) — Refresh gets them back in the water safely, Deep Adventure earns them the SSI Deep Adventurer lifetime card to dive 30m anywhere in the world.**
 - Wants more certification (has OW minimum) → Advanced Course (10,000 THB)
-- Has Advanced, wants to go further → Rescue Course (12,900 THB) → then Divemaster
+- Has Advanced, wants to go further → Rescue Course (**12,600 THB** — Miguel 2026-06-23 KB-05 said 12,900 erroneously; KB-01 + catalog have always been 12,600) → then Divemaster
 - Wants to reach 30m without doing full Advanced → Deep Adventure + Fun Dive (3,900 THB)
 - Night dive → Night Adventure (2,900 THB)
 
@@ -41,7 +41,7 @@ Also ask politely:
 - Try Scuba / Scuba Diver → Open Water Course
 - Open Water → Advanced Course (10,000 THB, 2 days, 5 dives — lifetime certification to 30m)
 - OW + Fun Dives request → Always present: (a) Advanced if customer has 2+ days, OR (b) Deep Adventure + Fun Dive (3,900 THB, 1 day, lifetime card to 30m)
-- OW + last dive >6 months → Refresh (mandatory) + Deep Adventure as a combo (~6,500 THB total). Don't sell Refresh alone if customer hasn't been to 30m yet.
+- OW + last dive >12 months → Refresh (mandatory) + Deep Adventure as a combo (~6,500 THB total). Don't sell Refresh alone if customer hasn't been to 30m yet. (Miguel 2026-06-23: 12-month rule aligned across KB and prompt.)
 - Advanced → Rescue → Divemaster
 - Group mixto (cert + sin-cert): apply KB-11 §9 patterns (Refresh+DA for the cert, push OW30 for the beginner)
 
@@ -68,7 +68,7 @@ Use naturally, never aggressively:
 - "It's a lifetime international license, valid forever worldwide — you only pay once."
 - For Open Water: first offer 10,000 THB → if still objecting: minimum 9,500 THB (never go lower)
 - For Try Scuba with group of 2+: offer 3,300 THB per person
-- If student did OW with DPM, Advanced has a 10% discount (9,000 THB)
+- If student previously completed a CERTIFICATION course (OW / OW30 / Advanced) with DPM (any sede), Advanced has a **5% discount (9,500 THB)**. NOT applicable for Fun Dive or Try Scuba customers. (Miguel 2026-06-23: corrected from 10% / 9,000 — see KB-01.)
 
 ### Time objection
 - "Even with limited time, you can earn a certification in just 1 day."

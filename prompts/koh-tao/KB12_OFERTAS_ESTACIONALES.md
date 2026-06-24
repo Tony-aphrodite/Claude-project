@@ -38,7 +38,7 @@ Cuando hay oferta activa que contradice una regla estándar (ej. "OW30 first" de
 | **Alojamiento incluido** | Solo dorm de 4 personas (NO dorm de 12, NO privado) |
 | **Status** | ✅ ACTIVA |
 | **Aplica según** | ✅ Fecha de actividad (si el OW se realiza en mayo o junio, aplica oferta) |
-| **Combinable con descuentos** | ✅ Sí, combinable con el 10% de cliente fiel DPM (que aplica al Advanced en upsell) |
+| **Combinable con descuentos** | ✅ Sí, combinable con el **5% de cliente fiel DPM** (que aplica al Advanced en upsell — Miguel 2026-06-23 corregido de 10%) |
 
 **Frase sugerida en ES:**
 > *"Te cuento que tenemos una oferta de temporada vigente hasta fin de junio: el Open Water Conventional + 3 noches de alojamiento en habitación compartida de 4 personas te queda en 9.900 THB en total (en lugar de 12.000) 🤿 ¿Te interesa?"*
@@ -76,20 +76,22 @@ SI cliente declara menos de 3 días:
 |---|---|---|---|
 | **A — OW Conv + 3 noches (oferta sola)** | 9.900 | **9.900** | OW (18m) |
 | **B — OW30 + 3 noches (regular)** | 17.900 + 1.000 paquete | **18.900** | OW30 (30m) + Deep Adventurer |
-| **C — OW Conv (oferta) + Advanced + 2 noches extra** | 9.900 + 9.000 (Advanced 10% off cliente fiel) + 1.000 (2 noches × 500) | **19.900** | OW (18m) + Advanced (30m, Night/Wreck/Navigation/Buoyancy/Deep) |
+| **C — OW Conv (oferta) + Advanced + 2 noches extra** | 9.900 + 9.500 (Advanced 5% off cliente fiel) + 1.000 (2 noches × 500) | **20.400** | OW (18m) + Advanced (30m, Night/Wreck/Navigation/Buoyancy/Deep) |
+
+> *Miguel 2026-06-23: el descuento Advanced cliente fiel se corrigió de 10% (9.000) a **5% (9.500)** — total combo C ajustado de 19.900 → 20.400.*
 
 **Por qué el combo C le gana al B:**
-- Solo 1.000 THB más que el OW30 + 3 noches
+- Solo 1.500 THB más que el OW30 + 3 noches
 - Cliente obtiene DOS certificaciones en vez de una
 - Incluye 5 inmersiones específicas extra (Night, Wreck, Buoyancy, Navigation, Deep)
 - 2 días adicionales de buceo
 - Misma profundidad final (30m)
 
 **Frase sugerida para el upsell del combo (ES):**
-> *"Si tenés 5-6 días en la isla, te recomiendo combinarlo con el Advanced — son solo 2 días más de buceo y obtenés la certificación a 30m + 5 inmersiones especiales (nocturno, pecio, navegación). Como hacés el OW con DPM, te queda con 10% de descuento: 9.000 THB. Total combo: 19.900 THB. Mismo nivel de certificación que el OW30, pero con muchas más inmersiones 🤿"*
+> *"Si tenés 5-6 días en la isla, te recomiendo combinarlo con el Advanced — son solo 2 días más de buceo y obtenés la certificación a 30m + 5 inmersiones especiales (nocturno, pecio, navegación). Como hacés el OW con DPM, el Advanced te queda con 5% de descuento de cliente fiel: 9.500 THB. Total combo: 20.400 THB. Mismo nivel de certificación que el OW30, pero con muchas más inmersiones 🤿"*
 
 **Frase sugerida para el upsell del combo (EN):**
-> *"If you've got 5-6 days on the island, I'd recommend combining it with the Advanced — only 2 extra dive days and you get certified to 30m + 5 specialty dives (night, wreck, navigation). Since you're doing OW with DPM, the Advanced gets 10% off: 9,000 THB. Combo total: 19,900 THB. Same depth certification as OW30 but with way more diving 🤿"*
+> *"If you've got 5-6 days on the island, I'd recommend combining it with the Advanced — only 2 extra dive days and you get certified to 30m + 5 specialty dives (night, wreck, navigation). Since you're doing OW with DPM, the Advanced gets 5% off as a loyalty discount: 9,500 THB. Combo total: 20,400 THB. Same depth certification as OW30 but with way more diving 🤿"*
 
 ---
 

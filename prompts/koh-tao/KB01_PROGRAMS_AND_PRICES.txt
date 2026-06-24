@@ -65,16 +65,23 @@ All programs include snacks on board.
 - Price: 2,100 THB per trip
 - Includes 2 boat dives per trip
 - Requirement: any diving certification (Scuba Diver, Open Water, Advanced or higher)
-- Requirement: must have dived within the last 6 months — otherwise Refresh is required
+- Requirement: must have dived within the last **12 months** — otherwise Refresh is required (Miguel 2026-06-23: aligned to the >12-month rule that lives in the system prompt; KB used to say 6 months which contradicted the prompt)
 - Catalog code EN: abf12s6boz | ES: 2nvxnfib66
 
 ### Refresh + Fun Dive
 - Price: 2,600 THB per person
-- Required when certified diver has not dived in more than 6 months
+- Required when certified diver has not dived in **more than 12 months** (Miguel 2026-06-23: unified to 12 months across KB and prompt)
 - Requirement: Scuba Diver, Open Water, Advanced or Rescue certification
 - Note: Divemaster and Instructor do not need the Refresh
 - Inclusions: theory review, shallow skills dive, 1 fun dive, pro dive guide, full gear, dive insurance, snacks on board
 - Catalog code EN: (Refresh + Fun Dive KT) | ES: 6oz81kymrs
+
+### Night Fun Dive (NUEVO Miguel 2026-06-23)
+- Price: **1,200 THB** per dive
+- Format: single guided night dive (one of the very few single-dive offerings — exception to the 2-dive minimum rule)
+- Requirement: **night-qualified diver** — Advanced certification OR the standalone Night Adventure certification
+- Inclusions: full gear, pro dive guide, dive insurance, snacks on board
+- DO NOT confuse with the Night Adventure (2,900 THB), which is the CERTIFICATION course. This is a fun dive for already-certified night divers.
 
 ### Adventure Dives
 - Price: 2,900 THB per adventure dive
@@ -92,7 +99,7 @@ All programs include snacks on board.
 
 ### Advanced Course
 - Price: 10,000 THB per person
-- Discount: 10% (9,000 THB) if the student completed their Open Water with DPM
+- Discount: **5% (9,500 THB)** — applies ONLY to customers who previously completed a CERTIFICATION course (OW / OW30 / Advanced) at ANY DPM branch. NOT applicable for Fun Dive customers, NOT applicable for Try Scuba customers. (Miguel 2026-06-23: KB used to say 10% / 9,000 — that was wrong, correct figure is 5% / 9,500 with the eligibility gate.)
 - Duration: 2 days
 - Requirement: Open Water Diver certification
 - Max depth after completion: 30 meters
@@ -112,10 +119,12 @@ All programs include snacks on board.
 ## SPECIALTY COURSES
 
 ### Deep Specialty
-- Price: 7,900 THB
-- Duration: can be done in 2 days
-- Requirement: Open Water certification
-- Inclusions: SSI Deep Specialty certification, 2 boat dives, pro instructor, full gear, dive insurance, snacks on board
+- Price (Advanced certified): **7,900 THB** — 1 day (class + 2 dives)
+- Price (Open Water only): **8,900 THB** — 2 days (class + 4 dives, the extra dives bring the student up to Advanced depth before the specialty work)
+- Max depth after completion: **40 meters (130 ft)**
+- Requirement: Open Water certification (minimum)
+- Inclusions: SSI Deep Specialty certification (lifetime), pro instructor, full gear, dive insurance, snacks on board
+- Note (Miguel 2026-06-23): the older KB entry showed only 7,900 / no 40m mention — the catalog card has the full breakdown. When quoting, ask the customer's current certification level to pick the right tier.
 
 ### Nitrox Specialty
 - Price: 7,900 THB
@@ -124,6 +133,52 @@ All programs include snacks on board.
 ### Perfect Buoyancy Specialty
 - Price: 7,900 THB
 - Inclusions: SSI Perfect Buoyancy Specialty certification, 2 boat dives, pro instructor, full gear, dive insurance, snacks on board
+
+---
+
+## MARINE-BIOLOGY ECOLOGY SPECIALTIES (Miguel 2026-06-23 — KT exclusive, led by in-house marine biologist)
+
+All 6 ecology specialties below run as 1-day exclusive courses. Each is led
+by DPM Koh Tao's in-house marine biologist and combines a morning/afternoon
+classroom workshop with either 2 boat dives or guided snorkel sessions
+applying research / monitoring techniques (Coral Watch, Indo-Pacific Shark
+Search, regional sea-turtle monitoring). Each awards a lifetime SSI
+recognition card for the corresponding specialty.
+
+### Coral Ecology
+- Price: 4,500 THB
+- Format: 1 day · morning workshop + 2 afternoon dives applying survey techniques
+- Data goes to the global Coral Watch database
+- Inclusions: SSI Coral Ecology recognition, full gear, dive insurance, 2 dives, free DPM T-shirt
+
+### Fish Ecology
+- Price: 4,500 THB
+- Format: 1 day · morning workshop + 2 afternoon dives identifying reef fish by key features
+- Inclusions: SSI Fish Ecology recognition, full gear, dive insurance, 2 dives, free DPM T-shirt
+
+### Marine Ecology
+- Price: 4,500 THB
+- Format: 1 day · morning workshop + 2 afternoon dives on marine ecosystem dynamics + human impact
+- Inclusions: SSI Marine Ecology recognition, full gear, dive insurance, 2 dives, free DPM T-shirt
+
+### Blue Oceans
+- Price: 4,500 THB
+- Format: 1 day · morning workshop + 2 afternoon dives (one clean-up dive + one coral-health observation)
+- Inclusions: SSI Blue Oceans recognition, full gear, dive insurance, 2 dives, free DPM T-shirt
+
+### Sea Turtle Ecology (SNORKEL-BASED)
+- Price: 3,500 THB
+- Format: 1 day · afternoon workshop + **snorkel** session in Shark Bay measuring species abundance
+- Data submitted to an online group monitoring Koh Tao + the wider Gulf
+- Inclusions: SSI Sea Turtle Ecology recognition, full snorkel gear, free DPM T-shirt
+- Note: this specialty uses SNORKEL (not scuba) — see KB-07 disambiguation
+
+### Shark Ecology (SNORKEL-BASED)
+- Price: 3,500 THB
+- Format: 1 day · morning workshop + **snorkel** at Aow Leuk Bay measuring species abundance
+- Data goes to the Indo-Pacific Shark Search database
+- Inclusions: SSI Shark Ecology recognition, full snorkel gear, free DPM T-shirt
+- Note: this specialty uses SNORKEL (not scuba) — see KB-07 disambiguation
 
 ---
 
