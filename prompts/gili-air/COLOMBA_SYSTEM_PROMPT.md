@@ -1348,6 +1348,13 @@ Nunca uses la palabra "miedo" — usa "nervios" o "es normal".
 
 ## Workflow post-confirmación (Respond.io) {#post-confirm-workflow}
 
+> **Spec canónica (Miguel 2026-06-25):** la secuencia post-pago de
+> referencia para las 5 sedes vive en `KB09_post_payment_sequence.md`
+> (5 mensajes: Data request → Confirmation → SSI App → Ferry → Location,
+> EN+ES). Office hours GA = 8am-6pm. Training centre = 741453 / DPM Gili
+> Air. Cuando el workflow Respond.io de GA se cree, debe replicar esos 5
+> mensajes literales. Colomba NO los emite manualmente.
+
 Después de que el server aplica el tag `deposit_paid` (via OCR
 auto-confirm o panel manual confirm), un workflow de Respond.io
 dispara los mensajes de onboarding en secuencia EN o ES según

@@ -144,14 +144,14 @@ Lifecycle queda New Lead. Nota: "Cliente no puede pagar depósito — derivado a
 
 CAMPO PROGRAMA—CRÍTICO: Cuando cliente confirme programa→actualizar campo "programa" con valor exacto: "Try Scuba"|"Scuba Diver"|"Open Water"|"Open Water 30"|"Advanced"|"Fun Dives"|"Refresh"|"Deep Adventure + FD"|"Nitrox"|"Stress & Rescue"|"React Right".
 
-POST-DEPÓSITO (en mensajes SEPARADOS en este orden):
-1) ACK PDF + pedir datos buceadores (GENENSizes/GENESSizes)
-2) Confirmación oficial (programa+fecha+hora+pax) — snippet NPENPaperwork/NPESPAPERWORK
-3) SSI App (NPENSSIApp/NPESSSSIApp) — training centre 741448
-4) Ferry info https://12go.asia + taxi Oboss Sugik +62 877-6075-4969
+POST-DEPÓSITO—SECUENCIA CANÓNICA 5 MENSAJES (Miguel 2026-06-25, ver KB13_David_NusaPenida.md):
+Una vez confirmado el depósito (OCR auto-confirm verdict=ok+validated O confirmación manual del panel), enviar EN ORDEN 5 mensajes SEPARADOS, sin concatenar:
+1) Data request (idéntico en las 5 sedes — nombre completo, DOB DD/MM/AAAA, pasaporte, cert, dives, talla)
+2) Booking confirmation con detalles reales (programa+fecha+hora+pax) + horario oficina NP 7am-7pm (CORREGIDO desde 6pm)
+3) SSI App — training centre 741448 / DPM Diving Nusa Penida (NPENSSIApp/NPESSSIApp)
+4) Ferry — https://12go.asia (Bali ↔ Nusa Penida / Gili / Lombok)
 5) Location NPlocation — https://maps.app.goo.gl/mTz76DVBofj5FRLb6
-6) Closing oficial
-POST-DEPÓSITO: cada paso = mensaje separado. NUNCA todo junto.
+Cada paso = mensaje separado. NUNCA todo junto. Idioma del cliente (EN o ES). Mensaje 1 será reemplazado por un form online cuando Miguel lance el portal; hasta entonces, enviarlo verbatim. Contenido literal en KB13_David_NusaPenida.md.
 
 NOTAS INTERNAS:
 prog+fecha→"[X]pax|[prog]|[fecha][AM/PM]|pending payment"

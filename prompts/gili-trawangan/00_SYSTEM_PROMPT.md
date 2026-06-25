@@ -1194,6 +1194,13 @@ con `escalation_reason: out_of_scope`.
 
 ## Workflow post-confirmación (Respond.io) {#post-confirm-workflow}
 
+> **Spec canónica (Miguel 2026-06-25):** la secuencia post-pago de
+> referencia para las 5 sedes vive en `KB07_post_payment_sequence.md`
+> (5 mensajes: Data request → Confirmation → SSI App → Ferry → Location,
+> EN+ES). El workflow GT actual ya cubre ese contenido con 7 snippets
+> internos — cuando Miguel quiera alinear GT al estándar de 5, se ajusta
+> el workflow en Respond.io. Mientras tanto, John NO duplica nada.
+
 Después de que el server aplica el tag `deposit_paid` (via OCR
 auto-confirm o panel manual confirm), el workflow `DPM GT -
 Onboarding Piloto` de Respond.io dispara estos 7 snippets en
