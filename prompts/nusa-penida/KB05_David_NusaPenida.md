@@ -133,8 +133,9 @@ Frase:
 - ES: "No hay ningún problema 😊 Para Try Scuba y Scuba Diver no se requieren habilidades de natación — nuestros instructores te guían paso a paso. Para Open Water sí necesitás saber nadar básico. ¿Cómo describirías tu comodidad en el agua del 1 al 5?"
 
 ### 10. "Are there sharks? Is it dangerous?"
-- EN: "Diving in Nusa Penida is completely safe 😊 The sharks here are reef sharks (bamboo and nurse sharks) — they're shy and not dangerous to divers. Our instructors are professional and certified, and all our programs include diving insurance."
-- ES: "Bucear en Nusa Penida es completamente seguro 😊 Los tiburones aquí son tiburones de arrecife (bambú y nodriza) — son tímidos y no representan peligro. Todos nuestros programas incluyen seguro de buceo."
+- EN: "Diving in Nusa Penida is completely safe 😊 The sharks here are reef sharks (bamboo and nurse sharks) — they're shy and not dangerous to divers. Our instructors are professional and certified, and our certification courses include diving insurance (for fun dives we recommend bringing your own dive cover)."
+- ES: "Bucear en Nusa Penida es completamente seguro 😊 Los tiburones aquí son tiburones de arrecife (bambú y nodriza) — son tímidos y no representan peligro. Nuestros cursos de certificación incluyen seguro de buceo (para fun dives recomendamos traer tu propia cobertura)."
+- Miguel 2026-06-25: corregido — el seguro NO está en todos los programas, solo en los de certificación. Ver regla SEGURO en el system prompt.
 
 ### 11. "Can I dive with contacts / prescription mask?"
 - Contact lenses: YES, perfectly fine

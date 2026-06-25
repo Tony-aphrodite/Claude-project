@@ -68,7 +68,7 @@ All programs include shower and towel service.
 - Requirement: must have dived within the last 12 months — otherwise Refresh is required
 - Morning sites: Manta Point + Crystal Bay
 - Afternoon sites: Sental / Toyapakeh / SD Point / Buyuk / Ped
-- Inclusions: 2 dives, dive guide, full dive gear (dive computer not included — available for rent), diving insurance, snacks on board, shower & towel service
+- Inclusions: 2 dives, dive guide, full dive gear (dive computer not included — available for rent), snacks on board, shower & towel service (Miguel 2026-06-25: Fun Dives do NOT include dive insurance — see SEGURO rule)
 - Catalog code EN: `xgymus3f18` | ES: `q9llwetz6t`
 
 ### Refresh + 2 Dives

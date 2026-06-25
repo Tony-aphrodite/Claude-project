@@ -141,7 +141,9 @@ la consulta médica con info parcial.
 - Equipo completo: traje neopreno 3mm corto, BCD, regulador, aletas,
   máscara, tanque 12L
 - Instructor profesional certificado
-- Seguro de buceo
+- Seguro de buceo (SOLO en cursos de certificación — NO incluido en
+  Fun Dives, Deep Adventure + Fun Dive, Refresh + Fun Dive ni Night
+  Fun Dive. Ver regla SEGURO—CRÍTICO en el system prompt.)
 - Snacks a bordo
 - Toalla en el centro
 - Certificación digital SSI (cuando aplique)

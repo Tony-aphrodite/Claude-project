@@ -111,7 +111,7 @@ Max depth: 30 meters (vs 18m for conventional OW)
 ### What's included in all programs:
 - Full dive gear (wetsuit, BCD, regulator, tank, fins, mask)
 - Professional instructor or dive guide
-- SSI dive insurance
+- SSI dive insurance (certification courses only — NOT included in Fun Dives, Deep Adventure + FD or Refresh; see SEGURO rule in system prompt)
 - Snacks on board
 - Boat transfers to all dive sites
 

@@ -153,7 +153,9 @@ Upgrade rápido para OW certificados que quieren llegar a 30 m sin hacer el Adva
 **Incluye:**
 - SSI Deep Adventure Recognition Card (válida para siempre)
 - 2 buceos desde barco
-- Instructor profesional, equipo completo, seguro, almuerzo
+- Instructor profesional, equipo completo, almuerzo
+
+> Miguel 2026-06-25: el paquete Deep Adventure + Fun Dive NO incluye seguro (porque la 2da inmersión es un Fun Dive). Si el cliente pregunta, recomendar DiveAssure (ver regla SEGURO—CRÍTICO en el system prompt).
 
 ---
 
@@ -164,8 +166,9 @@ Upgrade rápido para OW certificados que quieren llegar a 30 m sin hacer el Adva
 - 2 buceos desde barco
 - Dive guide profesional
 - Equipo completo
-- Seguro
 - Almuerzo
+
+> Miguel 2026-06-25: el Fun Dive NO incluye seguro de buceo. Si el cliente pregunta por cobertura, recomendar DiveAssure (ver regla SEGURO—CRÍTICO en el system prompt).
 
 **Certificación requerida:** Scuba Diver, Open Water, Advanced, o superior.
 
@@ -196,7 +199,7 @@ Para 8+ buceos: 1.350 × N × 0,85 (ej. 10 buceos = 11.475 THB).
 - El descuento aplica solo a buceos diurnos. El Night Fun Dive (1.900 THB) se cotiza aparte, sin descuento, y NO cuenta para el tier.
 - El Wreck Fun Dive (+500 THB, solo Advanced) mantiene su recargo dentro del paquete.
 - La tasa de Parque Nacional se suma aparte y por día de barco (600 THB primer día, 200 THB por día adicional). Un paquete de varios días acumula la tasa por cada día.
-- Incluye lo mismo que el Fun Dive estándar (dive guide, equipo, seguro, almuerzo; dive computer no incluido, rental 200 THB).
+- Incluye lo mismo que el Fun Dive estándar (dive guide, equipo, almuerzo; dive computer no incluido, rental 200 THB). Miguel 2026-06-25: el seguro NO está incluido en paquetes de Fun Dives.
 - Son precios de paquete ya con descuento — no se les suma otro descuento de negociación encima.
 
 ---

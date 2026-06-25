@@ -73,14 +73,14 @@ All programs include snacks on board.
 - Required when certified diver has not dived in **more than 12 months** (Miguel 2026-06-23: unified to 12 months across KB and prompt)
 - Requirement: Scuba Diver, Open Water, Advanced or Rescue certification
 - Note: Divemaster and Instructor do not need the Refresh
-- Inclusions: theory review, shallow skills dive, 1 fun dive, pro dive guide, full gear, dive insurance, snacks on board
+- Inclusions: theory review, shallow skills dive, 1 fun dive, pro dive guide, full gear, snacks on board (Miguel 2026-06-25: Refresh does NOT include dive insurance — see SEGURO rule)
 - Catalog code EN: (Refresh + Fun Dive KT) | ES: 6oz81kymrs
 
 ### Night Fun Dive (NUEVO Miguel 2026-06-23)
 - Price: **1,200 THB** per dive
 - Format: single guided night dive (one of the very few single-dive offerings — exception to the 2-dive minimum rule)
 - Requirement: **night-qualified diver** — Advanced certification OR the standalone Night Adventure certification
-- Inclusions: full gear, pro dive guide, dive insurance, snacks on board
+- Inclusions: full gear, pro dive guide, snacks on board (Miguel 2026-06-25: Night Fun Dive does NOT include dive insurance — see SEGURO rule)
 - DO NOT confuse with the Night Adventure (2,900 THB), which is the CERTIFICATION course. This is a fun dive for already-certified night divers.
 
 ### Adventure Dives
@@ -95,7 +95,7 @@ All programs include snacks on board.
 
 ### Deep Adventure + Fun Dive (package)
 - Price: 3,900 THB
-- Includes: SSI Deep Adventure recognition card, 2 boat dives, pro instructor, full gear, dive insurance, snacks on board
+- Includes: SSI Deep Adventure recognition card, 2 boat dives, pro instructor, full gear, snacks on board (Miguel 2026-06-25: Deep Adventure + FD package does NOT include dive insurance — see SEGURO rule)
 
 ### Advanced Course
 - Price: 10,000 THB per person

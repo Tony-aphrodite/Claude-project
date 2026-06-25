@@ -145,7 +145,7 @@ Always check current hour in Bali (GMT+8) before quoting today's availability:
 ### What's included in all dive programs:
 - Full dive gear (wetsuit, BCD, regulator, tank, fins, mask)
 - Professional instructor or dive guide
-- SSI dive insurance
+- SSI dive insurance (certification courses only — NOT included in Fun Dives, Deep Adventure + FD or Refresh; see SEGURO rule in system prompt)
 - Snacks on board (cookies, fruit, water, coffee, tea)
 - Boat transfers to all dive sites
 - Shower and towel service at the dive center
