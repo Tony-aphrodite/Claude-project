@@ -64,7 +64,14 @@ import { chatContactsService } from "../services/chat-contacts.js";
 import { conversationService } from "../services/conversation.js";
 import { detectCurrencyFromPhone } from "../services/currency-detection.js";
 import { runOcrOnAttachment, type OcrVerdict } from "../services/ocr-comprobante.js";
-import { pickFirstAttachment } from "../services/respond-io-attachment.js";
+import {
+  fetchAttachmentAsBase64,
+  isImageMime,
+  isPdfMime,
+  pickAllAttachments,
+  pickFirstAttachment,
+  type NormalizedAttachment,
+} from "../services/respond-io-attachment.js";
 import {
   addDays,
   computeTurno,
@@ -170,6 +177,17 @@ export async function processIncomingMessage(
   const t0 = Date.now();
 
   const incomingText = (payload.message.text ?? "").trim();
+  // Effective text the AI sees in Bloque 4 — usually equal to incomingText,
+  // but when the customer sent a media-only message (no caption) outside
+  // deposit_pending we substitute a synthetic marker so the prompt isn't
+  // empty and the model is anchored to the vision blocks attached above.
+  // Set later inside the non-text branch when applicable.
+  let effectiveIncomingText = incomingText;
+  // True when the inbound message was persisted by the non-text branch.
+  // Lets the text path skip its second appendInboundMessage call after we
+  // fall through (Miguel 2026-06-25: image-only msgs outside deposit_pending
+  // now route through the AI instead of the canned ack).
+  let inboundAlreadyPersisted = false;
 
   // Step 1: Bienvenida sede-selector button click skip (Tony rule 2026-06-16).
   //
@@ -469,19 +487,32 @@ export async function processIncomingMessage(
     // respondIoMessageId is stamped on metadata so findByRespondIoMessageId
     // works the same way as for text messages.
     if (incomingMessageIdForDedup) {
-      const att = pickFirstAttachment(payload.message);
+      const allAtt = pickAllAttachments(payload.message);
+      const firstAtt = allAtt[0] ?? null;
+      // Collapse the batch into a single human-readable marker if multiple
+      // images arrived in the burst — e.g. "[attachment:image/jpeg x4]".
+      const marker = firstAtt
+        ? allAtt.length > 1
+          ? `[attachment:${firstAtt.mimeType ?? "unknown"} x${allAtt.length}]`
+          : `[attachment:${firstAtt.mimeType ?? "unknown"}]`
+        : "[non-text message]";
       await conversationService
         .appendInboundMessage(
           conversation.id,
-          att
-            ? `[attachment:${att.mimeType ?? "unknown"}]`
-            : "[non-text message]",
+          marker,
           {
             respondIoMessageId: incomingMessageIdForDedup,
-            attachmentUrl: att?.url ?? null,
-            attachmentMime: att?.mimeType ?? null,
+            attachmentUrl: firstAtt?.url ?? null,
+            attachmentMime: firstAtt?.mimeType ?? null,
+            attachments:
+              allAtt.length > 0
+                ? allAtt.map((a) => ({ url: a.url, mimeType: a.mimeType }))
+                : undefined,
           },
         )
+        .then(() => {
+          inboundAlreadyPersisted = true;
+        })
         .catch((err) =>
           log.warn({ err }, "failed to persist inbound attachment mensaje"),
         );
@@ -1263,73 +1294,65 @@ export async function processIncomingMessage(
         latencyMs: Date.now() - t0,
       };
     }
-    // Non-text message arrived but the conv isn't in deposit_pending — most
-    // commonly because the AI hasn't yet invoked `solicitar_deposito` (the
-    // tool that transitions the stage and stamps the expected amount). Bug
-    // 4 (Tony 2026-06-16 GA pilot): the customer uploaded a PDF receipt
-    // and the AI went silent because this branch returned ignored without
-    // any reply. Customer reads it as "se paró ahí".
+    // Non-text message arrived but the conv isn't in deposit_pending. Before
+    // 2026-06-25 this branch sent a canned "Recibí tu archivo 📎" ack and
+    // returned — silently dropping the image. Miguel saw two failure modes:
+    //   1. Customer reply to an Instagram story with a generic "Top Rated
+    //      Dive Center" ad screenshot — AI canned-acked, never engaged.
+    //   2. AI later hallucinated "revisé tu comprobante y algo no coincide"
+    //      because all it knew about the file was the placeholder text
+    //      "[attachment:image/png]" in history.
     //
-    // Fix: send a localized acknowledgment so the customer knows the file
-    // arrived. We deliberately DO NOT run OCR or change lead_stage — the
-    // expected metadata isn't there yet, and we'd be guessing the amount
-    // / currency. Operator (or a follow-up AI turn) handles the rest.
+    // New behaviour: persist the attachment metadata (already done above),
+    // substitute a synthetic incomingText so the AI prompt isn't empty, and
+    // fall through to the regular AI path. The AI sees the image via the
+    // vision blocks prepended to Bloque 4 and responds contextually
+    // (sometimes "looks like an ad — what would you like to know?", sometimes
+    // "looks like your cert card, thanks — when were you planning to dive?").
     //
-    // PP-safe: PP threads that correctly hit `solicitar_deposito` enter
-    // the deposit_pending block above and never reach this branch; their
-    // OCR path is unchanged. Only previously-silent flows are affected.
-    const fallbackAck = pickPreDepositAttachmentAck(contact.language ?? null);
-    try {
-      await respondIoClient.sendMessage({
-        conversationId: payload.conversation?.id ?? conversation.respondIoConversationId,
-        contactId: payload.contact.id,
-        text: fallbackAck,
-      });
-    } catch (err) {
-      log.error(
-        { err: (err as Error).message },
-        "respond_io send failed during pre-deposit attachment ack",
-      );
-    }
-    await getDb()
-      .insert(mensajes)
-      .values({
-        conversacionId: conversation.id,
-        sender: "ai",
-        content: fallbackAck,
-        metadata: {
-          synthetic: true,
-          reason: "attachment_pre_deposit_ack",
-          leadStageAtArrival: conversation.leadStage,
-        },
-      })
-      .catch((err) =>
-        log.warn(
-          { err: (err as Error).message },
-          "failed to persist pre-deposit attachment ack mensaje",
-        ),
-      );
+    // PP/GT/GA OCR path is unchanged: deposit_pending threads hit the OCR
+    // branch above and return early. Only the previously-canned-ack flow
+    // changes shape.
     log.info(
       { conversationId: conversation.id, leadStage: conversation.leadStage },
-      "non-text message acknowledged outside deposit_pending (Bug 4 fallback)",
+      "non-text message outside deposit_pending — falling through to AI with vision (Miguel 2026-06-25)",
     );
-    return {
-      ok: true,
-      acknowledgedAttachment: true,
-      conversationId: conversation.id,
-      latencyMs: Date.now() - t0,
-    };
+    const lang = (contact.language ?? "").toLowerCase();
+    effectiveIncomingText =
+      lang === "english" || lang === "en"
+        ? "(The client sent an attachment without text in this turn. Look at the vision block(s) above and reply with context.)"
+        : "(El cliente envió un archivo sin texto en este turno. Mirá el bloque de visión arriba y respondé en contexto.)";
   }
 
+  // ── End of non-text branch ──
   // Idempotency was already gated above (before the non-text branch) so by
   // the time we get here we know this is a fresh wamid. Persist the text
   // message with the same metadata shape the dedup check expects, so a
   // late-arriving Respond.io retry of THIS same wamid would hit the
   // pre-branch check next time.
+  //
+  // `inboundAlreadyPersisted` is set true by the non-text branch when an
+  // attachment-only message fell through to here — we don't double-insert.
+  // For text+attachment messages (the previously-bug "qué foto" + image
+  // case, Miguel 2026-06-25), we now capture the attachment metadata so
+  // future turns + the panel can see what arrived.
   const incomingMessageId = incomingMessageIdForDedup;
-  await conversationService.appendInboundMessage(conversation.id, incomingText, {
-    respondIoMessageId: incomingMessageId,
-  });
+  const textPathAttachments = pickAllAttachments(payload.message);
+  if (!inboundAlreadyPersisted) {
+    await conversationService.appendInboundMessage(conversation.id, incomingText, {
+      respondIoMessageId: incomingMessageId,
+      ...(textPathAttachments.length > 0
+        ? {
+            attachmentUrl: textPathAttachments[0]!.url,
+            attachmentMime: textPathAttachments[0]!.mimeType,
+            attachments: textPathAttachments.map((a) => ({
+              url: a.url,
+              mimeType: a.mimeType,
+            })),
+          }
+        : {}),
+    });
+  }
 
   // Client just replied — cancel any open follow-ups for this conversation.
   // Don't await: it's a side-effect that must not slow the main response.
@@ -1944,15 +1967,26 @@ export async function processIncomingMessage(
     );
   }
 
+  // Inline-media plumbing for Claude vision (Miguel 2026-06-25 fix). The
+  // attachments on this turn's payload (post-batcher-merge: one or many)
+  // get fetched + base64'd in parallel, then become image/document blocks
+  // at the start of Bloque 4. Fetch failures are skipped silently — the
+  // text path still runs so the customer never gets dropped.
+  const incomingAttachmentsForPrompt = await loadInlineAttachmentsForPrompt(
+    payload,
+    log,
+  );
+
   const { system, messages } = buildFourBlockPrompt({
     systemPrompt,
     sedeKb,
     history: historyExcludingCurrent,
     sede,
     roster: _rosterForPrompt,
-    incomingMessage: incomingText,
+    incomingMessage: effectiveIncomingText,
     detectedLanguage,
     suggestedCurrency,
+    incomingAttachments: incomingAttachmentsForPrompt,
   });
 
   // Step 7+8: tool_use handlers + Claude call
@@ -4143,22 +4177,6 @@ export function pickComprobanteAck(language: string | null): string {
 }
 
 /**
- * Generic acknowledgment for a non-text message that arrives BEFORE the
- * conversation has entered deposit_pending. We can't run OCR (no expected
- * amount/currency stamped) but we MUST reply or the customer sees silence
- * (Bug 4 — Tony 2026-06-16 GA pilot, "se paró ahí"). Kept deliberately
- * neutral — we don't assume the file is a deposit receipt, only that it
- * was received and someone will look at it.
- */
-export function pickPreDepositAttachmentAck(language: string | null): string {
-  const lang = (language ?? "es").slice(0, 2).toLowerCase();
-  if (lang === "en") {
-    return "Got your file 🙏 Let me take a look and I'll get back to you in a moment.";
-  }
-  return "¡Recibí tu archivo 🙏! Lo reviso y te respondo en un momento.";
-}
-
-/**
  * Voice/audio/video messages reach our server with an attachment that
  * isn't OCR-readable. Miguel 2026-06-20 — customers were sending voice
  * notes and our system was treating them as payment receipts (silent OCR
@@ -4463,4 +4481,127 @@ export function pickOcrMismatchMessage(
   // stays silent — operator review path. False positives here would tell a
   // real-paying customer "your PDF is wrong" which is the worst UX.
   return null;
+}
+
+// ─── Inline-media plumbing for Claude vision (Miguel 2026-06-25) ────────────
+//
+// The chat path used to drop all attachment bytes on the floor: the inbound
+// message was persisted as `[attachment:image/png]` text and that placeholder
+// was the only thing Claude ever saw. That's why the AI hallucinated
+// "revisé tu comprobante y algo no coincide" when the client had only sent
+// an Instagram-story screenshot — it had no visual context, just a label.
+//
+// This helper takes the inbound payload (post-batcher-merge so a single
+// payload can carry many attachments) and returns the base64-encoded media
+// list the prompt builder turns into ImageBlockParam / DocumentBlockParam.
+// Bounded by:
+//   - At most MAX_INLINE_ATTACHMENTS files per turn (Anthropic request size
+//     cap; also keeps latency sane on a 10-image burst).
+//   - Each fetch is timed-out + size-capped inside fetchAttachmentAsBase64.
+//   - Parallel with concurrency limit so we don't fan out 10 connections.
+//
+// On fetch failure the offending attachment is dropped from the list; the
+// turn still proceeds with whatever fetched successfully. We log the count
+// so we can audit later if a particular sede / CDN starts failing.
+const MAX_INLINE_ATTACHMENTS = 6;
+const INLINE_FETCH_CONCURRENCY = 3;
+
+const SUPPORTED_IMAGE_MIMES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+] as const;
+
+type InlineMediaForPrompt = {
+  kind: "image" | "document";
+  mediaType:
+    | "image/jpeg"
+    | "image/png"
+    | "image/gif"
+    | "image/webp"
+    | "application/pdf";
+  base64: string;
+};
+
+async function loadInlineAttachmentsForPrompt(
+  payload: RespondIoIncomingMessage,
+  log: FastifyBaseLogger,
+): Promise<InlineMediaForPrompt[]> {
+  const all = pickAllAttachments(payload.message);
+  if (all.length === 0) return [];
+
+  // Filter to mimes we know Claude vision can ingest. Audio/video/anything
+  // else is dropped silently — those have their own handling further up.
+  const candidates: NormalizedAttachment[] = [];
+  for (const a of all) {
+    if (candidates.length >= MAX_INLINE_ATTACHMENTS) break;
+    if (isImageMime(a.mimeType) || isPdfMime(a.mimeType)) {
+      candidates.push(a);
+    }
+  }
+  if (candidates.length === 0) return [];
+
+  // Bounded-parallel fetch. We don't need a full p-limit dep — a tiny
+  // hand-rolled pool of N workers reading off the queue is enough.
+  const results: (InlineMediaForPrompt | null)[] = new Array(candidates.length).fill(
+    null,
+  );
+  let nextIdx = 0;
+  let droppedFetch = 0;
+  let droppedMime = 0;
+  async function worker() {
+    while (true) {
+      const i = nextIdx++;
+      if (i >= candidates.length) return;
+      const att = candidates[i]!;
+      try {
+        const fetched = await fetchAttachmentAsBase64(att.url);
+        const lowered = fetched.mimeType.toLowerCase();
+        if (lowered === "application/pdf") {
+          results[i] = {
+            kind: "document",
+            mediaType: "application/pdf",
+            base64: fetched.bytes,
+          };
+        } else if (
+          (SUPPORTED_IMAGE_MIMES as readonly string[]).includes(lowered)
+        ) {
+          results[i] = {
+            kind: "image",
+            mediaType: lowered as (typeof SUPPORTED_IMAGE_MIMES)[number],
+            base64: fetched.bytes,
+          };
+        } else {
+          droppedMime++;
+        }
+      } catch (err) {
+        droppedFetch++;
+        log.warn(
+          { err: (err as Error).message, attachmentUrl: att.url },
+          "inline attachment fetch failed — dropping from prompt",
+        );
+      }
+    }
+  }
+  await Promise.all(
+    Array.from(
+      { length: Math.min(INLINE_FETCH_CONCURRENCY, candidates.length) },
+      () => worker(),
+    ),
+  );
+
+  const ok = results.filter((r): r is InlineMediaForPrompt => r !== null);
+  if (droppedFetch > 0 || droppedMime > 0 || ok.length > 0) {
+    log.info(
+      {
+        kept: ok.length,
+        droppedFetch,
+        droppedMime,
+        total: all.length,
+      },
+      "inline attachments loaded for Bloque 4 vision",
+    );
+  }
+  return ok;
 }

@@ -212,4 +212,77 @@ describe("buildFourBlockPrompt", () => {
     expect(blocks[0]!.text).toContain("ping-payload");
     expect(blocks[0]!.cache_control).toBeUndefined();
   });
+
+  // Inline media plumbing — Miguel 2026-06-25 image-handling fix. The chat
+  // path now base64-fetches every attachment the client just sent and
+  // hands them to the prompt builder, which prepends image / document
+  // blocks to Bloque 4 so Claude actually sees the file.
+  it("prepends image blocks to Bloque 4 when the client just attached an image", () => {
+    const out = buildFourBlockPrompt({
+      systemPrompt: "S",
+      sedeKb: "KB",
+      history: HISTORY,
+      sede: SEDE,
+      roster: ROSTER,
+      incomingMessage: "mira la foto",
+      incomingAttachments: [
+        { kind: "image", mediaType: "image/png", base64: "FAKE_BASE64_AAA" },
+      ],
+    });
+    const last = out.messages.at(-1)!;
+    const blocks = last.content as Array<{ type: string; source?: { type: string; media_type: string; data: string }; text?: string }>;
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]!.type).toBe("image");
+    expect(blocks[0]!.source!.type).toBe("base64");
+    expect(blocks[0]!.source!.media_type).toBe("image/png");
+    expect(blocks[0]!.source!.data).toBe("FAKE_BASE64_AAA");
+    expect(blocks[1]!.type).toBe("text");
+    expect(blocks[1]!.text).toContain("mira la foto");
+    // The banner anchors the model to the attached file count + reminds it
+    // not to auto-guess "comprobante".
+    expect(blocks[1]!.text).toContain("ARCHIVO ADJUNTO");
+    expect(blocks[1]!.text).toContain("comprobante");
+  });
+
+  it("supports multi-image and PDF on the same turn", () => {
+    const out = buildFourBlockPrompt({
+      systemPrompt: "S",
+      sedeKb: "KB",
+      history: HISTORY,
+      sede: SEDE,
+      roster: ROSTER,
+      incomingMessage: "(El cliente envió un archivo sin texto en este turno.)",
+      incomingAttachments: [
+        { kind: "image", mediaType: "image/jpeg", base64: "PIC1" },
+        { kind: "image", mediaType: "image/webp", base64: "PIC2" },
+        { kind: "document", mediaType: "application/pdf", base64: "PDF1" },
+      ],
+    });
+    const last = out.messages.at(-1)!;
+    const blocks = last.content as Array<{ type: string; source?: { media_type: string }; text?: string }>;
+    expect(blocks).toHaveLength(4); // 3 media + 1 text
+    expect(blocks[0]!.type).toBe("image");
+    expect(blocks[0]!.source!.media_type).toBe("image/jpeg");
+    expect(blocks[1]!.source!.media_type).toBe("image/webp");
+    expect(blocks[2]!.type).toBe("document");
+    expect(blocks[2]!.source!.media_type).toBe("application/pdf");
+    expect(blocks[3]!.type).toBe("text");
+    // Banner pluralises and reports the count so the model is anchored.
+    expect(blocks[3]!.text).toContain("ARCHIVOS ADJUNTOS (3)");
+  });
+
+  it("emits no media banner when incomingAttachments is empty / omitted", () => {
+    const out = buildFourBlockPrompt({
+      systemPrompt: "S",
+      sedeKb: "KB",
+      history: HISTORY,
+      sede: SEDE,
+      roster: ROSTER,
+      incomingMessage: "Hola, info de OW",
+    });
+    const last = out.messages.at(-1)!;
+    const blocks = last.content as Array<{ type: string; text?: string }>;
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]!.text).not.toContain("ARCHIVO ADJUNTO");
+  });
 });

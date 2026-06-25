@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isImageMime,
   isPdfMime,
+  pickAllAttachments,
   pickFirstAttachment,
 } from "../src/services/respond-io-attachment.js";
 
@@ -45,6 +46,58 @@ describe("pickFirstAttachment — Respond.io payload variants", () => {
   it("handles missing mime gracefully", () => {
     const a = pickFirstAttachment({ attachment: { url: "https://x/y" } });
     expect(a).toEqual({ url: "https://x/y", mimeType: null });
+  });
+});
+
+describe("pickAllAttachments — multi-image batch coalescing", () => {
+  it("returns every entry in attachments[] preserving order", () => {
+    const arr = pickAllAttachments({
+      attachments: [
+        { url: "https://x/a.jpg", mimeType: "image/jpeg" },
+        { url: "https://x/b.png", mime_type: "image/png" },
+        { link: "https://x/c.pdf", contentType: "application/pdf" },
+      ],
+    });
+    expect(arr).toHaveLength(3);
+    expect(arr[0]!.url).toBe("https://x/a.jpg");
+    expect(arr[2]!.mimeType).toBe("application/pdf");
+  });
+
+  it("appends the singular `attachment` field after the array", () => {
+    const arr = pickAllAttachments({
+      attachments: [{ url: "https://x/array.jpg", mimeType: "image/jpeg" }],
+      attachment: { url: "https://x/single.png", mimeType: "image/png" },
+    });
+    expect(arr.map((a) => a.url)).toEqual([
+      "https://x/array.jpg",
+      "https://x/single.png",
+    ]);
+  });
+
+  it("deduplicates by URL across array + singular", () => {
+    const arr = pickAllAttachments({
+      attachments: [{ url: "https://x/dup.jpg", mimeType: "image/jpeg" }],
+      attachment: { url: "https://x/dup.jpg", mimeType: "image/jpeg" },
+    });
+    expect(arr).toHaveLength(1);
+  });
+
+  it("returns an empty array when no attachments are present", () => {
+    expect(pickAllAttachments({})).toEqual([]);
+    expect(pickAllAttachments({ attachments: [] })).toEqual([]);
+    expect(pickAllAttachments({ attachments: [{ random: "x" }] })).toEqual([]);
+  });
+
+  it("handles missing mime gracefully across entries", () => {
+    const arr = pickAllAttachments({
+      attachments: [
+        { url: "https://x/a" },
+        { url: "https://x/b", mimeType: "image/png" },
+      ],
+    });
+    expect(arr).toHaveLength(2);
+    expect(arr[0]!.mimeType).toBe(null);
+    expect(arr[1]!.mimeType).toBe("image/png");
   });
 });
 

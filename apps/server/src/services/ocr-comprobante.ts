@@ -26,6 +26,7 @@ import {
 
 import { loadEnv } from "../env.js";
 import { getLogger } from "../logger.js";
+import { fetchAttachmentAsBase64 } from "./respond-io-attachment.js";
 
 let _client: Anthropic | undefined;
 function claude(): Anthropic {
@@ -74,9 +75,6 @@ export type ExpectedDeposit = {
   amount: number;
 };
 
-const FETCH_TIMEOUT_MS = 8_000;
-const MAX_BYTES = 6 * 1024 * 1024; // 6 MB — Anthropic image payload cap (5MB) with headroom
-
 const EXTRACTION_PROMPT = `Estás analizando un comprobante de transferencia bancaria. Extraé EXACTAMENTE estos campos del documento o imagen, en formato JSON puro (sin markdown, sin explicaciones).
 
 Campos:
@@ -89,27 +87,6 @@ Campos:
 }
 
 Si no podés leer un campo con confianza, devolvé null para ese campo. NO inventes datos. Devolvé solamente el JSON, sin texto antes ni después.`;
-
-async function fetchAttachmentAsBase64(
-  url: string,
-): Promise<{ bytes: string; mimeType: string }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) {
-      throw new Error(`attachment fetch ${res.status}`);
-    }
-    const contentType = res.headers.get("content-type") ?? "application/octet-stream";
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > MAX_BYTES) {
-      throw new Error(`attachment too large (${buf.length} bytes > ${MAX_BYTES})`);
-    }
-    return { bytes: buf.toString("base64"), mimeType: contentType.split(";")[0]!.trim() };
-  } finally {
-    clearTimeout(timer);
-  }
-}
 
 function parseExtraction(raw: string): OcrExtraction | null {
   // The model usually returns clean JSON, but it sometimes wraps it in

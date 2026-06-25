@@ -16,14 +16,24 @@
 // (joined by blank lines) as the customer's latest turn.
 //
 // What bypasses the batcher (processed immediately):
-//   • Attachments (PDF/image) — OCR can't wait. The deposit comprobante
-//     path is latency-sensitive.
 //   • Sede-selector button clicks — payload.text is exactly a sede name
 //     ("Gili Air"). Already short-circuited inside processIncomingMessage,
 //     but we also skip the batch here so it isn't appended to a real
 //     customer message that lands a few seconds later.
-//   • Empty text — defensive; shouldn't happen but if it does, just pass
-//     through.
+//
+// What now goes THROUGH the batcher (Miguel 2026-06-25 image feedback):
+//   • Attachments (PDF/image). Used to bypass — Miguel observed customers
+//     sending 10 photos in a row (certification cards, marine life refs)
+//     and the AI replied 10 separate times because each image fired its
+//     own webhook → its own processIncomingMessage → its own AI turn.
+//     Now images coalesce into ONE merged payload whose `attachments[]`
+//     contains every image from the burst, and the AI takes a single
+//     turn that can reason about them together. The OCR auto-confirm
+//     latency cost is acceptable (5-12s window) because in practice
+//     deposit comprobantes are sent as a single PDF, not 10 of them.
+//   • Empty-text-but-attachment-bearing messages — the merger preserves
+//     the attachments and the downstream chat path treats them as image
+//     context for the AI.
 //
 // Process-local. Fine for the pilot (Railway numReplicas=1). If we ever
 // scale horizontally we'll need a Redis-backed queue or per-conversation
@@ -33,7 +43,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { RespondIoIncomingMessage } from "@dpm/shared";
 
-import { pickFirstAttachment } from "./respond-io-attachment.js";
+import { pickAllAttachments } from "./respond-io-attachment.js";
 import { AI_ENABLED_SEDE_NAMES_CONST } from "./sede.js";
 
 // Debounce window: how long we wait after the most recent message
@@ -131,18 +141,24 @@ export type BatchProcessor = (
 ) => Promise<void>;
 
 /**
- * True if this message should go through the batch (= regular text). False
- * for things that need immediate processing.
+ * True if this message should go through the batch. Eligible payloads:
+ *   - regular text bursts (the original case),
+ *   - attachment-only messages (image / PDF — Miguel 2026-06-25 fix),
+ *   - text + attachment combos.
+ *
+ * Skipped (processed immediately):
+ *   - sede-selector button clicks (text is exactly a sede name),
+ *   - payloads carrying neither text NOR an attachment.
  */
 export function isBatchEligible(payload: RespondIoIncomingMessage): boolean {
   const text = (payload.message.text ?? "").trim();
-  if (text.length === 0) return false;
-  if (pickFirstAttachment(payload.message) !== null) return false;
+  const hasAttachment = pickAllAttachments(payload.message).length > 0;
+  if (text.length === 0 && !hasAttachment) return false;
   // Sede-selector button click — the text is exactly a sede name. Skip
   // the batch so this synthetic payload doesn't contaminate a real
   // customer message that may arrive seconds later (the click triggers
   // a separate Respond.io workflow that handles routing).
-  if ((AI_ENABLED_SEDE_NAMES_CONST as readonly string[]).includes(text)) {
+  if (text.length > 0 && (AI_ENABLED_SEDE_NAMES_CONST as readonly string[]).includes(text)) {
     return false;
   }
   return true;
@@ -232,9 +248,13 @@ function fireBatch(key: string, processor: BatchProcessor): void {
 
 /**
  * Combine N payloads into one. Strategy: keep the LATEST payload's metadata
- * (timestamps, ids, contact snapshot) but replace `message.text` with the
- * blank-line-joined concatenation of every payload's text. Empty texts
- * filtered out. Order preserved.
+ * (timestamps, ids, contact snapshot) but:
+ *   - replace `message.text` with the blank-line-joined concatenation of
+ *     every payload's text. Empty texts filtered out. Order preserved.
+ *   - replace `message.attachments` with the de-duplicated union of every
+ *     payload's attachments (array form first, singular last). The merged
+ *     payload's `message.attachment` is cleared so downstream code reads
+ *     everything off `attachments[]`.
  *
  * Why use the latest payload as base: the customer's last-state Branch /
  * tags / customFields reflect the most current Respond.io view. The first
@@ -250,11 +270,31 @@ function mergePayloads(
     .map((p) => (p.message.text ?? "").trim())
     .filter((t) => t.length > 0);
 
+  // Collect every attachment URL across the batch, preserving order and
+  // de-duplicating by URL. We re-emit them in the `attachments[]` array
+  // shape so downstream consumers (process-message, prompt-builder) only
+  // need to handle one schema.
+  const seenUrls = new Set<string>();
+  const mergedAttachments: Array<{ url: string; mimeType: string | null }> = [];
+  for (const p of payloads) {
+    for (const a of pickAllAttachments(p.message)) {
+      if (seenUrls.has(a.url)) continue;
+      seenUrls.add(a.url);
+      mergedAttachments.push(a);
+    }
+  }
+
+  // Type note: the parsed schema gives `attachments` the shape
+  // `Record<string,unknown>[]` (passthrough objects). Our normalized
+  // {url, mimeType} entries satisfy that. The singular `attachment` field
+  // is set to undefined so downstream code reads everything off `attachments`.
   return {
     ...latest,
     message: {
       ...latest.message,
       text: allTexts.join("\n\n"),
+      attachments: mergedAttachments as unknown as typeof latest.message.attachments,
+      attachment: undefined,
     },
   };
 }

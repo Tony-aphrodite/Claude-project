@@ -23,6 +23,22 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { Mensaje, Sede } from "@dpm/db";
 import type { AvailabilityResponse, DepositCurrency } from "@dpm/shared";
 
+/**
+ * Inline media the client just attached to their current turn. Already
+ * fetched + base64-encoded by the caller (process-message.ts wraps the
+ * shared `fetchAttachmentAsBase64`); the prompt builder stays pure / network-
+ * free so tests don't need fixtures.
+ *
+ * `kind` decides which Anthropic block we emit:
+ *   - "image"    → ImageBlockParam (jpeg / png / gif / webp).
+ *   - "document" → DocumentBlockParam (PDF). Multi-page native parsing.
+ */
+export type InlineMedia = {
+  kind: "image" | "document";
+  mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp" | "application/pdf";
+  base64: string;
+};
+
 export type BuildPromptInput = {
   systemPrompt: string; // Bloque 1 content (system prompt + playbook + few-shots)
   sedeKb: string; // Bloque 2 content (sede knowledge base)
@@ -38,6 +54,15 @@ export type BuildPromptInput = {
    * supported currencies.
    */
   suggestedCurrency?: DepositCurrency | null;
+  /**
+   * Inline media the customer attached to THIS turn. Emitted as Anthropic
+   * vision blocks at the start of Bloque 4 so the model can actually see
+   * the image (until 2026-06-25 we only stored a `[attachment:...]` text
+   * placeholder in history, which is how Miguel's "AI hallucinated a
+   * comprobante" bug surfaced — the model never saw the image). Empty /
+   * undefined ⇒ no image blocks, exact pre-fix behaviour preserved.
+   */
+  incomingAttachments?: InlineMedia[] | undefined;
 };
 
 export type BuildPromptOutput = {
@@ -56,12 +81,14 @@ export type BuildPromptOutput = {
  */
 export function buildFourBlockPrompt(input: BuildPromptInput): BuildPromptOutput {
   const historyText = formatHistoryForPrompt(input.history);
+  const attachments = input.incomingAttachments ?? [];
   const dynamicText = formatDynamicBlock({
     sede: input.sede,
     roster: input.roster,
     incomingMessage: input.incomingMessage,
     detectedLanguage: input.detectedLanguage,
     suggestedCurrency: input.suggestedCurrency,
+    attachmentCount: attachments.length,
   });
 
   const system: Anthropic.TextBlockParam[] = [
@@ -71,6 +98,38 @@ export function buildFourBlockPrompt(input: BuildPromptInput): BuildPromptOutput
       cache_control: { type: "ephemeral", ttl: "1h" },
     },
   ];
+
+  // Bloque 4 content: any vision blocks the client just attached come FIRST
+  // (Anthropic best practice — model latches onto media before reasoning over
+  // surrounding text), followed by the dynamic text block. NO cache_control:
+  // Bloque 4 changes every request, and image data can't be cached.
+  const dynamicContent: Anthropic.ContentBlockParam[] = [];
+  for (const att of attachments) {
+    if (att.kind === "document") {
+      dynamicContent.push({
+        type: "document",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          data: att.base64,
+        },
+      });
+    } else {
+      dynamicContent.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: att.mediaType as
+            | "image/jpeg"
+            | "image/png"
+            | "image/gif"
+            | "image/webp",
+          data: att.base64,
+        },
+      });
+    }
+  }
+  dynamicContent.push({ type: "text", text: dynamicText });
 
   const messages: Anthropic.MessageParam[] = [
     {
@@ -99,13 +158,7 @@ export function buildFourBlockPrompt(input: BuildPromptInput): BuildPromptOutput
     },
     {
       role: "user",
-      content: [
-        {
-          type: "text",
-          text: dynamicText,
-          // No cache_control — Bloque 4 changes every request.
-        },
-      ],
+      content: dynamicContent,
     },
   ];
 
@@ -146,6 +199,14 @@ export function formatDynamicBlock(input: {
   incomingMessage: string;
   detectedLanguage?: string | undefined;
   suggestedCurrency?: DepositCurrency | null;
+  /**
+   * How many media blocks were prepended to Bloque 4 before this text. The
+   * text references them explicitly ("the client attached N files above")
+   * so the model knows to LOOK at them — without this anchor the model can
+   * miss a single trailing image when the bulk of the prompt is text.
+   * Defaults to 0 = no inline media this turn.
+   */
+  attachmentCount?: number;
 }): string {
   const sedeNow = new Date().toLocaleString("en-US", {
     timeZone: input.sede.timezone,
@@ -210,7 +271,7 @@ ${langLine}
 
 === ROSTER PRÓXIMOS 7 DÍAS ===
 ${rosterText}
-
+${formatAttachmentBanner(input.attachmentCount ?? 0)}
 === MENSAJE DEL CLIENTE ===
 ${input.incomingMessage}
 
@@ -269,6 +330,31 @@ Tu salida COMPLETA debe ser EXACTAMENTE un único objeto JSON con la clave
   • texto después del cierre del JSON
 Si emitís cualquiera de las cosas anteriores, el cliente lo VE en su WhatsApp
 y se rompe la conversación. Es un BUG visible al cliente.`;
+}
+
+/**
+ * Banner inserted into Bloque 4 right above the customer message so the model
+ * can't miss that media is attached. Says nothing when there's no media.
+ *
+ * The banner also classifies the image so the model doesn't auto-guess "this
+ * must be a comprobante": it must identify the content first, then decide how
+ * to react. Closes Miguel 2026-06-25 bug #2 (model said "revisé tu
+ * comprobante y no coincide" when the client had sent an ad screenshot).
+ */
+function formatAttachmentBanner(count: number): string {
+  if (count <= 0) return "";
+  const plural = count === 1 ? "" : "s";
+  return `
+=== ARCHIVO${plural.toUpperCase()} ADJUNTO${plural.toUpperCase()} (${count}) ===
+El cliente acaba de enviar ${count} archivo${plural} (imagen/PDF) en su turno actual. Está${plural ? "n" : ""} embebido${plural} ARRIBA de este texto como bloques de visión — MIRÁ${plural ? "LOS" : "LA"} antes de redactar tu respuesta.
+
+REGLAS — IMÁGENES Y PDFs (Miguel 2026-06-25):
+1) IDENTIFICÁ primero qué muestra cada archivo (carnet de buceo, foto de un pez/sitio, captura de un anuncio, comprobante bancario, captura de chat, foto del cliente, etc.) ANTES de decidir cómo responder.
+2) NUNCA asumas que es un comprobante de depósito a menos que VEAS claramente: un banco/Wise/Revolut + monto + moneda + fecha + beneficiario. Las capturas de "Top Rated Dive Center", anuncios de Instagram/Meta, fotos genéricas → NO son comprobantes.
+3) NUNCA respondas "revisé tu comprobante y algo no coincide" salvo que la imagen sea efectivamente un comprobante (regla 2). Si no estás seguro de qué es, PREGUNTÁ al cliente qué quería mostrarte.
+4) NO arranques con tu saludo de presentación solo porque entró un archivo — la conversación ya está en curso, seguila desde el último turno del HISTORIAL.
+5) Si el cliente mandó VARIOS archivos en este turno, respondé UNA SOLA vez tratándolos en conjunto. No emitas N respuestas separadas.
+`;
 }
 
 function formatRoster(roster: AvailabilityResponse): string {
