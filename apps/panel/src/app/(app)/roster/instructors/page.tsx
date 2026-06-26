@@ -10,6 +10,10 @@
 //   - Right: table of all instructors for the selected sede (active
 //     first), each row with rename + activate/deactivate actions.
 //   - Below: weekly availability quick-fill (per-day toggles).
+//
+// Visual tokens (Miguel 2026-06-26 design review): uses the panel's
+// abyss/ink/brand palette (.card / text-ink-* / text-brand-*) instead
+// of raw Tailwind zinc/emerald — matches Dashboard / Pipeline / etc.
 
 import {
   createInstructor,
@@ -57,20 +61,18 @@ export default async function InstructorsPage({
   const allSedes = await listEngineSedes();
   if (allSedes.length === 0) {
     return (
-      <div className="p-6 text-zinc-200">
+      <div className="card border-bad-200 bg-bad-50 text-bad-900">
         No hay sedes configuradas. Agregar una sede primero.
       </div>
     );
   }
-  // Office users are locked to their assigned sede (Miguel 2026-06-26).
-  // Admins see and can switch between all sedes.
   const selectableSedes =
     ctx.role === "admin"
       ? allSedes
       : allSedes.filter((s) => s.id === ctx.sedeId);
   if (selectableSedes.length === 0) {
     return (
-      <div className="p-6 text-zinc-200">
+      <div className="card border-bad-200 bg-bad-50 text-bad-900">
         Tu cuenta no tiene una sede asignada. Pedile a admin que la configure.
       </div>
     );
@@ -99,7 +101,7 @@ export default async function InstructorsPage({
   const dateList = Array.from({ length: VIEW_DAYS }, (_, i) => addDays(fromDate, i));
 
   return (
-    <div className="space-y-6 p-6 text-zinc-100">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="ROSTER ENGINE"
         title="Instructors + disponibilidad"
@@ -107,8 +109,8 @@ export default async function InstructorsPage({
       />
 
       {/* Sede picker */}
-      <form className="flex flex-wrap items-center gap-2 text-sm">
-        <label htmlFor="sede" className="text-zinc-400">
+      <form className="card flex flex-wrap items-center gap-3 text-sm">
+        <label htmlFor="sede" className="text-ink-700">
           Sede:
         </label>
         <select
@@ -116,7 +118,7 @@ export default async function InstructorsPage({
           name="sede"
           defaultValue={selectedSede.id}
           disabled={ctx.role !== "admin"}
-          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 disabled:opacity-60"
+          className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900 disabled:opacity-60"
         >
           {selectableSedes.map((s) => (
             <option key={s.id} value={s.id}>
@@ -124,7 +126,7 @@ export default async function InstructorsPage({
             </option>
           ))}
         </select>
-        <label htmlFor="from" className="ml-4 text-zinc-400">
+        <label htmlFor="from" className="ml-4 text-ink-700">
           Desde:
         </label>
         <input
@@ -132,12 +134,9 @@ export default async function InstructorsPage({
           name="from"
           type="date"
           defaultValue={fromDate}
-          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
+          className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
         />
-        <button
-          type="submit"
-          className="ml-2 rounded bg-emerald-600 px-3 py-1 text-white hover:bg-emerald-500"
-        >
+        <button type="submit" className="btn-primary ml-auto text-sm">
           Ver
         </button>
       </form>
@@ -145,65 +144,59 @@ export default async function InstructorsPage({
       {/* Create + list grid */}
       <div className="grid gap-6 lg:grid-cols-[20rem_1fr]">
         {/* Create form */}
-        <section className="rounded border border-zinc-800 bg-zinc-900/60 p-4">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">
-            Nuevo instructor
-          </h2>
+        <section className="card">
+          <h2 className="mb-3 h-section">Nuevo instructor</h2>
           <form action={createInstructor} className="space-y-3 text-sm">
             <input type="hidden" name="sede_id" value={selectedSede.id} />
             <div>
-              <label className="mb-1 block text-zinc-400" htmlFor="nombre">
+              <label className="mb-1 block text-ink-700" htmlFor="nombre">
                 Nombre (short — MIGUE / BILLY / etc.)
               </label>
               <input
                 id="nombre"
                 name="nombre"
                 required
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+                className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
               />
             </div>
             <div>
-              <label className="mb-1 block text-zinc-400" htmlFor="nombre_legal">
+              <label className="mb-1 block text-ink-700" htmlFor="nombre_legal">
                 Nombre legal (opcional)
               </label>
               <input
                 id="nombre_legal"
                 name="nombre_legal"
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+                className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
               />
             </div>
             <div>
-              <label className="mb-1 block text-zinc-400" htmlFor="languages">
+              <label className="mb-1 block text-ink-700" htmlFor="languages">
                 Idiomas (CSV — ej: es,en,de)
               </label>
               <input
                 id="languages"
                 name="languages"
-                className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+                className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
               />
             </div>
-            <button
-              type="submit"
-              className="w-full rounded bg-emerald-600 px-3 py-2 font-medium text-white hover:bg-emerald-500"
-            >
+            <button type="submit" className="btn-primary w-full text-sm">
               Crear
             </button>
           </form>
         </section>
 
         {/* List */}
-        <section className="rounded border border-zinc-800 bg-zinc-900/60 p-4">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">
-            Plantel — {selectedSede.nombre}
-          </h2>
+        <section className="card">
+          <h2 className="mb-3 h-section">Plantel — {selectedSede.nombre}</h2>
           {instructors.length === 0 ? (
-            <p className="text-zinc-500">
-              Sin instructores cargados todavía. Crear el primero desde la izquierda.
+            <p className="text-xs text-ink-600">
+              Sin instructores cargados todavía. Crear el primero desde la
+              izquierda.
             </p>
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-zinc-800 text-left text-xs uppercase text-zinc-500">
+                <tr className="border-b border-ink-200/70 text-left text-[11px] uppercase text-ink-500">
                   <th className="py-2">Nombre</th>
                   <th className="py-2">Idiomas</th>
                   <th className="py-2">Estado</th>
@@ -212,33 +205,31 @@ export default async function InstructorsPage({
               </thead>
               <tbody>
                 {instructors.map((i) => (
-                  <tr key={i.id} className="border-b border-zinc-800/60">
+                  <tr key={i.id} className="border-b border-ink-200/40">
                     <td className="py-2">
                       <form action={renameInstructor} className="flex gap-2">
                         <input type="hidden" name="id" value={i.id} />
                         <input
                           name="nombre"
                           defaultValue={i.nombre}
-                          className="w-32 rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+                          className="w-32 rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
                         />
                         <button
                           type="submit"
-                          className="text-xs text-zinc-400 hover:text-emerald-400"
+                          className="text-xs text-ink-600 hover:text-brand-300"
                         >
                           guardar
                         </button>
                       </form>
                     </td>
-                    <td className="py-2 text-zinc-400">{i.languages.join(", ") || "—"}</td>
+                    <td className="py-2 text-ink-600">
+                      {i.languages.join(", ") || "—"}
+                    </td>
                     <td className="py-2">
                       {i.active ? (
-                        <span className="rounded bg-emerald-900/60 px-2 py-0.5 text-xs text-emerald-300">
-                          activo
-                        </span>
+                        <span className="badge-ok">activo</span>
                       ) : (
-                        <span className="rounded bg-zinc-800 px-2 py-0.5 text-xs text-zinc-500">
-                          inactivo
-                        </span>
+                        <span className="badge-neutral">inactivo</span>
                       )}
                     </td>
                     <td className="py-2">
@@ -251,7 +242,7 @@ export default async function InstructorsPage({
                         />
                         <button
                           type="submit"
-                          className="text-xs text-zinc-400 hover:text-emerald-400"
+                          className="text-xs text-ink-600 hover:text-brand-300"
                         >
                           {i.active ? "desactivar" : "reactivar"}
                         </button>
@@ -266,11 +257,11 @@ export default async function InstructorsPage({
       </div>
 
       {/* Availability matrix */}
-      <section className="rounded border border-zinc-800 bg-zinc-900/60 p-4">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+      <section className="card">
+        <h2 className="mb-1 h-section">
           Disponibilidad — próximos {VIEW_DAYS} días
         </h2>
-        <p className="mb-3 text-xs text-zinc-500">
+        <p className="mb-3 text-xs text-ink-600">
           Marcá los slots que cubre cada instructor por día. Vacío = no
           disponible ese día. La AI usa esta tabla para decidir cuánta venta
           puede armar.
@@ -278,10 +269,13 @@ export default async function InstructorsPage({
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-zinc-800 text-left text-zinc-500">
+              <tr className="border-b border-ink-200/70 text-left text-ink-500">
                 <th className="py-2 pr-3">Instructor</th>
                 {dateList.map((d) => (
-                  <th key={d} className="px-2 py-2 text-center font-normal">
+                  <th
+                    key={d}
+                    className="px-2 py-2 text-center font-normal text-ink-500"
+                  >
                     {d.slice(5)}
                   </th>
                 ))}
@@ -291,10 +285,11 @@ export default async function InstructorsPage({
               {instructors
                 .filter((i) => i.active)
                 .map((inst) => {
-                  const byDate = matrix.get(inst.id) ?? new Map<string, string[]>();
+                  const byDate =
+                    matrix.get(inst.id) ?? new Map<string, string[]>();
                   return (
-                    <tr key={inst.id} className="border-b border-zinc-800/40">
-                      <td className="py-2 pr-3 text-zinc-200">{inst.nombre}</td>
+                    <tr key={inst.id} className="border-b border-ink-200/30">
+                      <td className="py-2 pr-3 text-ink-900">{inst.nombre}</td>
                       {dateList.map((fecha) => {
                         const current = byDate.get(fecha) ?? [];
                         return (
@@ -303,24 +298,41 @@ export default async function InstructorsPage({
                               action={setAvailability}
                               className="flex flex-col items-center gap-1"
                             >
-                              <input type="hidden" name="sede_id" value={selectedSede.id} />
-                              <input type="hidden" name="fecha" value={fecha} />
-                              <input type="hidden" name="instructor_id" value={inst.id} />
+                              <input
+                                type="hidden"
+                                name="sede_id"
+                                value={selectedSede.id}
+                              />
+                              <input
+                                type="hidden"
+                                name="fecha"
+                                value={fecha}
+                              />
+                              <input
+                                type="hidden"
+                                name="instructor_id"
+                                value={inst.id}
+                              />
                               {SLOTS_ALL.map((s) => (
-                                <label key={s} className="flex items-center gap-1">
+                                <label
+                                  key={s}
+                                  className="flex items-center gap-1"
+                                >
                                   <input
                                     type="checkbox"
                                     name="slots"
                                     value={s}
                                     defaultChecked={current.includes(s)}
-                                    className="h-3 w-3 accent-emerald-500"
+                                    className="h-3 w-3 accent-brand-400"
                                   />
-                                  <span className="text-[10px] text-zinc-400">{s}</span>
+                                  <span className="text-[10px] text-ink-600">
+                                    {s}
+                                  </span>
                                 </label>
                               ))}
                               <button
                                 type="submit"
-                                className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-300 hover:bg-zinc-700"
+                                className="rounded bg-ink-200/60 px-1.5 py-0.5 text-[10px] text-ink-700 hover:bg-brand-400/20 hover:text-brand-300"
                               >
                                 ✓
                               </button>

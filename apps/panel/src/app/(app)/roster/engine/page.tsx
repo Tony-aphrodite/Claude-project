@@ -6,6 +6,10 @@
 // didn't come through the AI conversation flow.
 //
 // Auth: admin or office (office user is scoped to their sede).
+//
+// Visual tokens (Miguel 2026-06-26 design review): uses the panel's
+// abyss/ink/brand palette (.card / text-ink-* / text-brand-*) instead
+// of raw Tailwind zinc/emerald — matches Dashboard / Pipeline / etc.
 
 import {
   createWalkInDiver,
@@ -43,7 +47,7 @@ export default async function EnginePage({
   const allSedes = await listEngineSedes();
   if (allSedes.length === 0) {
     return (
-      <div className="p-6 text-zinc-200">
+      <div className="card border-bad-200 bg-bad-50 text-bad-900">
         No hay sedes configuradas.
       </div>
     );
@@ -53,6 +57,13 @@ export default async function EnginePage({
     ctx.role === "admin"
       ? allSedes
       : allSedes.filter((s) => s.id === ctx.sedeId);
+  if (selectableSedes.length === 0) {
+    return (
+      <div className="card border-bad-200 bg-bad-50 text-bad-900">
+        Tu cuenta no tiene una sede asignada. Pedile a admin que la configure.
+      </div>
+    );
+  }
   const selectedSede =
     selectableSedes.find((s) => s.id === sedeParam) ?? selectableSedes[0]!;
   const fecha = fechaParam ?? todayYmd();
@@ -80,7 +91,7 @@ export default async function EnginePage({
   }
 
   return (
-    <div className="space-y-6 p-6 text-zinc-100">
+    <div className="space-y-6">
       <PageHeader
         eyebrow="ROSTER ENGINE"
         title="Roster del día (vista por instructor)"
@@ -88,8 +99,8 @@ export default async function EnginePage({
       />
 
       {/* Sede + fecha picker */}
-      <form className="flex flex-wrap items-center gap-2 text-sm">
-        <label htmlFor="sede" className="text-zinc-400">
+      <form className="card flex flex-wrap items-center gap-3 text-sm">
+        <label htmlFor="sede" className="text-ink-700">
           Sede:
         </label>
         <select
@@ -97,7 +108,7 @@ export default async function EnginePage({
           name="sede"
           defaultValue={selectedSede.id}
           disabled={ctx.role !== "admin"}
-          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 disabled:opacity-60"
+          className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900 disabled:opacity-60"
         >
           {selectableSedes.map((s) => (
             <option key={s.id} value={s.id}>
@@ -105,7 +116,7 @@ export default async function EnginePage({
             </option>
           ))}
         </select>
-        <label htmlFor="fecha" className="ml-4 text-zinc-400">
+        <label htmlFor="fecha" className="ml-4 text-ink-700">
           Fecha:
         </label>
         <input
@@ -113,12 +124,9 @@ export default async function EnginePage({
           name="fecha"
           type="date"
           defaultValue={fecha}
-          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
+          className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
         />
-        <button
-          type="submit"
-          className="ml-2 rounded bg-emerald-600 px-3 py-1 text-white hover:bg-emerald-500"
-        >
+        <button type="submit" className="btn-primary ml-auto text-sm">
           Ver
         </button>
       </form>
@@ -130,38 +138,31 @@ export default async function EnginePage({
           const unassignedKey = `${slot}::none`;
           const unassigned = grouped.get(unassignedKey) ?? [];
           return (
-            <section
-              key={slot}
-              className="rounded border border-zinc-800 bg-zinc-900/60 p-4"
-            >
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-300">
-                Turno {slot}
-              </h3>
+            <section key={slot} className="card">
+              <h3 className="mb-3 h-section">Turno {slot}</h3>
 
               {slotGroups.length === 0 && unassigned.length === 0 ? (
-                <p className="text-xs text-zinc-500">Sin buceadores en este turno.</p>
+                <p className="text-xs text-ink-600">
+                  Sin buceadores en este turno.
+                </p>
               ) : (
                 <div className="space-y-3">
                   {slotGroups.map((g) => {
-                    const bucket =
-                      grouped.get(`${slot}::${g.id}`) ?? [];
+                    const bucket = grouped.get(`${slot}::${g.id}`) ?? [];
                     return (
-                      <div
-                        key={g.id}
-                        className="rounded border border-zinc-800 bg-zinc-950/50 p-3"
-                      >
+                      <div key={g.id} className="card-tight">
                         <div className="mb-2 flex items-center justify-between text-xs">
-                          <div className="space-x-2">
-                            <span className="font-semibold text-emerald-300">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-brand-300">
                               {g.instructorNombre ?? "(sin instructor)"}
                             </span>
-                            <span className="text-zinc-500">·</span>
-                            <span className="text-zinc-400">
+                            <span className="text-ink-500">·</span>
+                            <span className="text-ink-600">
                               {g.grupoActividad} · {g.perfilProfundidad}m · ratio{" "}
                               {g.ratioMax}
                             </span>
                           </div>
-                          <span className="text-zinc-500">
+                          <span className="text-ink-500">
                             {bucket.length}/{g.ratioMax}
                           </span>
                         </div>
@@ -170,35 +171,37 @@ export default async function EnginePage({
                             {bucket.map((d) => (
                               <tr
                                 key={d.id}
-                                className="border-t border-zinc-800/60"
+                                className="border-t border-ink-200/60"
                               >
-                                <td className="py-1 pr-2 text-zinc-500">
+                                <td className="py-1 pr-2 text-ink-500">
                                   {d.groupOrder ?? "?"}
                                 </td>
-                                <td className="py-1 pr-2 text-zinc-200">
+                                <td className="py-1 pr-2 text-ink-900">
                                   {d.nombre}
                                 </td>
-                                <td className="py-1 pr-2 text-zinc-400">
+                                <td className="py-1 pr-2 text-ink-600">
                                   {d.activity}
                                   {d.activityDetail ? `:${d.activityDetail}` : ""}
                                 </td>
-                                <td className="py-1 pr-2 text-zinc-500">
+                                <td className="py-1 pr-2 text-ink-500">
                                   {d.nivelCertificacion}
                                 </td>
                                 <td className="py-1 pr-2">
                                   {d.origen === "Manual" ? (
-                                    <span className="rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] text-amber-300">
-                                      walk-in
-                                    </span>
+                                    <span className="badge-warn">walk-in</span>
                                   ) : null}
                                 </td>
                                 <td className="py-1 text-right">
                                   {d.origen === "Manual" ? (
                                     <form action={deleteWalkInDiver}>
-                                      <input type="hidden" name="id" value={d.id} />
+                                      <input
+                                        type="hidden"
+                                        name="id"
+                                        value={d.id}
+                                      />
                                       <button
                                         type="submit"
-                                        className="text-[10px] text-zinc-500 hover:text-rose-400"
+                                        className="text-[10px] text-ink-500 hover:text-bad-500"
                                       >
                                         eliminar
                                       </button>
@@ -214,12 +217,12 @@ export default async function EnginePage({
                   })}
 
                   {unassigned.length > 0 ? (
-                    <div className="rounded border border-amber-900/60 bg-amber-950/30 p-3">
-                      <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-amber-300">
+                    <div className="rounded-xl border border-warn-500/40 bg-warn-500/5 p-3">
+                      <div className="mb-2 h-section text-warn-700">
                         Sin asignar a instructor — {unassigned.length} buceador
                         {unassigned.length === 1 ? "" : "es"}
                       </div>
-                      <ul className="space-y-1 text-xs text-zinc-300">
+                      <ul className="space-y-1 text-xs text-ink-700">
                         {unassigned.map((d) => (
                           <li key={d.id}>
                             {d.nombre} ({d.activity} / {d.nivelCertificacion})
@@ -237,26 +240,27 @@ export default async function EnginePage({
       </div>
 
       {/* Walk-in form */}
-      <section className="rounded border border-zinc-800 bg-zinc-900/60 p-4">
-        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-300">
-          Walk-in manual
-        </h3>
-        <p className="mb-3 text-xs text-zinc-500">
+      <section className="card">
+        <h3 className="mb-1 h-section">Walk-in manual</h3>
+        <p className="mb-4 metric-sub">
           Cliente que entra sin pasar por la AI. Se carga con el mismo formato
           y el motor lo agrupa al próximo cálculo.
         </p>
-        <form action={createWalkInDiver} className="grid gap-3 text-sm md:grid-cols-2 lg:grid-cols-4">
+        <form
+          action={createWalkInDiver}
+          className="grid gap-3 text-sm md:grid-cols-2 lg:grid-cols-4"
+        >
           <input type="hidden" name="sede_id" value={selectedSede.id} />
           <input type="hidden" name="fecha" value={fecha} />
           <div>
-            <label className="mb-1 block text-zinc-400" htmlFor="walkin-slot">
+            <label className="mb-1 block text-ink-700" htmlFor="walkin-slot">
               Slot
             </label>
             <select
               id="walkin-slot"
               name="slot"
               required
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+              className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
             >
               {ENGINE_SLOTS.map((s) => (
                 <option key={s} value={s}>
@@ -266,25 +270,25 @@ export default async function EnginePage({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-zinc-400" htmlFor="walkin-nombre">
+            <label className="mb-1 block text-ink-700" htmlFor="walkin-nombre">
               Nombre
             </label>
             <input
               id="walkin-nombre"
               name="nombre"
               required
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+              className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
             />
           </div>
           <div>
-            <label className="mb-1 block text-zinc-400" htmlFor="walkin-nivel">
+            <label className="mb-1 block text-ink-700" htmlFor="walkin-nivel">
               Nivel certificación
             </label>
             <select
               id="walkin-nivel"
               name="nivel_certificacion"
               required
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+              className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
             >
               <option value="BEG">BEG (sin cert)</option>
               <option value="OW">OW</option>
@@ -295,14 +299,14 @@ export default async function EnginePage({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-zinc-400" htmlFor="walkin-activity">
+            <label className="mb-1 block text-ink-700" htmlFor="walkin-activity">
               Activity
             </label>
             <select
               id="walkin-activity"
               name="activity"
               required
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+              className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
             >
               <option value="BD_CONFINADA">BD_CONFINADA (pool)</option>
               <option value="BD_BARCO">BD_BARCO (boat)</option>
@@ -320,58 +324,64 @@ export default async function EnginePage({
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-zinc-400" htmlFor="walkin-detail">
+            <label className="mb-1 block text-ink-700" htmlFor="walkin-detail">
               Activity detail (SP/ADV subtype, opcional)
             </label>
             <input
               id="walkin-detail"
               name="activity_detail"
               placeholder="nitrox / deep / wreck / night / buoyancy …"
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+              className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900 placeholder:text-ink-500"
             />
           </div>
           <div>
-            <label className="mb-1 block text-zinc-400" htmlFor="walkin-codigo">
+            <label className="mb-1 block text-ink-700" htmlFor="walkin-codigo">
               Código (opcional)
             </label>
             <input
               id="walkin-codigo"
               name="codigo_buceador"
               placeholder="DPM-XX-… o se genera automático"
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+              className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900 placeholder:text-ink-500"
             />
           </div>
           <div className="flex items-end">
-            <label className="flex items-center gap-2 text-zinc-300">
-              <input type="checkbox" name="accepts_cap" value="true" className="accent-emerald-500" />
+            <label className="flex items-center gap-2 text-ink-700">
+              <input
+                type="checkbox"
+                name="accepts_cap"
+                value="true"
+                className="accent-brand-400"
+              />
               Acepta capar profundidad
             </label>
           </div>
           <div className="md:col-span-2 lg:col-span-4">
-            <label className="mb-1 block text-zinc-400" htmlFor="walkin-notes">
+            <label className="mb-1 block text-ink-700" htmlFor="walkin-notes">
               Notas (opcional)
             </label>
             <input
               id="walkin-notes"
               name="notes"
-              className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1"
+              className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
             />
           </div>
           <div className="md:col-span-2 lg:col-span-4">
-            <button
-              type="submit"
-              className="rounded bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-500"
-            >
+            <button type="submit" className="btn-primary text-sm">
               Cargar walk-in
             </button>
           </div>
         </form>
       </section>
 
-      <p className="text-xs text-zinc-600">
+      <p className="metric-sub">
         Instructores activos hoy: {activeInstructors.length}. Si no hay
         instructores cargados o sin disponibilidad para la fecha, las ventas
-        van a quedar bloqueadas — gestionar en /roster/instructors.
+        van a quedar bloqueadas — gestionar en{" "}
+        <code className="rounded bg-ink-200/60 px-1.5 py-0.5 text-[11px] text-brand-300">
+          /roster/instructors
+        </code>
+        .
       </p>
     </div>
   );

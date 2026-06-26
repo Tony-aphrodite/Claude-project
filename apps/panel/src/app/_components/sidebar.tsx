@@ -246,8 +246,24 @@ const NAV: NavItem[] = [
 
 export function Sidebar({ user }: { user: UserContext | null }) {
   const pathname = usePathname();
-  const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
+  // Active matching — exact for "/", and for sub-routes (e.g. /roster has
+  // /roster/instructors and /roster/engine below it) the deepest matching
+  // item wins. Without the "no more-specific item also matches" guard,
+  // visiting /roster/engine lit BOTH the Roster row and the Roster (engine)
+  // row at the same time (Miguel 2026-06-26).
+  const isActive = (href: string) => {
+    if (href === "/") return pathname === "/";
+    if (pathname !== href && !pathname.startsWith(href + "/")) return false;
+    // Item matches the current path; check whether a more specific NAV
+    // entry also matches — if so, defer to it.
+    const moreSpecificMatches = NAV.some(
+      (n) =>
+        n.href !== href &&
+        n.href.startsWith(href + "/") &&
+        (pathname === n.href || pathname.startsWith(n.href + "/")),
+    );
+    return !moreSpecificMatches;
+  };
 
   const groups: { id: NavItem["group"]; label: string }[] = [
     { id: "live", label: "Operación" },
