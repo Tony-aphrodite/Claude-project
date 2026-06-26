@@ -323,6 +323,32 @@ export default async function EnginePage({
               <option value="REF_FASE2">REF_FASE2</option>
             </select>
           </div>
+          {/* Instructor pre-assignment (Miguel 2026-06-26). Optional —
+              leave on "Auto" to let the engine pick when it next runs.
+              Useful when the office knows exactly who's going to take
+              this walk-in (e.g. specific language match, regular
+              instructor for a returning client). */}
+          <div>
+            <label
+              className="mb-1 block text-ink-700"
+              htmlFor="walkin-instructor"
+            >
+              Instructor (opcional)
+            </label>
+            <select
+              id="walkin-instructor"
+              name="instructor_id"
+              className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
+            >
+              <option value="">Auto (motor decide)</option>
+              {activeInstructors.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.nombre}
+                  {i.languages.length > 0 ? ` · ${i.languages.join("/")}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="mb-1 block text-ink-700" htmlFor="walkin-detail">
               Activity detail (SP/ADV subtype, opcional)

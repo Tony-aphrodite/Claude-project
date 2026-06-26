@@ -332,6 +332,15 @@ export async function createWalkInDiver(formData: FormData): Promise<void> {
   const acceptsCap = String(formData.get("accepts_cap") ?? "") === "true";
   const notes = String(formData.get("notes") ?? "").trim() || null;
 
+  // Miguel 2026-06-26: optional pre-assignment to a specific instructor.
+  // Empty string = "Auto" — engine assigns when it runs. A real UUID
+  // here pre-stamps the diver onto that instructor so the engine packs
+  // them in that instructor's group on the next pass (subject to
+  // compatibility — the engine still validates the depth profile /
+  // activity match and may split if incompatible).
+  const rawInstructorId = String(formData.get("instructor_id") ?? "").trim();
+  const instructorId = rawInstructorId === "" ? null : rawInstructorId;
+
   if (!sedeId || !fecha || !slot || !nombre || !nivel || !activity) {
     throw new Error(
       "sede_id, fecha, slot, nombre, nivel_certificacion, activity all required",
@@ -345,6 +354,22 @@ export async function createWalkInDiver(formData: FormData): Promise<void> {
   }
 
   const db = getDb();
+
+  // If office picked a specific instructor, validate they exist + belong
+  // to this sede. Foreign-key would catch it but the error would be
+  // opaque; this gives a useful message.
+  if (instructorId !== null) {
+    const [inst] = await db
+      .select({ sedeId: instructorsTable.sedeId })
+      .from(instructorsTable)
+      .where(eq(instructorsTable.id, instructorId))
+      .limit(1);
+    if (!inst) throw new Error("instructor not found");
+    if (inst.sedeId !== sedeId) {
+      throw new Error("instructor belongs to a different sede");
+    }
+  }
+
   await db.insert(rosterDivers).values({
     sedeId,
     fecha,
@@ -358,6 +383,7 @@ export async function createWalkInDiver(formData: FormData): Promise<void> {
     acceptsCap,
     origen: "Manual",
     estadoPago: "pending",
+    instructorId,
     notes,
   });
 
