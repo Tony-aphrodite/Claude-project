@@ -417,6 +417,96 @@ export async function createWalkInDiver(formData: FormData): Promise<void> {
   revalidatePath("/roster/engine");
 }
 
+/**
+ * Edit an existing walk-in diver row — slot, instructor, activity,
+ * activity_detail and/or notes (Miguel 2026-06-26: "se puede borrar??
+ * igual que cambiar al instructor??"). Each field is optional in the
+ * form; only the ones present are updated. Useful when the office
+ * mis-typed a slot or wants to move a diver to a different instructor
+ * without deleting + re-adding.
+ *
+ * Scope: only `origen='Manual'` rows can be edited via this action.
+ * AI-driven rows are immutable from the panel — those come from the
+ * conversation flow and editing them would diverge the engine view
+ * from the source of truth.
+ */
+export async function updateWalkInDiver(formData: FormData): Promise<void> {
+  const id = String(formData.get("id") ?? "");
+  if (!id) throw new Error("id required");
+
+  const db = getDb();
+  const [row] = await db
+    .select({
+      sedeId: rosterDivers.sedeId,
+      origen: rosterDivers.origen,
+      currentSlot: rosterDivers.slot,
+      currentActivity: rosterDivers.activity,
+      currentNivel: rosterDivers.nivelCertificacion,
+    })
+    .from(rosterDivers)
+    .where(eq(rosterDivers.id, id))
+    .limit(1);
+  if (!row) throw new Error("diver not found");
+  if (row.origen !== "Manual") {
+    throw new Error("only Manual (walk-in) rows can be edited from the panel");
+  }
+  await requireSedeWriteAccess(row.sedeId);
+
+  // Collect optional updates. Empty string = "no change", which lets the
+  // form ship only the fields the user actually touched.
+  const patch: Partial<typeof rosterDivers.$inferInsert> = {};
+
+  const rawSlot = String(formData.get("slot") ?? "").trim();
+  if (rawSlot !== "" && rawSlot !== row.currentSlot) {
+    if (!(ALL_SLOTS as readonly string[]).includes(rawSlot)) {
+      throw new Error(`invalid slot: ${rawSlot}`);
+    }
+    patch.slot = rawSlot;
+  }
+
+  const rawInstructorId = String(formData.get("instructor_id") ?? "").trim();
+  if (formData.has("instructor_id")) {
+    // Empty string is meaningful here: "unassign". UUID = assign.
+    if (rawInstructorId === "") {
+      patch.instructorId = null;
+    } else {
+      const [inst] = await db
+        .select({ sedeId: instructorsTable.sedeId })
+        .from(instructorsTable)
+        .where(eq(instructorsTable.id, rawInstructorId))
+        .limit(1);
+      if (!inst) throw new Error("instructor not found");
+      if (inst.sedeId !== row.sedeId) {
+        throw new Error("instructor belongs to a different sede");
+      }
+      patch.instructorId = rawInstructorId;
+    }
+  }
+
+  const rawActivity = String(formData.get("activity") ?? "").trim();
+  if (rawActivity !== "" && rawActivity !== row.currentActivity) {
+    if (!(ALL_ACTIVITIES as readonly string[]).includes(rawActivity)) {
+      throw new Error(`invalid activity: ${rawActivity}`);
+    }
+    patch.activity = rawActivity;
+    // Recompute depth profile to match the new activity. We don't have
+    // a "use old depth" override on edits — the depth is derived from
+    // (activity, nivel) and should stay coherent with whatever activity
+    // the diver ends up on.
+    patch.perfilProfundidad = defaultDepthForActivity(rawActivity, row.currentNivel);
+  }
+
+  if (Object.keys(patch).length === 0) return; // nothing to update
+
+  patch.updatedAt = new Date();
+  await db
+    .update(rosterDivers)
+    .set(patch)
+    .where(and(eq(rosterDivers.id, id), eq(rosterDivers.origen, "Manual")));
+
+  revalidatePath("/roster/engine");
+}
+
 export async function deleteWalkInDiver(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("id required");

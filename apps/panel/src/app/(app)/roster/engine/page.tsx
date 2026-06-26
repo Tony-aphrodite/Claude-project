@@ -11,9 +11,12 @@
 // abyss/ink/brand palette (.card / text-ink-* / text-brand-*) instead
 // of raw Tailwind zinc/emerald — matches Dashboard / Pipeline / etc.
 
+import { Fragment } from "react";
+
 import {
   createWalkInDiver,
   deleteWalkInDiver,
+  updateWalkInDiver,
 } from "~/app/actions/roster-engine";
 import { PageHeader } from "~/app/_components/page-header";
 import { requireUserContext } from "~/lib/auth-context";
@@ -170,46 +173,167 @@ export default async function EnginePage({
                         <table className="w-full text-xs">
                           <tbody>
                             {bucket.map((d) => (
-                              <tr
-                                key={d.id}
-                                className="border-t border-ink-200/60"
-                              >
-                                <td className="py-1 pr-2 text-ink-500">
-                                  {d.groupOrder ?? "?"}
-                                </td>
-                                <td className="py-1 pr-2 text-ink-900">
-                                  {d.nombre}
-                                </td>
-                                <td className="py-1 pr-2 text-ink-600">
-                                  {d.activity}
-                                  {d.activityDetail ? `:${d.activityDetail}` : ""}
-                                </td>
-                                <td className="py-1 pr-2 text-ink-500">
-                                  {d.nivelCertificacion}
-                                </td>
-                                <td className="py-1 pr-2">
-                                  {d.origen === "Manual" ? (
-                                    <span className="badge-warn">walk-in</span>
-                                  ) : null}
-                                </td>
-                                <td className="py-1 text-right">
-                                  {d.origen === "Manual" ? (
-                                    <form action={deleteWalkInDiver}>
-                                      <input
-                                        type="hidden"
-                                        name="id"
-                                        value={d.id}
-                                      />
-                                      <button
-                                        type="submit"
-                                        className="text-[10px] text-ink-500 hover:text-bad-500"
+                              <Fragment key={d.id}>
+                                <tr
+                                  className="border-t border-ink-200/60"
+                                >
+                                  <td className="py-1 pr-2 text-ink-500">
+                                    {d.groupOrder ?? "?"}
+                                  </td>
+                                  <td className="py-1 pr-2 text-ink-900">
+                                    {d.nombre}
+                                  </td>
+                                  <td className="py-1 pr-2 text-ink-600">
+                                    {d.activity}
+                                    {d.activityDetail
+                                      ? `:${d.activityDetail}`
+                                      : ""}
+                                  </td>
+                                  <td className="py-1 pr-2 text-ink-500">
+                                    {d.nivelCertificacion}
+                                  </td>
+                                  <td className="py-1 pr-2">
+                                    {d.origen === "Manual" ? (
+                                      <span className="badge-warn">
+                                        walk-in
+                                      </span>
+                                    ) : null}
+                                  </td>
+                                  <td className="py-1 text-right">
+                                    {d.origen === "Manual" ? (
+                                      <div className="flex justify-end gap-2 text-[10px]">
+                                        <a
+                                          href={`#edit-${d.id}`}
+                                          className="text-ink-500 hover:text-brand-300"
+                                        >
+                                          mover
+                                        </a>
+                                        <form action={deleteWalkInDiver}>
+                                          <input
+                                            type="hidden"
+                                            name="id"
+                                            value={d.id}
+                                          />
+                                          <button
+                                            type="submit"
+                                            className="text-ink-500 hover:text-bad-500"
+                                          >
+                                            eliminar
+                                          </button>
+                                        </form>
+                                      </div>
+                                    ) : null}
+                                  </td>
+                                </tr>
+                                {/* Inline edit form — collapsed by default
+                                    (the :target selector reveals it when
+                                    the user clicks "mover" above, which
+                                    sets the URL hash to #edit-<id>). No
+                                    JS needed; the link toggles it. */}
+                                {d.origen === "Manual" ? (
+                                  <tr
+                                    id={`edit-${d.id}`}
+                                    className="hidden target:table-row border-t border-brand-400/30 bg-brand-400/5"
+                                  >
+                                    <td colSpan={6} className="px-2 py-2">
+                                      <form
+                                        action={updateWalkInDiver}
+                                        className="flex flex-wrap items-end gap-2 text-[11px]"
                                       >
-                                        eliminar
-                                      </button>
-                                    </form>
-                                  ) : null}
-                                </td>
-                              </tr>
+                                        <input
+                                          type="hidden"
+                                          name="id"
+                                          value={d.id}
+                                        />
+                                        <label className="flex flex-col gap-0.5">
+                                          <span className="text-ink-500">
+                                            Slot
+                                          </span>
+                                          <select
+                                            name="slot"
+                                            defaultValue={d.slot}
+                                            className="rounded border border-ink-200 bg-ink-100/60 px-1.5 py-0.5 text-ink-900"
+                                          >
+                                            {ENGINE_SLOTS.map((s) => (
+                                              <option key={s} value={s}>
+                                                {s}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                        <label className="flex flex-col gap-0.5">
+                                          <span className="text-ink-500">
+                                            Instructor
+                                          </span>
+                                          <select
+                                            name="instructor_id"
+                                            defaultValue={
+                                              d.instructorId ?? ""
+                                            }
+                                            className="rounded border border-ink-200 bg-ink-100/60 px-1.5 py-0.5 text-ink-900"
+                                          >
+                                            <option value="">
+                                              Sin asignar (auto)
+                                            </option>
+                                            {activeInstructors.map((i) => (
+                                              <option
+                                                key={i.id}
+                                                value={i.id}
+                                              >
+                                                {i.nombre}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                        <label className="flex flex-col gap-0.5">
+                                          <span className="text-ink-500">
+                                            Activity
+                                          </span>
+                                          <select
+                                            name="activity"
+                                            defaultValue={d.activity}
+                                            className="rounded border border-ink-200 bg-ink-100/60 px-1.5 py-0.5 text-ink-900"
+                                          >
+                                            <option value="BD_CONFINADA">
+                                              BD_CONFINADA
+                                            </option>
+                                            <option value="BD_BARCO">
+                                              BD_BARCO
+                                            </option>
+                                            <option value="OW1">OW1</option>
+                                            <option value="OW2">OW2</option>
+                                            <option value="OW3">OW3</option>
+                                            <option value="FD">FD</option>
+                                            <option value="AA">AA</option>
+                                            <option value="AA2">AA2</option>
+                                            <option value="ADV">ADV</option>
+                                            <option value="SP">SP</option>
+                                            <option value="RES">RES</option>
+                                            <option value="REF_FASE1">
+                                              REF_FASE1
+                                            </option>
+                                            <option value="REF_FASE2">
+                                              REF_FASE2
+                                            </option>
+                                          </select>
+                                        </label>
+                                        <button
+                                          type="submit"
+                                          className="rounded bg-brand-500/15 px-2 py-0.5 text-[10px] font-medium text-brand-300 ring-1 ring-inset ring-brand-400/30 hover:bg-brand-500/30"
+                                        >
+                                          guardar
+                                        </button>
+                                        <a
+                                          href="#"
+                                          className="text-[10px] text-ink-500 hover:text-ink-700"
+                                        >
+                                          cancelar
+                                        </a>
+                                      </form>
+                                    </td>
+                                  </tr>
+                                ) : null}
+                              </Fragment>
                             ))}
                           </tbody>
                         </table>
