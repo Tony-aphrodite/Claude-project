@@ -490,6 +490,7 @@ export async function handleContactStateEvent(
     // conversation would be flagged on the first webhook and the AI
     // would never get to talk).
     let priorAiCount = 0;
+    let lastAiMsgAt: Date | null = null;
     if (isHuman) {
       const [row] = await db
         .select({ count: drizzleSql<number>`count(*)::int` })
@@ -501,13 +502,107 @@ export async function handleContactStateEvent(
           ),
         );
       priorAiCount = row?.count ?? 0;
+      if (priorAiCount > 0) {
+        const [latest] = await db
+          .select({ createdAt: mensajes.createdAt })
+          .from(mensajes)
+          .where(
+            and(
+              eq(mensajes.conversacionId, conv.id),
+              eq(mensajes.sender, "ai"),
+            ),
+          )
+          .orderBy(desc(mensajes.createdAt))
+          .limit(1);
+        lastAiMsgAt = latest?.createdAt ?? null;
+      }
     }
-    const isRealTakeover = isHuman && priorAiCount > 0;
+
+    // Workflow-echo guard (Miguel 2026-06-26): Miguel's Respond.io
+    // "Mensaje de entrada + ai phi phi+ ai gili air" workflow continues
+    // running AFTER the AI auto-welcome fires and re-assigns the
+    // conversation to a human via round-robin (Richard / Patrick /
+    // etc.). The sequence we see is:
+    //   1. Workflow ends sede picker, fires assignee.updated → AI bot
+    //      (our maybeSendWorkflowAutoWelcome reassigns to AI + sends
+    //       welcome)
+    //   2. Workflow's NEXT step assigns to a human (round-robin)
+    //   3. Another assignee.updated arrives with the human
+    //   4. priorAiCount = 1 (the welcome we just sent), so the original
+    //      isRealTakeover check trips and the flag stamps — but this is
+    //      workflow noise, not a real takeover.
+    //
+    // Distinguishing signal: the AI's most recent message landed in the
+    // last 120 seconds AND priorAiCount is small (<=2 — just the
+    // welcome, maybe one quick follow-up). In that window the human
+    // hasn't had time to actually interact with the customer — the
+    // workflow is just finishing its routing. Treat as echo: re-assign
+    // back to the sede AI bot and skip the flag stamp.
+    const WORKFLOW_ECHO_WINDOW_MS = 120_000;
+    const isWorkflowEcho =
+      isHuman &&
+      priorAiCount > 0 &&
+      priorAiCount <= 2 &&
+      lastAiMsgAt !== null &&
+      Date.now() - lastAiMsgAt.getTime() < WORKFLOW_ECHO_WINDOW_MS;
+
+    const isRealTakeover = isHuman && priorAiCount > 0 && !isWorkflowEcho;
 
     log.info(
-      { event, contactId, newAssignee, aiAssigneeIds, isHuman, priorAiCount, isRealTakeover },
+      {
+        event,
+        contactId,
+        newAssignee,
+        aiAssigneeIds,
+        isHuman,
+        priorAiCount,
+        lastAiAgeMs: lastAiMsgAt ? Date.now() - lastAiMsgAt.getTime() : null,
+        isWorkflowEcho,
+        isRealTakeover,
+      },
       "assignee event parsed",
     );
+
+    // Workflow echo: re-assign back to the sede AI bot (fire-and-forget).
+    // Skip the flag stamp + return early so we don't fall through to the
+    // takeover branch below.
+    if (isWorkflowEcho && conv.sedeId) {
+      const [sedeRow] = await db
+        .select({ nombre: sedes.nombre })
+        .from(sedes)
+        .where(eq(sedes.id, conv.sedeId));
+      const echoSedeAi = sedeRow?.nombre
+        ? SEDE_AI_USERS[sedeRow.nombre]
+        : undefined;
+      if (echoSedeAi) {
+        void respondIoClient
+          .assignConversation({
+            contactId: String(contactId),
+            assignee: echoSedeAi.assigneeId,
+          })
+          .then(() =>
+            log.info(
+              {
+                contactId,
+                sedeName: sedeRow?.nombre,
+                reassignedTo: echoSedeAi.assigneeId,
+                priorAiCount,
+                lastAiAgeMs: lastAiMsgAt
+                  ? Date.now() - lastAiMsgAt.getTime()
+                  : null,
+              },
+              "workflow echo: reassigned back to sede AI bot (Miguel 2026-06-26 workflow round-robin guard)",
+            ),
+          )
+          .catch((err: unknown) =>
+            log.warn(
+              { err: (err as Error).message, contactId },
+              "workflow echo: reassign to AI failed (non-blocking)",
+            ),
+          );
+      }
+      return { ok: true, action: "noop", reason: "workflow_echo" };
+    }
 
     const oldMeta = (conv.leadMetadata as LeadMetadata | null) ?? {};
 
