@@ -21,7 +21,7 @@ import { eq } from "drizzle-orm";
 import type { LeadMetadata, RespondIoIncomingMessage } from "@dpm/shared";
 import { conversaciones, getDb } from "@dpm/db";
 
-import { loadEnv } from "../env.js";
+import { isAiAssignee, loadEnv } from "../env.js";
 import { chatContactsService } from "../services/chat-contacts.js";
 import { conversationService } from "../services/conversation.js";
 import { followUpProcessor } from "../services/follow-up.js";
@@ -192,56 +192,83 @@ export async function processAgentMessage(
     .cancelOpenFollowUpsForConversation(conversation.id, "agent_replied")
     .catch((err) => log.warn({ err }, "espia: follow-up cancel-on-agent-reply failed"));
 
-  // ─── Take-over silence (Tony fix 2026-06-07) ───────────────────────────
-  // A human agent sent a message from the Respond.io panel. This is the
-  // most definitive signal of human take-over we can get.
+  // ─── Take-over silence (Tony 2026-06-07, refined Miguel 2026-06-26) ───
+  // A human sent a message from the Respond.io panel. Two scenarios:
   //
-  // We tried two webhook-based signals first and both failed:
-  //   1. `conversation.assignee.changed` webhook → Respond.io doesn't
-  //      fire this event for self-assignments in the UI (only for some
-  //      API-driven changes).
-  //   2. Active GET to /contact/.../conversation → returns 404 (no such
-  //      endpoint exists in Respond.io v2).
+  //   FORMAL takeover — the human assigned the conversation to themselves
+  //   in Respond.io and is now the conversation's assignee. AI must
+  //   silence. The `conversation.assignee.changed` webhook handler
+  //   (contact-state-event.ts) stamps `human_took_over=true`.
   //
-  // Message-based detection is the ONLY reliable signal we have. When
-  // any human sends a message (regardless of how they took over the
-  // conversation), we stamp `human_took_over` on the conversation.
-  // The next inbound customer message hits the silence guard in
-  // process-message.ts (persistedHumanTookOver check) and the AI
-  // stays quiet.
+  //   INFORMAL interjection — the human typed a correction / clarification
+  //   from the panel WITHOUT taking over (conversation's assignee is
+  //   still the per-sede AI bot). Miguel 2026-06-26 spec: AI should keep
+  //   the thread, see the human's message in history (Bloque 3 renders
+  //   `agente_humano` sender as "AGENTE (name)"), and reply with full
+  //   context — not silence. Previously this branch stamped the flag
+  //   unconditionally and the AI lost the thread until self-heal cleared
+  //   it on the next turn.
   //
-  // Limitation we accept: if a human ASSIGNS but doesn't message, AI
-  // may respond ONCE more before the next assignment-with-message
-  // resets the flag. In real usage humans almost always message after
-  // taking over, so the gap is short.
-  void getDb()
-    .update(conversaciones)
-    .set({
-      leadMetadata: {
-        ...((conversation.leadMetadata as LeadMetadata | null) ?? {}),
-        human_took_over: true,
-        human_took_over_at: new Date().toISOString(),
-        human_took_over_by: agentName ?? "panel_agent",
+  // We disambiguate by the conversation's current assignee at the time of
+  // the agent message. The Respond.io payload's `conversation.assignee`
+  // field carries it; when missing, we read `lead_metadata.last_known_*`
+  // from prior webhook state or accept the ambiguity and stamp (safer
+  // default — formal takeovers must not leak AI replies).
+  //
+  // Refinement Miguel 2026-06-26: the AI must SEE every agent message on
+  // its next turn, whether silenced or not. Persistence above (line ~184)
+  // is what gets the message into Bloque 3 history. The flag controls
+  // whether the AI is invoked again; the message itself is always saved.
+  const currentAssigneeRaw = (
+    payload as { conversation?: { assignee?: string | number | null } }
+  ).conversation?.assignee;
+  const currentAssigneeIsAiBot =
+    currentAssigneeRaw !== undefined &&
+    currentAssigneeRaw !== null &&
+    currentAssigneeRaw !== "" &&
+    isAiAssignee(currentAssigneeRaw);
+
+  if (currentAssigneeIsAiBot) {
+    log.info(
+      {
+        conversationId: conversation.id,
+        contactId: payload.contact.id,
+        agentName: agentName ?? "panel_agent",
+        currentAssignee: currentAssigneeRaw,
       },
-      updatedAt: new Date(),
-    })
-    .where(eq(conversaciones.id, conversation.id))
-    .then(() => {
-      log.info(
-        {
-          conversationId: conversation.id,
-          contactId: payload.contact.id,
-          agentName: agentName ?? "panel_agent",
-        },
-        "espia: human_took_over flag set from agent message",
-      );
-    })
-    .catch((err: unknown) =>
-      log.warn(
-        { err: (err as Error).message },
-        "espia: human_took_over flag stamp failed",
-      ),
+      "espia: agent message arrived while AI bot is still the assignee — INFORMAL interjection, message persisted but human_took_over flag NOT set (Miguel 2026-06-26 rule)",
     );
+  } else {
+    void getDb()
+      .update(conversaciones)
+      .set({
+        leadMetadata: {
+          ...((conversation.leadMetadata as LeadMetadata | null) ?? {}),
+          human_took_over: true,
+          human_took_over_at: new Date().toISOString(),
+          human_took_over_by: agentName ?? "panel_agent",
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(conversaciones.id, conversation.id))
+      .then(() => {
+        log.info(
+          {
+            conversationId: conversation.id,
+            contactId: payload.contact.id,
+            agentName: agentName ?? "panel_agent",
+            currentAssignee: currentAssigneeRaw ?? null,
+          },
+          "espia: human_took_over flag set from agent message (current assignee is not AI bot — formal takeover)",
+        );
+      })
+      .catch((err: unknown) =>
+        log.warn(
+          { err: (err as Error).message },
+          "espia: human_took_over flag stamp failed",
+        ),
+      );
+  }
 
   const stageTransition = await observeStageFromAgentMessage({
     conversationId: conversation.id,
