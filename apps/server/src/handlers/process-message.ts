@@ -1985,6 +1985,24 @@ export async function processIncomingMessage(
     log,
   );
 
+  // Conversation-state signals for the comprobante gate (Miguel 2026-06-26
+  // #3). Derived from lead_metadata:
+  //   - bankDataSent: solicitar_deposito has run AND the bank instructions
+  //     were sent (ref_code stamped is the signal — the tool stamps it
+  //     when it composes the message).
+  //   - depositExpected: the full triplet is stamped (ref_code + amount +
+  //     currency). The OCR auto-confirm path keys off this same triplet.
+  const _convMetaForPrompt =
+    (conversation.leadMetadata as LeadMetadata | null) ?? null;
+  const _convStateBankDataSent = !!_convMetaForPrompt?.ref_code;
+  const _convStateDepositExpected =
+    !!_convMetaForPrompt?.ref_code &&
+    !!_convMetaForPrompt?.deposit_currency &&
+    !!(
+      _convMetaForPrompt?.deposit_amount_total ??
+      _convMetaForPrompt?.deposit_amount
+    );
+
   const { system, messages } = buildFourBlockPrompt({
     systemPrompt,
     sedeKb,
@@ -1995,6 +2013,11 @@ export async function processIncomingMessage(
     detectedLanguage,
     suggestedCurrency,
     incomingAttachments: incomingAttachmentsForPrompt,
+    conversationState: {
+      bankDataSent: _convStateBankDataSent,
+      depositExpected: _convStateDepositExpected,
+      leadStage: conversation.leadStage,
+    },
   });
 
   // Step 7+8: tool_use handlers + Claude call

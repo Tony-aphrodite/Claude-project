@@ -63,6 +63,32 @@ export type BuildPromptInput = {
    * undefined ⇒ no image blocks, exact pre-fix behaviour preserved.
    */
   incomingAttachments?: InlineMedia[] | undefined;
+  /**
+   * Conversation state signals for IMAGE CLASSIFICATION (Miguel 2026-06-26 #3).
+   * When the customer attaches an image, the AI must decide whether it's a
+   * deposit comprobante or something else (cert card, ad screenshot, etc).
+   * The signals here let the AI gate that decision on the conversation's
+   * actual state — without them the AI was hallucinating "revisé tu
+   * comprobante y no coincide" for non-comprobante images.
+   *
+   *   bankDataSent  — true after the AI has already shared bank details
+   *                   (i.e. `solicitar_deposito` ran and the message was
+   *                   emitted). Until this is true a deposit screenshot
+   *                   simply cannot exist yet.
+   *   depositExpected — true when lead_metadata carries the full triplet
+   *                     (ref_code + amount + currency), i.e. the customer
+   *                     was told what to send. The OCR path keys off this.
+   *   leadStage     — the current conversation stage from our state
+   *                   machine ("new" / "qualified" / "proposed" /
+   *                   "deposit_pending" / "deposit_paid" / "handed_off" /
+   *                   "lost" / "closed"). Helps the AI distinguish
+   *                   pre-quote from post-quote interactions.
+   */
+  conversationState?: {
+    bankDataSent?: boolean;
+    depositExpected?: boolean;
+    leadStage?: string | null;
+  };
 };
 
 export type BuildPromptOutput = {
@@ -89,6 +115,7 @@ export function buildFourBlockPrompt(input: BuildPromptInput): BuildPromptOutput
     detectedLanguage: input.detectedLanguage,
     suggestedCurrency: input.suggestedCurrency,
     attachmentCount: attachments.length,
+    conversationState: input.conversationState,
   });
 
   const system: Anthropic.TextBlockParam[] = [
@@ -207,6 +234,7 @@ export function formatDynamicBlock(input: {
    * Defaults to 0 = no inline media this turn.
    */
   attachmentCount?: number;
+  conversationState?: BuildPromptInput["conversationState"];
 }): string {
   const sedeNow = new Date().toLocaleString("en-US", {
     timeZone: input.sede.timezone,
@@ -265,13 +293,20 @@ SEDE: ${input.sede.nombre} (${input.sede.pais})
 SEDE_ID: ${input.sede.id}    ← USAR ESTE UUID EXACTO como sede_id en TODA invocación de consultar_disponibilidad / solicitar_deposito / enviar_catalogo. NO inventes uno.
 MONEDA LOCAL: ${input.sede.currencyCode} (${input.sede.currencySymbol})
 
+🚨 HORA ACTUAL—REGLA ABSOLUTA (Miguel 2026-06-26 — caso David NP ofreció 1pm cuando era 5pm):
+- La hora arriba ("HORA ACTUAL EN LA SEDE") es la HORA LOCAL VERDADERA de esta sede AHORA. Es la única referencia válida.
+- NUNCA ofrezcas un slot/horario que ya pasó respecto a HORA ACTUAL. Si HORA ACTUAL es 17:00, no podés ofrecer "hoy a la 1pm" — ese slot ya pasó.
+- Cuando el cliente dice "hoy" / "esta tarde" / "ahora" / "today" / "this afternoon" → razoná SIEMPRE contra HORA ACTUAL arriba, NO contra la hora del teléfono del cliente ni la zona horaria del cliente. El cliente puede estar en otro país físicamente, pero opera contra la sede que vas a vender.
+- Antes de proponer cualquier horario del día actual: comparar el horario propuesto vs HORA ACTUAL. Si pasado → ofrecé el siguiente disponible (mañana, o el primer slot futuro de hoy si hay).
+- "Boat AM" / "barco AM" en general arranca temprano (7-8am). Si ya pasaron las 10-11am del día, AM de HOY no es viable — ofrecé PM o mañana AM.
+
 ${currencyLine}
 
 ${langLine}
 
 === ROSTER PRÓXIMOS 7 DÍAS ===
 ${rosterText}
-${formatAttachmentBanner(input.attachmentCount ?? 0)}
+${formatAttachmentBanner(input.attachmentCount ?? 0, input.conversationState)}
 === MENSAJE DEL CLIENTE ===
 ${input.incomingMessage}
 
@@ -338,22 +373,56 @@ y se rompe la conversación. Es un BUG visible al cliente.`;
  *
  * The banner also classifies the image so the model doesn't auto-guess "this
  * must be a comprobante": it must identify the content first, then decide how
- * to react. Closes Miguel 2026-06-25 bug #2 (model said "revisé tu
- * comprobante y no coincide" when the client had sent an ad screenshot).
+ * to react. Closes Miguel 2026-06-25 bug #2 + 2026-06-26 #3 (model said
+ * "revisé tu comprobante y no coincide" when the client had sent an ad
+ * screenshot OR a certification card — neither were comprobantes).
+ *
+ * The conversationState parameter (Miguel 2026-06-26 #3) makes the
+ * "is this a comprobante?" gate state-aware. If we haven't even sent the
+ * bank details yet, a comprobante is IMPOSSIBLE — the AI should never
+ * interpret an image as one in that state.
  */
-function formatAttachmentBanner(count: number): string {
+function formatAttachmentBanner(
+  count: number,
+  conversationState?: BuildPromptInput["conversationState"],
+): string {
   if (count <= 0) return "";
   const plural = count === 1 ? "" : "s";
+
+  const bankDataSent = conversationState?.bankDataSent === true;
+  const depositExpected = conversationState?.depositExpected === true;
+  const leadStage = conversationState?.leadStage ?? null;
+
+  // State-aware preamble for the comprobante gate (Miguel 2026-06-26 #3).
+  // Three regimes:
+  //   1. bankDataSent=false  → comprobante IMPOSSIBLE. The customer hasn't
+  //      been told where to transfer yet; anything they sent is something
+  //      else (cert, ad, fish photo, random screenshot).
+  //   2. bankDataSent=true but depositExpected=false → bank details were
+  //      shared but the triplet isn't fully stamped. A comprobante is
+  //      POSSIBLE but not strongly expected.
+  //   3. depositExpected=true (lead_stage typically deposit_pending) →
+  //      a comprobante is what we're waiting for. OCR will run upstream
+  //      and the AI's role is the polite acknowledgment.
+  const comprobanteGate = bankDataSent
+    ? depositExpected
+      ? `ESTADO DE PAGO: depósito ESPERADO (datos bancarios enviados + monto/moneda/ref code en metadata). Es plausible que esta imagen sea un comprobante bancario REAL — verificá los 4 elementos (banco/monto/moneda/fecha/beneficiario) antes de afirmar nada. lead_stage actual: ${leadStage ?? "?"}.`
+      : `ESTADO DE PAGO: datos bancarios YA fueron compartidos en esta conversación, pero el depósito todavía NO está stampado en metadata. Una imagen PUEDE ser un comprobante, pero también puede ser otra cosa — clasificá primero. lead_stage actual: ${leadStage ?? "?"}.`
+    : `ESTADO DE PAGO: en esta conversación TODAVÍA NO se enviaron datos bancarios al cliente — un "comprobante de depósito" es IMPOSIBLE en este estado. Si la imagen parece un recibo bancario, lo más probable es que sea de OTRO contexto (otra compra del cliente, una pantalla de su banco, etc.) — NUNCA respondas "revisé tu comprobante y no coincide". lead_stage actual: ${leadStage ?? "?"}.`;
+
   return `
 === ARCHIVO${plural.toUpperCase()} ADJUNTO${plural.toUpperCase()} (${count}) ===
 El cliente acaba de enviar ${count} archivo${plural} (imagen/PDF) en su turno actual. Está${plural ? "n" : ""} embebido${plural} ARRIBA de este texto como bloques de visión — MIRÁ${plural ? "LOS" : "LA"} antes de redactar tu respuesta.
 
-REGLAS — IMÁGENES Y PDFs (Miguel 2026-06-25):
+${comprobanteGate}
+
+REGLAS — IMÁGENES Y PDFs (Miguel 2026-06-25 + 2026-06-26):
 1) IDENTIFICÁ primero qué muestra cada archivo (carnet de buceo, foto de un pez/sitio, captura de un anuncio, comprobante bancario, captura de chat, foto del cliente, etc.) ANTES de decidir cómo responder.
-2) NUNCA asumas que es un comprobante de depósito a menos que VEAS claramente: un banco/Wise/Revolut + monto + moneda + fecha + beneficiario. Las capturas de "Top Rated Dive Center", anuncios de Instagram/Meta, fotos genéricas → NO son comprobantes.
-3) NUNCA respondas "revisé tu comprobante y algo no coincide" salvo que la imagen sea efectivamente un comprobante (regla 2). Si no estás seguro de qué es, PREGUNTÁ al cliente qué quería mostrarte.
+2) NUNCA asumas que es un comprobante de depósito a menos que VEAS claramente: un banco/Wise/Revolut + monto + moneda + fecha + beneficiario. Las capturas de "Top Rated Dive Center", anuncios de Instagram/Meta, fotos genéricas, tarjetas de certificación SSI/PADI → NO son comprobantes.
+3) NUNCA respondas "revisé tu comprobante y algo no coincide" salvo que (a) la imagen sea efectivamente un comprobante (regla 2) Y (b) el ESTADO DE PAGO arriba confirme que el depósito era esperado. Si no estás seguro de qué es, PREGUNTÁ al cliente qué quería mostrarte.
 4) NO arranques con tu saludo de presentación solo porque entró un archivo — la conversación ya está en curso, seguila desde el último turno del HISTORIAL.
 5) Si el cliente mandó VARIOS archivos en este turno, respondé UNA SOLA vez tratándolos en conjunto. No emitas N respuestas separadas.
+6) El IDIOMA de tu respuesta se mantiene igual al que ya venías usando — un archivo sin texto NUNCA cambia el idioma (Miguel 2026-06-26 #2).
 `;
 }
 
