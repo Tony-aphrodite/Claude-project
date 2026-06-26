@@ -5,8 +5,14 @@
 //   instructor_availability: set / clear per (sede, fecha, instructor)
 //   walk-in divers:        create row with origen='Manual'
 //
-// All actions enforce admin auth and revalidate the relevant route on
-// success so the UI reflects the change without a manual refresh.
+// All actions enforce sede-scoped auth (admin OR office-of-target-sede)
+// and revalidate the relevant route on success so the UI reflects the
+// change without a manual refresh.
+//
+// Miguel 2026-06-26 feedback: per-sede office accounts must be able to
+// manage their own sede's instructors / availability / walk-ins. The
+// previous admin-only gate forced Miguel to share his admin login with
+// each sede, which was unsafe.
 
 "use server";
 
@@ -20,14 +26,23 @@ import {
   rosterDivers,
 } from "@dpm/db";
 
-import { requireUserContext } from "~/lib/auth-context";
+import { requireSedeWriteAccess } from "~/lib/auth-context";
+
+// Helper: load an instructor's sedeId so we can authorize rename/active
+// actions which only ship the instructor id in the form.
+async function resolveInstructorSede(instructorId: string): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ sedeId: instructorsTable.sedeId })
+    .from(instructorsTable)
+    .where(eq(instructorsTable.id, instructorId))
+    .limit(1);
+  return row?.sedeId ?? null;
+}
 
 // ─── Instructor CRUD ───────────────────────────────────────────────
 
 export async function createInstructor(formData: FormData): Promise<void> {
-  const ctx = await requireUserContext();
-  if (ctx.role !== "admin") throw new Error("forbidden");
-
   const sedeId = String(formData.get("sede_id") ?? "");
   const nombre = String(formData.get("nombre") ?? "").trim();
   const nombreLegal = String(formData.get("nombre_legal") ?? "").trim() || null;
@@ -38,6 +53,7 @@ export async function createInstructor(formData: FormData): Promise<void> {
   if (!sedeId || !nombre) {
     throw new Error("sede_id + nombre are required");
   }
+  await requireSedeWriteAccess(sedeId);
 
   const db = getDb();
   await db.insert(instructorsTable).values({
@@ -52,12 +68,10 @@ export async function createInstructor(formData: FormData): Promise<void> {
 }
 
 export async function setInstructorActive(formData: FormData): Promise<void> {
-  const ctx = await requireUserContext();
-  if (ctx.role !== "admin") throw new Error("forbidden");
-
   const id = String(formData.get("id") ?? "");
   const active = String(formData.get("active") ?? "") === "true";
   if (!id) throw new Error("id required");
+  await requireSedeWriteAccess(await resolveInstructorSede(id));
 
   const db = getDb();
   await db
@@ -69,12 +83,10 @@ export async function setInstructorActive(formData: FormData): Promise<void> {
 }
 
 export async function renameInstructor(formData: FormData): Promise<void> {
-  const ctx = await requireUserContext();
-  if (ctx.role !== "admin") throw new Error("forbidden");
-
   const id = String(formData.get("id") ?? "");
   const nombre = String(formData.get("nombre") ?? "").trim();
   if (!id || !nombre) throw new Error("id + nombre required");
+  await requireSedeWriteAccess(await resolveInstructorSede(id));
 
   const db = getDb();
   await db
@@ -90,12 +102,10 @@ export async function renameInstructor(formData: FormData): Promise<void> {
 const ALL_SLOTS = ["AM", "PM", "POOL", "NIGHT"] as const;
 
 export async function setAvailability(formData: FormData): Promise<void> {
-  const ctx = await requireUserContext();
-  if (ctx.role !== "admin") throw new Error("forbidden");
-
   const sedeId = String(formData.get("sede_id") ?? "");
   const fecha = String(formData.get("fecha") ?? "");
   const instructorId = String(formData.get("instructor_id") ?? "");
+  await requireSedeWriteAccess(sedeId);
   // FormData encodes multi-checkbox as repeated entries with the same key.
   const slotsRaw = formData.getAll("slots").map((v) => String(v));
   const slots = slotsRaw.filter((s) =>
@@ -207,10 +217,8 @@ function defaultDepthForActivity(activity: string, nivel: string): number {
 }
 
 export async function createWalkInDiver(formData: FormData): Promise<void> {
-  const ctx = await requireUserContext();
-  if (ctx.role !== "admin" && ctx.role !== "office") throw new Error("forbidden");
-
   const sedeId = String(formData.get("sede_id") ?? "");
+  await requireSedeWriteAccess(sedeId);
   const fecha = String(formData.get("fecha") ?? "");
   const slot = String(formData.get("slot") ?? "");
   const nombre = String(formData.get("nombre") ?? "").trim();
@@ -256,13 +264,18 @@ export async function createWalkInDiver(formData: FormData): Promise<void> {
 }
 
 export async function deleteWalkInDiver(formData: FormData): Promise<void> {
-  const ctx = await requireUserContext();
-  if (ctx.role !== "admin" && ctx.role !== "office") throw new Error("forbidden");
-
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("id required");
 
   const db = getDb();
+  // Resolve the diver row's sedeId so we can authorize against it.
+  const [row] = await db
+    .select({ sedeId: rosterDivers.sedeId })
+    .from(rosterDivers)
+    .where(eq(rosterDivers.id, id))
+    .limit(1);
+  await requireSedeWriteAccess(row?.sedeId ?? null);
+
   await db
     .delete(rosterDivers)
     .where(

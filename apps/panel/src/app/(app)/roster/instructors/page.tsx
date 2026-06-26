@@ -1,12 +1,12 @@
 // Instructor admin page — list + create + toggle active.
 // Backs the intelligent roster engine (Miguel v2.1 spec).
 //
-// Auth: admin only (per requireAdminContext on the actions). Office
-// users see a 403 if they hit this URL.
+// Auth (Miguel 2026-06-26): admin OR office. Office users are scoped
+// to their assigned sede and the sede picker is locked.
 //
 // UX shape:
-//   - Top: sede picker (mirrors /roster pattern).
-//   - Left: form to create new instructor.
+//   - Top: sede picker (admin = all sedes; office = locked to their sede).
+//   - Left: form to create new instructor (sede field hidden for office).
 //   - Right: table of all instructors for the selected sede (active
 //     first), each row with rename + activate/deactivate actions.
 //   - Below: weekly availability quick-fill (per-day toggles).
@@ -18,7 +18,7 @@ import {
   setAvailability,
 } from "~/app/actions/roster-engine";
 import { PageHeader } from "~/app/_components/page-header";
-import { requireAdminContext } from "~/lib/auth-context";
+import { requireUserContext } from "~/lib/auth-context";
 import {
   listAvailability,
   listEngineSedes,
@@ -51,7 +51,7 @@ export default async function InstructorsPage({
 }: {
   searchParams: Promise<{ sede?: string; from?: string }>;
 }) {
-  await requireAdminContext();
+  const ctx = await requireUserContext();
   const { sede: sedeParam, from: fromParam } = await searchParams;
 
   const allSedes = await listEngineSedes();
@@ -62,7 +62,21 @@ export default async function InstructorsPage({
       </div>
     );
   }
-  const selectedSede = allSedes.find((s) => s.id === sedeParam) ?? allSedes[0]!;
+  // Office users are locked to their assigned sede (Miguel 2026-06-26).
+  // Admins see and can switch between all sedes.
+  const selectableSedes =
+    ctx.role === "admin"
+      ? allSedes
+      : allSedes.filter((s) => s.id === ctx.sedeId);
+  if (selectableSedes.length === 0) {
+    return (
+      <div className="p-6 text-zinc-200">
+        Tu cuenta no tiene una sede asignada. Pedile a admin que la configure.
+      </div>
+    );
+  }
+  const selectedSede =
+    selectableSedes.find((s) => s.id === sedeParam) ?? selectableSedes[0]!;
   const fromDate = fromParam ?? todayYmd();
   const toDate = addDays(fromDate, VIEW_DAYS - 1);
 
@@ -101,9 +115,10 @@ export default async function InstructorsPage({
           id="sede"
           name="sede"
           defaultValue={selectedSede.id}
-          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1"
+          disabled={ctx.role !== "admin"}
+          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 disabled:opacity-60"
         >
-          {allSedes.map((s) => (
+          {selectableSedes.map((s) => (
             <option key={s.id} value={s.id}>
               {s.nombre}
             </option>
