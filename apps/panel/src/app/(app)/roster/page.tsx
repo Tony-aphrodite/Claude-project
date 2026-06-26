@@ -161,8 +161,19 @@ export default async function RosterPage({
           Aplica a todos los días sin override individual. Si querés que esta
           sede tenga 50 en vez de 22 todos los días, cambiá el flat. Los AM/PM/
           Nocturno/Confinadas AM/Confinadas PM overridean al flat para ese
-          turno. Confinadas AM/PM = sesiones de pileta (no barco — sirven para
-          cursos como OW Día 1 o TryScuba mañana de pool). Vacío = sin cambio.
+          turno. {selectedSede.nombre === "Koh Tao" ? (
+            <>
+              Confinadas AM/PM en <strong>Koh Tao</strong> = sesiones de aguas
+              poco profundas en una bahía (Aow Leuk u otra) DESDE EL BARCO —
+              no hay piscina física. Sirven para OW Día 1 o TryScuba mañana
+              en la bahía (Miguel 2026-06-26).
+            </>
+          ) : (
+            <>
+              Confinadas AM/PM = sesiones de pileta (no barco — sirven para
+              cursos como OW Día 1 o TryScuba mañana de pool).
+            </>
+          )} Vacío = sin cambio.
         </p>
         <div className="mb-3 text-xs text-ink-700">
           Actual efectivo →{" "}
@@ -261,8 +272,8 @@ export default async function RosterPage({
             <tr>
               <th className="pl-5">Fecha</th>
               <th>Día</th>
-              <th>Conf AM (pool)</th>
-              <th>Conf PM (pool)</th>
+              <th>Conf AM ({selectedSede.nombre === "Koh Tao" ? "bahía" : "pool"})</th>
+              <th>Conf PM ({selectedSede.nombre === "Koh Tao" ? "bahía" : "pool"})</th>
               <th>AM (7:00–12:00)</th>
               <th>PM (12:30–17:00)</th>
               <th className="pr-5">Nocturno (18:00–20:00)</th>
