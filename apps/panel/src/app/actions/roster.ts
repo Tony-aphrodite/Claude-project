@@ -19,7 +19,7 @@ import {
 } from "@dpm/db";
 import { addDays, getRequiredSlots } from "@dpm/shared";
 
-import { requireAdminContext } from "~/lib/auth-context";
+import { requireSedeWriteAccess } from "~/lib/auth-context";
 
 // Miguel rule 2026-06-07: Confinadas added as a 4th slot to track pool /
 // confined-water capacity explicitly (instructor capacity, no boat).
@@ -48,7 +48,6 @@ function isValidTurno(value: string): value is Turno {
 }
 
 export async function blockRosterSlot(formData: FormData): Promise<void> {
-  await requireAdminContext();
   const sedeId = String(formData.get("sedeId") ?? "");
   const fecha = String(formData.get("fecha") ?? "");
   const turno = String(formData.get("turno") ?? "");
@@ -56,6 +55,7 @@ export async function blockRosterSlot(formData: FormData): Promise<void> {
   if (!sedeId || !fecha || !isValidTurno(turno)) {
     throw new Error("Invalid input");
   }
+  await requireSedeWriteAccess(sedeId);
 
   const db = getDb();
   await db
@@ -86,13 +86,13 @@ export async function blockRosterSlot(formData: FormData): Promise<void> {
 }
 
 export async function unblockRosterSlot(formData: FormData): Promise<void> {
-  await requireAdminContext();
   const sedeId = String(formData.get("sedeId") ?? "");
   const fecha = String(formData.get("fecha") ?? "");
   const turno = String(formData.get("turno") ?? "");
   if (!sedeId || !fecha || !isValidTurno(turno)) {
     throw new Error("Invalid input");
   }
+  await requireSedeWriteAccess(sedeId);
 
   const db = getDb();
   await db
@@ -114,7 +114,6 @@ export async function unblockRosterSlot(formData: FormData): Promise<void> {
 }
 
 export async function setRosterCapacity(formData: FormData): Promise<void> {
-  await requireAdminContext();
   const sedeId = String(formData.get("sedeId") ?? "");
   const fecha = String(formData.get("fecha") ?? "");
   const turno = String(formData.get("turno") ?? "");
@@ -123,6 +122,7 @@ export async function setRosterCapacity(formData: FormData): Promise<void> {
   if (!sedeId || !fecha || !isValidTurno(turno) || !Number.isInteger(capacity) || capacity < 0) {
     throw new Error("Invalid input");
   }
+  await requireSedeWriteAccess(sedeId);
 
   const db = getDb();
   await db
@@ -163,9 +163,9 @@ export async function setRosterCapacity(formData: FormData): Promise<void> {
  * with the new number on that day's slot.
  */
 export async function setSedeDefaultCapacity(formData: FormData): Promise<void> {
-  await requireAdminContext();
   const sedeId = String(formData.get("sedeId") ?? "");
   if (!sedeId) throw new Error("sedeId requerido");
+  await requireSedeWriteAccess(sedeId);
 
   const parseOptionalNum = (v: FormDataEntryValue | null): number | undefined => {
     if (v === null || v === "") return undefined;
@@ -261,7 +261,6 @@ export async function setSedeDefaultCapacity(formData: FormData): Promise<void> 
  * field is only used in the fallback path.
  */
 export async function seedRosterBooking(formData: FormData): Promise<void> {
-  await requireAdminContext();
   const sedeId = String(formData.get("sedeId") ?? "");
   const fecha = String(formData.get("fecha") ?? ""); // = start_date
   const turno = String(formData.get("turno") ?? "");
@@ -276,6 +275,7 @@ export async function seedRosterBooking(formData: FormData): Promise<void> {
   if (manualSlotMode && !isValidTurno(turno)) {
     throw new Error("Invalid turno for manual slot mode");
   }
+  await requireSedeWriteAccess(sedeId);
 
   const db = getDb();
 

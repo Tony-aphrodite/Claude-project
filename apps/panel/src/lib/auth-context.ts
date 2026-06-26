@@ -120,3 +120,36 @@ export async function requireAdminContext(): Promise<UserContext> {
   }
   return ctx;
 }
+
+/**
+ * Gate a write action to either:
+ *   - admin (no scope check — admins can mutate any sede), OR
+ *   - office user whose assigned sede matches `targetSedeId`.
+ *
+ * Office users cannot mutate other sedes. Anything outside that bound
+ * throws — the caller (a Server Action) will surface it as a server
+ * error rather than 404 because Server Actions can't redirect to a 404
+ * page mid-form-submit cleanly.
+ *
+ * Miguel 2026-06-26 feedback: sede office accounts (phiphi@/nusapenida@/
+ * giliair@) couldn't change the roster of THEIR OWN sede because every
+ * write action was gated behind requireAdminContext(). They had to use
+ * Miguel's admin login, which was unsafe. This helper lifts the gate
+ * to "admin OR matching-sede office" so each sede can manage its own
+ * roster without touching the others.
+ */
+export async function requireSedeWriteAccess(
+  targetSedeId: string | null | undefined,
+): Promise<UserContext> {
+  const ctx = await requireUserContext();
+  if (ctx.role === "admin") return ctx;
+  if (!targetSedeId) {
+    throw new Error("forbidden: target sede required for office user");
+  }
+  if (ctx.sedeId !== targetSedeId) {
+    throw new Error(
+      `forbidden: office user (sede ${ctx.sedeName ?? "?"}) cannot write to a different sede`,
+    );
+  }
+  return ctx;
+}
