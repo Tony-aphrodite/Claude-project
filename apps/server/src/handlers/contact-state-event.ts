@@ -262,6 +262,36 @@ export async function handleContactStateEvent(
         return { ok: true, action: "auto_welcome_no_conv" };
       }
     }
+    // Steve 2026-06-26 — workflow ends in "Sin asignar" pattern.
+    //
+    // After the Bienvenida workflow shows the sede picker and the customer
+    // picks a sede, the workflow sets `Branch` on the contact and ends —
+    // but Miguel's current workflow does NOT assign the conversation to
+    // the per-sede AI bot. The branch above only fires on assignee events,
+    // so no event triggers our welcome path, and the customer's first
+    // message gets ghosted (they have to send a SECOND message for the AI
+    // to engage).
+    //
+    // `contact.updated` events reliably fire whenever a custom field on
+    // the contact changes — including Branch. We use that as the alternate
+    // trigger. `maybeSendWorkflowAutoWelcome` is internally idempotent
+    // (in-flight lock + existing-conv check + Branch-set check), so:
+    //   - multiple contact.updated bursts collapse to a single welcome,
+    //   - contacts whose Branch isn't set yet exit early with a log line,
+    //   - contacts that already have a conv (i.e. already greeted) exit
+    //     early too. Safe to call broadly.
+    if (event.startsWith("contact.updated") || event === "contact.updated") {
+      log.info(
+        { event, contactId },
+        "auto-welcome candidate: contact.updated event on no-conv contact (Steve 2026-06-26 — workflow leaves Sin asignar after sede pick)",
+      );
+      await maybeSendWorkflowAutoWelcome({
+        contactId,
+        newAssignee: null,
+        log,
+      });
+      return { ok: true, action: "auto_welcome_no_conv" };
+    }
     log.info(
       { event, contactId },
       "contact-state event: no conversation in DB yet — noop",

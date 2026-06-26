@@ -56,6 +56,13 @@ vi.mock("@dpm/db", async () => {
 vi.mock("../src/env.js", () => ({
   loadEnv: () => ({ RESPOND_IO_AI_ASSIGNEE_ID: 999 }),
   resolveHandoffEmail: () => "test@example.com",
+  getAiAssigneeIds: () => [999],
+  // Same shape as the real env helper: anything not in the AI list counts
+  // as a human (used by the takeover-detection code path).
+  isAiAssignee: (value: unknown) => {
+    const n = typeof value === "number" ? value : Number(value);
+    return n === 999;
+  },
 }));
 
 // Mock leadStageService so we can observe (and stub) the forceTransition
@@ -74,6 +81,32 @@ vi.mock("../src/services/lead-stage.js", () => ({
     forceTransition: (args: Parameters<typeof forceTransitionMock>[0]) =>
       forceTransitionMock(args),
   },
+}));
+
+// Mock respond-io client so the welcome path doesn't fire real HTTP. Return
+// a contact with no Branch so the welcome bails out at the "Branch not set"
+// guard — we only need to verify routing here, not the message send itself.
+const getContactMock = vi.fn(async () => ({ customFields: {} }));
+const sendMessageMock = vi.fn(async () => undefined);
+vi.mock("../src/services/respond-io.js", () => ({
+  respondIoClient: {
+    getContact: (...args: unknown[]) => getContactMock(...(args as [])),
+    sendMessage: (...args: unknown[]) => sendMessageMock(...(args as [])),
+  },
+}));
+vi.mock("../src/services/chat-contacts.js", () => ({
+  chatContactsService: {
+    upsertFromWebhook: vi.fn(async () => ({ id: "contact_id" })),
+  },
+}));
+vi.mock("../src/services/conversation.js", () => ({
+  conversationService: {
+    upsertOnInbound: vi.fn(async () => ({ id: "conv_id" })),
+  },
+}));
+vi.mock("../src/services/first-message-cache.js", () => ({
+  peekFirstMessage: vi.fn(() => null),
+  clearFirstMessage: vi.fn(),
 }));
 
 // Silent logger — the handler emits structured logs that would otherwise
@@ -498,5 +531,53 @@ describe("contact-state-event — conversation.assignee.changed", () => {
     );
     expect(forceTransitionMock).toHaveBeenCalledTimes(1);
     expect(result.action).toBe("human_takeover");
+  });
+});
+
+// ─── contact.updated → auto-welcome (Steve 2026-06-26) ─────────────────────
+//
+// When Miguel's workflow ends in "Sin asignar" after the sede pick, no
+// assignee.updated event fires, so the previous welcome trigger never
+// engaged. contact.updated reliably fires when the workflow sets Branch,
+// so we route through it as the alternate trigger.
+describe("contact-state-event — contact.updated welcome trigger", () => {
+  it("fires the auto-welcome path on contact.updated when no conversation exists", async () => {
+    setMockConversation(null);
+    getContactMock.mockClear();
+    const result = await handleContactStateEvent(
+      { contact: { id: 464223998 } },
+      "contact.updated",
+      silentLog,
+    );
+    // Auto-welcome path was taken; HTTP call to Respond.io fired so we know
+    // the welcome attempt reached at least the contact-fetch step.
+    expect(result.action).toBe("auto_welcome_no_conv");
+    expect(getContactMock).toHaveBeenCalled();
+  });
+
+  it("does NOT fire the welcome path on contact.updated when a conversation already exists", async () => {
+    setMockConversation({ id: "conv_existing", leadStage: "qualified" });
+    getContactMock.mockClear();
+    const result = await handleContactStateEvent(
+      { contact: { id: 464223998 } },
+      "contact.updated",
+      silentLog,
+    );
+    // Conv exists → falls through to "tag_event_ignored" (no tag, no
+    // lifecycle, no assignee handler matched). The welcome path is skipped.
+    expect(result.action).not.toBe("auto_welcome_no_conv");
+    expect(getContactMock).not.toHaveBeenCalled();
+  });
+
+  it("still routes contact.assignee.updated through the original path (regression guard)", async () => {
+    setMockConversation(null);
+    getContactMock.mockClear();
+    const result = await handleContactStateEvent(
+      { contact: { id: 999111 }, assignee: 7733 },
+      "contact.assignee.updated",
+      silentLog,
+    );
+    expect(result.action).toBe("auto_welcome_no_conv");
+    expect(getContactMock).toHaveBeenCalled();
   });
 });
