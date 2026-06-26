@@ -220,13 +220,16 @@ export function buildRoster(input: BuildRosterInput): BuildRosterOutput {
   const totalDivers = rawDivers.length;
   const boatUsed = totalDivers;
   // Spec §6.6 — secondary check only matters for slots that use a
-  // boat. POOL is land-based, so we skip when boatCapacity is null.
-  // For boat-using slots (AM/PM/NIGHT) with a capacity given, enforce
-  // it.
+  // boat. Pool sessions (POOL_AM / POOL_PM) are land-based at most
+  // sedes; Koh Tao runs them from a boat to a shallow bay (Miguel
+  // 2026-06-26) but never against the boat-day capacity. For
+  // boat-using slots (AM/PM/NIGHT) with a capacity given, enforce
+  // it; for either pool slot we skip the boat-capacity check.
+  const isPoolSlot = slot === "POOL_AM" || slot === "POOL_PM";
   const boatOk =
     boatCapacity === null
       ? true
-      : slot === "POOL"
+      : isPoolSlot
         ? true
         : boatUsed <= boatCapacity;
 

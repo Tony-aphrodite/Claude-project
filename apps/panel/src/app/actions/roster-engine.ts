@@ -99,7 +99,11 @@ export async function renameInstructor(formData: FormData): Promise<void> {
 
 // ─── Availability ──────────────────────────────────────────────────
 
-const ALL_SLOTS = ["AM", "PM", "POOL", "NIGHT"] as const;
+// Miguel 2026-06-26: POOL split into POOL_AM and POOL_PM so the office
+// can schedule morning vs afternoon pool sessions as separate operational
+// blocks (the legacy /roster page already separates ConfinadasAM /
+// ConfinadasPM; the engine is now aligned with that reality).
+const ALL_SLOTS = ["AM", "PM", "POOL_AM", "POOL_PM", "NIGHT"] as const;
 
 export async function setAvailability(formData: FormData): Promise<void> {
   const sedeId = String(formData.get("sede_id") ?? "");

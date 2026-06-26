@@ -27,7 +27,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const ENGINE_SLOTS = ["AM", "PM", "POOL", "NIGHT"] as const;
+// Miguel 2026-06-26: POOL → POOL_AM + POOL_PM to mirror real ops.
+const ENGINE_SLOTS = ["AM", "PM", "POOL_AM", "POOL_PM", "NIGHT"] as const;
 
 function todayYmd(): string {
   const now = new Date();

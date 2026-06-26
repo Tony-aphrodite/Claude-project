@@ -21,7 +21,7 @@ describe("programaToActivityFootprint", () => {
     expect(footprint!).toHaveLength(3);
     expect(footprint![0]).toMatchObject({
       fecha: "2026-07-15",
-      slot: "POOL",
+      slot: "POOL_AM",
       activity: "OW1",
     });
     expect(footprint![1]).toMatchObject({
@@ -45,7 +45,7 @@ describe("programaToActivityFootprint", () => {
     expect(footprint).not.toBeNull();
     expect(footprint!).toHaveLength(2);
     expect(footprint![0]).toMatchObject({
-      slot: "POOL",
+      slot: "POOL_AM",
       activity: "BD_CONFINADA",
     });
     expect(footprint![1]).toMatchObject({
@@ -63,7 +63,7 @@ describe("programaToActivityFootprint", () => {
     expect(footprint).not.toBeNull();
     expect(footprint!).toHaveLength(2);
     expect(footprint![0]).toMatchObject({
-      slot: "POOL",
+      slot: "POOL_AM",
       activity: "REF_FASE1",
     });
     expect(footprint![1]).toMatchObject({
@@ -157,7 +157,7 @@ describe("programaToActivityFootprint", () => {
     expect(footprint).not.toBeNull();
     expect(footprint!).toHaveLength(5);
     expect(footprint![0]).toMatchObject({
-      slot: "POOL",
+      slot: "POOL_AM",
       activity: "REF_FASE1",
     });
     expect(footprint![1]).toMatchObject({

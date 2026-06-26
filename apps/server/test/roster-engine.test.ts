@@ -94,7 +94,7 @@ describe("roster engine — spec §7 test cases", () => {
   // ── Case 2 ──────────────────────────────────────────────────────────────
   it("case 2 — 2 OW1 + 2 BD-confinada in POOL → 1 group (pool_inicial), ratio 4, full, 1 instructor", () => {
     const result = runSlot(
-      "POOL",
+      "POOL_AM",
       [
         makeDiver({ nombre: "A", nivel: "BEG", activity: "OW1" }),
         makeDiver({ nombre: "B", nivel: "BEG", activity: "OW1" }),
@@ -272,7 +272,7 @@ describe("roster engine — spec §7 test cases", () => {
   // a later boat slot) groups as fundive at the diver's cert depth.
   it("case 10 — REF Fernanda phase 1 in POOL + phase 2 boat → pool_inicial + fundive_18m", () => {
     const pool = runSlot(
-      "POOL",
+      "POOL_AM",
       [makeDiver({ nombre: "Fernanda", nivel: "OW", activity: "REF_FASE1" })],
       [makeInstructor("ARI")],
       null,

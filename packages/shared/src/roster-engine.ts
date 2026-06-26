@@ -14,14 +14,30 @@
 // ─── Enums ─────────────────────────────────────────────────────────────────
 
 /**
- * Time-of-day slot. Matches the AM/PM/POOL/NIGHT blocks in Miguel's
- * Google Sheet. Note: POOL is the new (2026-06-24) name for what we
- * previously called "Confinadas" — they refer to the same thing
- * (confined-water pool sessions). NIGHT is the new name for "Nocturno".
+ * Time-of-day slot. Matches the AM/PM/POOL_AM/POOL_PM/NIGHT blocks in
+ * Miguel's Google Sheet.
+ *
+ * History:
+ *   - "Confinadas" → renamed "POOL" on 2026-06-24 (engine v2.1 spec).
+ *   - "POOL" (single) → split into "POOL_AM" + "POOL_PM" on 2026-06-26
+ *     after Miguel confirmed Gili Air (and other sedes) run morning and
+ *     afternoon pool sessions as operationally separate slots — collapsing
+ *     them under one POOL was masking real schedule conflicts.
+ *
+ * Naming convention: POOL_AM and POOL_PM intentionally use underscores
+ * to stay parseable from text columns and distinguish them at a glance
+ * from the boat-slot AM / PM. NIGHT was renamed from "Nocturno" on
+ * 2026-06-24.
  */
-export type Slot = "AM" | "PM" | "POOL" | "NIGHT";
+export type Slot = "AM" | "PM" | "POOL_AM" | "POOL_PM" | "NIGHT";
 
-export const ALL_SLOTS: readonly Slot[] = ["AM", "PM", "POOL", "NIGHT"];
+export const ALL_SLOTS: readonly Slot[] = [
+  "AM",
+  "PM",
+  "POOL_AM",
+  "POOL_PM",
+  "NIGHT",
+];
 
 /**
  * Diver's certification level. Determines the depth ceiling that an

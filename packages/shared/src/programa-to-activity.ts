@@ -25,14 +25,25 @@ import { addDays, getRequiredSlots } from "./program-schedule.js";
  * Map the legacy Slot enum used by program-schedule.ts to the new
  * roster engine's Slot enum.
  *
- *   Confinadas → POOL
+ *   Confinadas → POOL_AM (default — see note below)
  *   Nocturno   → NIGHT
  *   AM / PM    → identical
+ *
+ * Note on Confinadas → POOL_AM default (Miguel 2026-06-26):
+ * The legacy `program-schedule.ts` uses a single "Confinadas" slot per
+ * program day. The new engine split POOL into POOL_AM and POOL_PM
+ * because pool sessions actually run as two separate operational
+ * blocks. We default to POOL_AM here because the morning pool session
+ * is the canonical one for OW/Try Scuba/Refresh first-day pool
+ * training (matches the 9 AM / 12:30 PM rhythm in Miguel's schedule).
+ * The office can manually move a diver to POOL_PM via the walk-in
+ * form or by editing the row directly if the actual class runs in
+ * the afternoon.
  */
 function legacySlotToEngineSlot(legacy: "AM" | "PM" | "Confinadas" | "Nocturno"): Slot {
   switch (legacy) {
     case "Confinadas":
-      return "POOL";
+      return "POOL_AM";
     case "Nocturno":
       return "NIGHT";
     case "AM":

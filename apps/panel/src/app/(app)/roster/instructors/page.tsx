@@ -35,7 +35,8 @@ export const dynamic = "force-dynamic";
 // Default to ~1 month so Miguel's "todo el mes" bulk fill is a single
 // click. Horizontal scroll handles the wider table.
 const VIEW_DAYS = 30;
-const SLOTS_ALL = ["AM", "PM", "POOL", "NIGHT"] as const;
+// Miguel 2026-06-26: POOL → POOL_AM + POOL_PM (5 toggles per day).
+const SLOTS_ALL = ["AM", "PM", "POOL_AM", "POOL_PM", "NIGHT"] as const;
 
 function todayYmd(): string {
   const now = new Date();

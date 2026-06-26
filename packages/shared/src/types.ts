@@ -792,7 +792,7 @@ export type ValidarCupoGrupoResult =
       /** Days the program occupies, in chronological order. */
       days: Array<{
         fecha: string;
-        slot: "AM" | "PM" | "POOL" | "NIGHT";
+        slot: "AM" | "PM" | "POOL_AM" | "POOL_PM" | "NIGHT";
         activity: string;
       }>;
     }
@@ -805,7 +805,7 @@ export type ValidarCupoGrupoResult =
         | "mixed_failures";
       failing_days: Array<{
         fecha: string;
-        slot: "AM" | "PM" | "POOL" | "NIGHT";
+        slot: "AM" | "PM" | "POOL_AM" | "POOL_PM" | "NIGHT";
         activity: string;
         reason: "no_instructor" | "no_boat_capacity";
       }>;
