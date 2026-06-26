@@ -132,6 +132,43 @@ const NAV: NavItem[] = [
       </svg>
     ),
   },
+  // Roster engine v2.1 (Miguel 2026-06-24) panel UI — phased rollout.
+  // Both pages are visible to admin AND office (office is scoped to
+  // their assigned sede by the page-level filter). Linking them here
+  // so they show up under "Operación" alongside the legacy /roster.
+  {
+    href: "/roster/instructors",
+    label: "Instructores",
+    group: "live",
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+        <circle cx="10" cy="6.5" r="2.8" stroke="currentColor" strokeWidth="1.6" />
+        <path
+          d="M3.5 17.5c.7-3 3.2-5 6.5-5s5.8 2 6.5 5"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+        />
+        <path d="M14.5 5.5l1.5-1.5M15 9h2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    href: "/roster/engine",
+    label: "Roster (engine)",
+    group: "live",
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" className="h-4 w-4">
+        <rect x="2.5" y="3.5" width="15" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.6" />
+        <path d="M2.5 7.5h15M7 3.5v13M12.5 3.5v13" stroke="currentColor" strokeWidth="1.4" />
+        <circle cx="4.75" cy="10" r="0.8" fill="currentColor" />
+        <circle cx="9.75" cy="10" r="0.8" fill="currentColor" />
+        <circle cx="14.75" cy="10" r="0.8" fill="currentColor" />
+        <circle cx="4.75" cy="13" r="0.8" fill="currentColor" />
+        <circle cx="9.75" cy="13" r="0.8" fill="currentColor" />
+      </svg>
+    ),
+  },
   {
     href: "/prompts",
     label: "Prompts",
