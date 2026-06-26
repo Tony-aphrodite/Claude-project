@@ -163,6 +163,107 @@ export async function setAvailability(formData: FormData): Promise<void> {
   revalidatePath("/roster/engine");
 }
 
+/**
+ * Bulk-fill availability for ONE instructor over N consecutive days
+ * (Miguel 2026-06-26 — per-day-per-slot clicking is 14 × 4 = 56 clicks
+ * per instructor, "es una locura"). One form post replaces all that.
+ *
+ * Behaviour:
+ *   - slots[] non-empty → upsert (instructor × date) with the requested
+ *     slot list for every date in the range. Existing rows in range are
+ *     overwritten (we want a clean "set the whole period" semantic).
+ *   - slots[] empty     → DELETE every (instructor × date) row in the
+ *     range. The "Limpiar" button.
+ *
+ * Range: fromDate (inclusive) + days entries.
+ */
+export async function setAvailabilityBulk(formData: FormData): Promise<void> {
+  const sedeId = String(formData.get("sede_id") ?? "");
+  const instructorId = String(formData.get("instructor_id") ?? "");
+  const fromDate = String(formData.get("from_date") ?? "");
+  const days = Number(formData.get("days") ?? 0);
+  const slotsRaw = formData.getAll("slots").map((v) => String(v));
+  const slots = slotsRaw.filter((s) =>
+    (ALL_SLOTS as readonly string[]).includes(s),
+  );
+  if (
+    !sedeId ||
+    !instructorId ||
+    !fromDate ||
+    !Number.isFinite(days) ||
+    days < 1 ||
+    days > 90
+  ) {
+    throw new Error("invalid input");
+  }
+  await requireSedeWriteAccess(sedeId);
+
+  // Compute the date list in UTC to mirror what addDays() does in the
+  // page component. Postgres `date` columns ignore TZ but we keep the
+  // strings YYYY-MM-DD canonical.
+  const [yy, mm, dd] = fromDate.split("-").map(Number);
+  if (!yy || !mm || !dd) throw new Error("invalid from_date");
+  const start = new Date(Date.UTC(yy, mm - 1, dd));
+  const dates: string[] = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(start);
+    d.setUTCDate(d.getUTCDate() + i);
+    dates.push(
+      `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
+        d.getUTCDate(),
+      ).padStart(2, "0")}`,
+    );
+  }
+
+  const db = getDb();
+  if (slots.length === 0) {
+    // "Limpiar" — remove every row for this instructor in the range.
+    for (const fecha of dates) {
+      await db
+        .delete(instructorAvailability)
+        .where(
+          and(
+            eq(instructorAvailability.sedeId, sedeId),
+            eq(instructorAvailability.fecha, fecha),
+            eq(instructorAvailability.instructorId, instructorId),
+          ),
+        );
+    }
+  } else {
+    // Upsert via the unique index (sede_id, fecha, instructor_id).
+    // Done sequentially to keep the DB load predictable; 30 rows is fine.
+    for (const fecha of dates) {
+      const updated = await db
+        .update(instructorAvailability)
+        .set({
+          slots,
+          source: "manual",
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(instructorAvailability.sedeId, sedeId),
+            eq(instructorAvailability.fecha, fecha),
+            eq(instructorAvailability.instructorId, instructorId),
+          ),
+        )
+        .returning({ id: instructorAvailability.id });
+      if (updated.length === 0) {
+        await db.insert(instructorAvailability).values({
+          sedeId,
+          fecha,
+          instructorId,
+          slots,
+          source: "manual",
+        });
+      }
+    }
+  }
+
+  revalidatePath("/roster/instructors");
+  revalidatePath("/roster/engine");
+}
+
 // ─── Walk-in diver entry ───────────────────────────────────────────
 
 const ALL_ACTIVITIES = [

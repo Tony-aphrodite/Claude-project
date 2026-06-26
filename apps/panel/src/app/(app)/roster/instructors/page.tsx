@@ -18,8 +18,9 @@
 import {
   createInstructor,
   renameInstructor,
-  setInstructorActive,
   setAvailability,
+  setAvailabilityBulk,
+  setInstructorActive,
 } from "~/app/actions/roster-engine";
 import { PageHeader } from "~/app/_components/page-header";
 import { requireUserContext } from "~/lib/auth-context";
@@ -31,7 +32,9 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const VIEW_DAYS = 14;
+// Default to ~1 month so Miguel's "todo el mes" bulk fill is a single
+// click. Horizontal scroll handles the wider table.
+const VIEW_DAYS = 30;
 const SLOTS_ALL = ["AM", "PM", "POOL", "NIGHT"] as const;
 
 function todayYmd(): string {
@@ -264,13 +267,18 @@ export default async function InstructorsPage({
         <p className="mb-3 text-xs text-ink-600">
           Marcá los slots que cubre cada instructor por día. Vacío = no
           disponible ese día. La AI usa esta tabla para decidir cuánta venta
-          puede armar.
+          puede armar. <strong>Tip (Miguel 2026-06-26):</strong> usá la fila
+          de la izquierda de cada instructor para marcar todos los {VIEW_DAYS}{" "}
+          días con los slots elegidos de un solo click.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-ink-200/70 text-left text-ink-500">
                 <th className="py-2 pr-3">Instructor</th>
+                <th className="py-2 pr-3 text-ink-500">
+                  Marcar {VIEW_DAYS} días
+                </th>
                 {dateList.map((d) => (
                   <th
                     key={d}
@@ -289,7 +297,87 @@ export default async function InstructorsPage({
                     matrix.get(inst.id) ?? new Map<string, string[]>();
                   return (
                     <tr key={inst.id} className="border-b border-ink-200/30">
-                      <td className="py-2 pr-3 text-ink-900">{inst.nombre}</td>
+                      <td className="py-2 pr-3 align-top text-ink-900">
+                        {inst.nombre}
+                      </td>
+                      {/* Bulk-fill: pick slots, apply to all VIEW_DAYS at
+                          once. Second form (no slots) clears the range. */}
+                      <td className="py-2 pr-3 align-top">
+                        <form
+                          action={setAvailabilityBulk}
+                          className="flex flex-col items-stretch gap-1"
+                        >
+                          <input
+                            type="hidden"
+                            name="sede_id"
+                            value={selectedSede.id}
+                          />
+                          <input
+                            type="hidden"
+                            name="instructor_id"
+                            value={inst.id}
+                          />
+                          <input
+                            type="hidden"
+                            name="from_date"
+                            value={fromDate}
+                          />
+                          <input type="hidden" name="days" value={VIEW_DAYS} />
+                          <div className="flex flex-col gap-0.5">
+                            {SLOTS_ALL.map((s) => (
+                              <label
+                                key={s}
+                                className="flex items-center gap-1"
+                              >
+                                <input
+                                  type="checkbox"
+                                  name="slots"
+                                  value={s}
+                                  defaultChecked={s === "AM" || s === "PM"}
+                                  className="h-3 w-3 accent-brand-400"
+                                />
+                                <span className="text-[10px] text-ink-600">
+                                  {s}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                          <button
+                            type="submit"
+                            className="rounded bg-brand-500/15 px-2 py-0.5 text-[10px] font-medium text-brand-300 ring-1 ring-inset ring-brand-400/30 hover:bg-brand-500/30"
+                          >
+                            Marcar todo
+                          </button>
+                        </form>
+                        <form
+                          action={setAvailabilityBulk}
+                          className="mt-1"
+                        >
+                          <input
+                            type="hidden"
+                            name="sede_id"
+                            value={selectedSede.id}
+                          />
+                          <input
+                            type="hidden"
+                            name="instructor_id"
+                            value={inst.id}
+                          />
+                          <input
+                            type="hidden"
+                            name="from_date"
+                            value={fromDate}
+                          />
+                          <input type="hidden" name="days" value={VIEW_DAYS} />
+                          {/* No `slots` inputs → server treats as clear */}
+                          <button
+                            type="submit"
+                            className="w-full rounded bg-ink-200/60 px-2 py-0.5 text-[10px] text-ink-700 hover:bg-bad-500/20 hover:text-bad-700"
+                          >
+                            Limpiar todo
+                          </button>
+                        </form>
+                      </td>
                       {dateList.map((fecha) => {
                         const current = byDate.get(fecha) ?? [];
                         return (
