@@ -334,7 +334,7 @@ describe("contact-state-event — lifecycle.updated", () => {
 });
 
 describe("contact-state-event — guard rails", () => {
-  it("returns no_conversation when DB has no row for this contact", async () => {
+  it("routes ANY no-conv contact-state event through the welcome path (Steve 2026-06-26 broad trigger)", async () => {
     setMockConversation(null);
     const result = await handleContactStateEvent(
       {
@@ -345,8 +345,12 @@ describe("contact-state-event — guard rails", () => {
       "contact.tag.updated",
       silentLog,
     );
+    // No rollback should fire — there's no conversation to rollback.
     expect(forceTransitionMock).not.toHaveBeenCalled();
-    expect(result.action).toBe("no_conversation");
+    // Welcome path is attempted; getContact is called. The actual welcome
+    // send only fires when Branch is set on the contact (verified inside
+    // maybeSendWorkflowAutoWelcome).
+    expect(result.action).toBe("auto_welcome_no_conv");
   });
 
   it("noops when contactId is missing entirely", async () => {
