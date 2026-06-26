@@ -24,7 +24,9 @@ import {
   instructorAvailability,
   instructors as instructorsTable,
   rosterDivers,
+  sedes,
 } from "@dpm/db";
+import { generateRefCode, isValidRefCode } from "@dpm/shared";
 
 import { requireSedeWriteAccess } from "~/lib/auth-context";
 
@@ -330,9 +332,11 @@ export async function createWalkInDiver(formData: FormData): Promise<void> {
   const nivel = String(formData.get("nivel_certificacion") ?? "");
   const activity = String(formData.get("activity") ?? "");
   const activityDetail = String(formData.get("activity_detail") ?? "").trim() || null;
-  const codigoBuceador =
-    String(formData.get("codigo_buceador") ?? "").trim() ||
-    `MANUAL-${Date.now().toString(36).toUpperCase()}`;
+  // Miguel 2026-06-26: reference code — must be canonical DPM-... shape
+  // so it's interchangeable with the AI's codes when the SSI registration
+  // system goes live. Empty form field → mint a fresh code in the sede's
+  // local timezone using the same generator the AI uses.
+  const codigoOverride = String(formData.get("codigo_buceador") ?? "").trim();
   const acceptsCap = String(formData.get("accepts_cap") ?? "") === "true";
   const notes = String(formData.get("notes") ?? "").trim() || null;
 
@@ -356,8 +360,24 @@ export async function createWalkInDiver(formData: FormData): Promise<void> {
   if (!(ALL_ACTIVITIES as readonly string[]).includes(activity)) {
     throw new Error(`invalid activity: ${activity}`);
   }
+  if (codigoOverride !== "" && !isValidRefCode(codigoOverride)) {
+    throw new Error(
+      "Código inválido. Debe tener la forma DPM-<SEDE>-MMDD-XXXXXX " +
+        "(igual al que genera la AI). Dejá el campo vacío para auto-generar.",
+    );
+  }
 
   const db = getDb();
+
+  // Look up sede name so we can use the right prefix + timezone when
+  // minting the ref code. requireSedeWriteAccess() already proved the
+  // user can write to this sede, so the lookup is safe.
+  const [sedeRow] = await db
+    .select({ nombre: sedes.nombre })
+    .from(sedes)
+    .where(eq(sedes.id, sedeId))
+    .limit(1);
+  if (!sedeRow) throw new Error("sede not found");
 
   // If office picked a specific instructor, validate they exist + belong
   // to this sede. Foreign-key would catch it but the error would be
@@ -373,6 +393,9 @@ export async function createWalkInDiver(formData: FormData): Promise<void> {
       throw new Error("instructor belongs to a different sede");
     }
   }
+
+  const codigoBuceador =
+    codigoOverride !== "" ? codigoOverride : generateRefCode(sedeRow.nombre);
 
   await db.insert(rosterDivers).values({
     sedeId,

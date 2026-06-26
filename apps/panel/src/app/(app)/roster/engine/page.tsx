@@ -363,14 +363,18 @@ export default async function EnginePage({
           </div>
           <div>
             <label className="mb-1 block text-ink-700" htmlFor="walkin-codigo">
-              Código (opcional)
+              Código (auto si vacío)
             </label>
             <input
               id="walkin-codigo"
               name="codigo_buceador"
-              placeholder="DPM-XX-… o se genera automático"
+              placeholder="DPM-XX-MMDD-XXXXXX o vacío"
               className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900 placeholder:text-ink-500"
             />
+            <p className="mt-1 text-[10px] leading-tight text-ink-500">
+              Mismo formato que la AI — el buceador lo usa para acceder al
+              registro online cuando esté listo.
+            </p>
           </div>
           <div className="flex items-end">
             <label className="flex items-center gap-2 text-ink-700">
