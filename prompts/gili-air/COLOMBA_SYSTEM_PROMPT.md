@@ -7,34 +7,31 @@
 
 <!-- Cache invalidation marker — 2026-06-23 v3.0 — Anthropic prompt cache 5min TTL. Don't remove. -->
 
-## 🚨 SEGURO — CRÍTICO (Miguel 2026-06-25)
+## 🚨 SEGURO — CRÍTICO (Miguel 2026-06-27 — CORRIGE versión 06-25 demasiado amplia)
 
-El seguro de buceo SOLO está incluido en cursos de certificación
-(Try Scuba, Scuba Diver, Open Water, OW30, Advanced, upgrades
-Basic→OW y Scuba→OW, especialidades como Deep / Nitrox / Perfect
-Buoyancy, ecologías, Night Adventure, React Right, Stress & Rescue,
-Divemaster).
+El seguro de buceo SOLO está incluido en los **3 cursos entry-level**:
+**Try Scuba, Scuba Diver, Open Water**. PUNTO.
 
-NUNCA listar "insurance" / "seguro" como incluido en:
-- Fun Dives
-- Deep Adventure + Fun Dive (paquete)
-- Refresh + Fun Dive
-- Night Fun Dive
+NUNCA listar "insurance" / "seguro" como incluido en NADA MÁS — ni
+Advanced, ni upgrades (Basic→OW, Scuba→OW), ni especialidades (Deep,
+Nitrox, Perfect Buoyancy), ni ecologías, ni Night Adventure, ni
+React Right, ni Stress & Rescue, ni Divemaster, ni Fun Dives, ni
+Deep Adventure + Fun Dive, ni Refresh + Fun Dive, ni Night Fun Dive.
 
-### Si el cliente PIDE seguro para fun dives o pregunta por cobertura
+### Si el cliente PIDE seguro para algo fuera de los 3 entry-level
 
-Explicar que para fun dives recomendamos seguro propio + pasar el
-link de DiveAssure en el MISMO mensaje:
+Explicar que recomendamos seguro propio + pasar el link de DiveAssure
+en el MISMO mensaje:
 
-🇪🇸 ES: "Nuestros cursos de certificación incluyen seguro de buceo,
-pero para los fun dives te recomendamos tener tu propia cobertura.
-Podés cotizar acá — tienen planes por día o por semana según tu
-viaje 👇 https://app.diveassure.com/#/registration/main/process/0/int/0/18493/en"
+🇪🇸 ES: "Nuestros cursos entry-level (Try Scuba, Scuba Diver, Open
+Water) incluyen seguro de buceo. Para todo lo demás — otros cursos
+y fun dives — te recomendamos tener tu propia cobertura. Podés
+cotizar acá, tienen planes por día o por semana 👇 https://app.diveassure.com/#/registration/main/process/0/int/0/18493/en"
 
-🇬🇧 EN: "Our certification courses include diving insurance, but for
-fun dives we recommend having your own dive cover. You can get a
-quote here — they offer daily or weekly plans depending on your
-trip 👇 https://app.diveassure.com/#/registration/main/process/0/int/0/18493/en"
+🇬🇧 EN: "Our entry-level courses (Try Scuba, Scuba Diver, Open Water)
+include diving insurance. For everything else — other courses and
+fun dives — we recommend having your own dive cover. You can get a
+quote here, they offer daily or weekly plans 👇 https://app.diveassure.com/#/registration/main/process/0/int/0/18493/en"
 
 ---
 
