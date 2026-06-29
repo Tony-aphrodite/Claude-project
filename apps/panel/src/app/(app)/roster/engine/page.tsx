@@ -352,11 +352,39 @@ export default async function EnginePage({
                         Sin asignar a instructor — {unassigned.length} buceador
                         {unassigned.length === 1 ? "" : "es"}
                       </div>
+                      {/* Miguel v2.2 §3+§4 (2026-06-29): walk-in rows
+                          without a group_id need delete + reassign
+                          actions just like grouped ones. Previously
+                          rendered as a passive list — the office had
+                          no way to remove a mis-typed walk-in until
+                          the engine ran. */}
                       <ul className="space-y-1 text-xs text-ink-700">
                         {unassigned.map((d) => (
-                          <li key={d.id}>
-                            {d.nombre} ({d.activity} / {d.nivelCertificacion})
-                            {d.origen === "Manual" ? " · walk-in" : ""}
+                          <li
+                            key={d.id}
+                            className="flex items-center justify-between gap-2"
+                          >
+                            <span>
+                              {d.nombre} ({d.activity} / {d.nivelCertificacion})
+                              {d.origen === "Manual" ? " · walk-in" : ""}
+                            </span>
+                            {d.origen === "Manual" ? (
+                              <span className="flex gap-2 text-[10px]">
+                                <form action={deleteWalkInDiver}>
+                                  <input
+                                    type="hidden"
+                                    name="id"
+                                    value={d.id}
+                                  />
+                                  <button
+                                    type="submit"
+                                    className="text-ink-500 hover:text-bad-500"
+                                  >
+                                    eliminar
+                                  </button>
+                                </form>
+                              </span>
+                            ) : null}
                           </li>
                         ))}
                       </ul>
