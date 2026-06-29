@@ -20,6 +20,7 @@ import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
 import {
+  computeReservedCapacityBySlot,
   getDb,
   instructorAvailability,
   instructors as instructorsTable,
@@ -27,6 +28,40 @@ import {
   sedes,
 } from "@dpm/db";
 import { generateRefCode, isValidRefCode } from "@dpm/shared";
+
+// Per-sede boat capacity (Miguel 2026-06-23 sheet audit). Walk-in CRUD
+// uses this as the consolidated ceiling — same number the AI side falls
+// back to when no `roster_capacity_overrides` row exists. POOL slots
+// don't share a boat so they're not constrained by these caps (set to
+// Infinity → never blocks). Per-sede overrides via the
+// `roster_capacity_overrides` table win when they exist; this is the
+// floor / default.
+const SEDE_BOAT_CAPACITY: Record<string, number> = {
+  "Koh Tao": 35,
+  "Koh Phi Phi": 22,
+  "Nusa Penida": 18,
+  "Gili Trawangan": 20,
+  "Gili Air": 20,
+};
+
+function defaultBoatCapacity(sedeNombre: string): number {
+  return SEDE_BOAT_CAPACITY[sedeNombre] ?? 22;
+}
+
+/**
+ * Default-capacity check for a walk-in slot. Pool slots (POOL_AM / POOL_PM)
+ * skip the check because pool capacity is instructor-driven, not
+ * boat-seat-driven — Miguel handles the pool ceiling operationally and
+ * the panel form already prevents nonsense entries. AM/PM/NIGHT all
+ * compare against the sede's boat capacity.
+ *
+ * Returns true if `reserved + 1` (the about-to-insert walk-in) would
+ * still fit.
+ */
+function walkInWouldFit(slot: string, sedeNombre: string, reserved: number): boolean {
+  if (slot === "POOL_AM" || slot === "POOL_PM") return true;
+  return reserved + 1 <= defaultBoatCapacity(sedeNombre);
+}
 
 import { requireSedeWriteAccess } from "~/lib/auth-context";
 
@@ -397,22 +432,53 @@ export async function createWalkInDiver(formData: FormData): Promise<void> {
   const codigoBuceador =
     codigoOverride !== "" ? codigoOverride : generateRefCode(sedeRow.nombre);
 
-  await db.insert(rosterDivers).values({
-    sedeId,
-    fecha,
-    slot,
-    codigoBuceador,
-    nombre,
-    nivelCertificacion: nivel,
-    activity,
-    activityDetail,
-    perfilProfundidad: defaultDepthForActivity(activity, nivel),
-    acceptsCap,
-    origen: "Manual",
-    estadoPago: "pending",
-    instructorId,
-    notes,
-  });
+  // Miguel v2.2 addendum §7 (2026-06-27) — atomic claim. The insert
+  // runs inside a SERIALIZABLE transaction with a consolidated capacity
+  // check across BOTH `roster_bookings` (AI) and `roster_divers`
+  // (walk-in). Two concurrent walk-in creates, or a walk-in racing an
+  // AI hold, will see the same `reserved` snapshot; Postgres serialises
+  // the conflict and the second commit gets a serialization error.
+  //
+  // POOL slots are excluded from the boat ceiling (handled inside
+  // `walkInWouldFit`) because pool capacity is instructor-driven, not
+  // a boat seat. AM/PM/NIGHT all share the sede's boat seat pool.
+  await db.transaction(
+    async (tx) => {
+      const cap = await computeReservedCapacityBySlot(tx, {
+        sedeId,
+        fecha,
+        slot,
+        bookingsTableName: "roster_bookings",
+      });
+      if (!walkInWouldFit(slot, sedeRow.nombre, cap.total)) {
+        const ceiling = defaultBoatCapacity(sedeRow.nombre);
+        throw new Error(
+          `No hay capacidad en ${slot} de ${fecha}. ` +
+            `Ocupado: ${cap.total}/${ceiling} ` +
+            `(AI ${cap.aiReserved} + walk-in ${cap.walkInReserved}). ` +
+            `Si Miguel autorizó un overbook, ajustá el override en /roster ` +
+            `antes de cargar.`,
+        );
+      }
+      await tx.insert(rosterDivers).values({
+        sedeId,
+        fecha,
+        slot,
+        codigoBuceador,
+        nombre,
+        nivelCertificacion: nivel,
+        activity,
+        activityDetail,
+        perfilProfundidad: defaultDepthForActivity(activity, nivel),
+        acceptsCap,
+        origen: "Manual",
+        estadoPago: "pending",
+        instructorId,
+        notes,
+      });
+    },
+    { isolationLevel: "serializable" },
+  );
 
   revalidatePath("/roster/engine");
 }
@@ -499,10 +565,65 @@ export async function updateWalkInDiver(formData: FormData): Promise<void> {
   if (Object.keys(patch).length === 0) return; // nothing to update
 
   patch.updatedAt = new Date();
-  await db
-    .update(rosterDivers)
-    .set(patch)
-    .where(and(eq(rosterDivers.id, id), eq(rosterDivers.origen, "Manual")));
+
+  // Miguel v2.2 addendum §7 (2026-06-27) — atomic claim. If the slot is
+  // changing, the move is a CLAIM on the destination slot (frees old,
+  // takes new) — wrap in SERIALIZABLE with a consolidated check on the
+  // destination, same as `createWalkInDiver`. Non-slot changes
+  // (instructor, activity, notes) don't shift capacity so they take
+  // the cheap path.
+  if (patch.slot !== undefined && patch.slot !== row.currentSlot) {
+    const destSlot = patch.slot;
+    // Look up sede name for the boat-capacity ceiling. We already
+    // proved write access on the diver's sede above; this is just a
+    // label lookup.
+    const [sedeRow] = await db
+      .select({ nombre: sedes.nombre })
+      .from(sedes)
+      .where(eq(sedes.id, row.sedeId))
+      .limit(1);
+    if (!sedeRow) throw new Error("sede not found");
+    // Pull the diver's fecha so we know which day's slot to check.
+    const [fechaRow] = await db
+      .select({ fecha: rosterDivers.fecha })
+      .from(rosterDivers)
+      .where(eq(rosterDivers.id, id))
+      .limit(1);
+    if (!fechaRow) throw new Error("diver row vanished mid-edit");
+    const fecha = fechaRow.fecha;
+
+    await db.transaction(
+      async (tx) => {
+        const cap = await computeReservedCapacityBySlot(tx, {
+          sedeId: row.sedeId,
+          fecha,
+          slot: destSlot,
+          bookingsTableName: "roster_bookings",
+        });
+        // We're moving FROM currentSlot to destSlot — if the source
+        // slot matches the destination (shouldn't, we guarded above),
+        // we'd double-count. Safe because the slot really did change.
+        if (!walkInWouldFit(destSlot, sedeRow.nombre, cap.total)) {
+          const ceiling = defaultBoatCapacity(sedeRow.nombre);
+          throw new Error(
+            `No hay capacidad para mover a ${destSlot} en ${fecha}. ` +
+              `Ocupado: ${cap.total}/${ceiling} ` +
+              `(AI ${cap.aiReserved} + walk-in ${cap.walkInReserved}).`,
+          );
+        }
+        await tx
+          .update(rosterDivers)
+          .set(patch)
+          .where(and(eq(rosterDivers.id, id), eq(rosterDivers.origen, "Manual")));
+      },
+      { isolationLevel: "serializable" },
+    );
+  } else {
+    await db
+      .update(rosterDivers)
+      .set(patch)
+      .where(and(eq(rosterDivers.id, id), eq(rosterDivers.origen, "Manual")));
+  }
 
   revalidatePath("/roster/engine");
 }

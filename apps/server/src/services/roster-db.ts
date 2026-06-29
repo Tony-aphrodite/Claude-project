@@ -37,6 +37,7 @@
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 
 import {
+  computeReservedCapacity,
   conversaciones,
   getDb,
   rosterBookings,
@@ -346,15 +347,17 @@ export class RosterDbService {
           };
         }
 
-        const [reservedRow] = (await tx.execute(sql`
-          SELECT COALESCE(SUM(${tbl.pax}), 0)::int AS reserved
-            FROM ${tbl}
-           WHERE ${tbl.sedeId} = ${input.sedeId}
-             AND ${tbl.fecha} = ${input.fecha}
-             AND ${tbl.turno} = ${input.turno}
-             AND ${tbl.status} IN ('pending', 'confirmed')
-        `)) as unknown as Array<{ reserved: number }>;
-        const reserved = Number(reservedRow?.reserved ?? 0);
+        // Miguel v2.2 addendum §7 (2026-06-27) — consolidated capacity
+        // SUM (see holdPendingBookings for the why).
+        const cap = await computeReservedCapacity(tx, {
+          sedeId: input.sedeId,
+          fecha: input.fecha,
+          turno: input.turno,
+          bookingsTableName: scope?.sandbox
+            ? "roster_bookings_sandbox"
+            : "roster_bookings",
+        });
+        const reserved = cap.total;
         const available = Math.max(0, capacity - reserved);
 
         if (available < input.pax) {
@@ -590,15 +593,22 @@ export class RosterDbService {
               failingSlot: { fecha: s.fecha, turno: s.turno, available: 0, pax: s.pax },
             };
           }
-          const [reservedRow] = (await tx.execute(sql`
-            SELECT COALESCE(SUM(${tbl.pax}), 0)::int AS reserved
-              FROM ${tbl}
-             WHERE ${tbl.sedeId} = ${input.sedeId}
-               AND ${tbl.fecha} = ${s.fecha}
-               AND ${tbl.turno} = ${s.turno}
-               AND ${tbl.status} IN ('pending', 'confirmed')
-          `)) as unknown as Array<{ reserved: number }>;
-          const reserved = Number(reservedRow?.reserved ?? 0);
+          // Miguel v2.2 addendum §7 (2026-06-27) — consolidated capacity
+          // SUM. Two tables consume the same seats: roster_bookings (AI)
+          // and roster_divers (walk-in). Counting only roster_bookings
+          // (the pre-§7 behaviour) let walk-ins silently exceed capacity
+          // because the AI never saw them. We now SUM both inside the
+          // same SERIALIZABLE txn so concurrent claims compete on the
+          // same total. See `reference/2026-06-29-atomic-claim-roster-audit.md`.
+          const cap = await computeReservedCapacity(tx, {
+            sedeId: input.sedeId,
+            fecha: s.fecha,
+            turno: s.turno,
+            bookingsTableName: scope?.sandbox
+              ? "roster_bookings_sandbox"
+              : "roster_bookings",
+          });
+          const reserved = cap.total;
           const available = Math.max(0, capacity - reserved);
           if (available < s.pax) {
             return {
