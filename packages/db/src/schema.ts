@@ -688,6 +688,14 @@ export const instructors = pgTable(
     // language-driven group reassignment (spec §6.3 — "language swap").
     // Engine itself is language-blind; assignment is round-robin first.
     languages: text("languages").array(),
+    // Miguel v2.2 addendum §1 (2026-06-27): role distinction.
+    //   'instructor' — full instructor, can lead courses (BD/OW/AOW/SP/RES)
+    //                  AND fun dives. Default for backward compat.
+    //   'divemaster' — DM, can ONLY guide fun dives (FD, REF phase 2).
+    //                  Matching engine rejects courses gated to DMs.
+    // Stored as text so adding 'assistant_instructor' or similar later
+    // doesn't need a migration.
+    role: text("role").notNull().default("instructor"),
     // Soft delete — false = no longer with DPM, never auto-assigned. Kept
     // for historical bookings that reference this instructor.
     active: boolean("active").notNull().default(true),
@@ -704,6 +712,9 @@ export const instructors = pgTable(
       t.nombre,
     ),
     sedeActiveIdx: index("instructors_sede_active_idx").on(t.sedeId, t.active),
+    // Matching engine query: "give me every instructor of role X
+    // available at sede Y" — used by the DM-first packing in §1.
+    sedeRoleIdx: index("instructors_sede_role_idx").on(t.sedeId, t.role),
   }),
 );
 
@@ -797,6 +808,11 @@ export const rosterDivers = pgTable(
     // 1-based position within the group — matches the Sheet's "Ratio" column.
     groupOrder: integer("group_order"),
     notes: text("notes"),
+    // Miguel v2.2 addendum §3 (2026-06-27): soft delete. A walk-in that
+    // gets removed leaves the row in place with deletedAt stamped, so
+    // capacity recomputes ignore it but the row stays auditable. Every
+    // availability / motor query MUST filter `deletedAt IS NULL`.
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -814,6 +830,59 @@ export const rosterDivers = pgTable(
     // Instructor's daily load: "how many divers is ARI carrying today?".
     instructorFechaIdx: index("roster_divers_instructor_fecha_idx").on(
       t.instructorId,
+      t.fecha,
+    ),
+    // Live-set scan (Miguel v2.2 §3) — the partial index in 0006 covers
+    // `WHERE deleted_at IS NULL`. Listed here for completeness; Drizzle's
+    // schema doesn't model partial indexes, so it lives in the SQL.
+  }),
+);
+
+// ── roster_audit_log ────────────────────────────────────────────────────
+// Miguel v2.2 addendum §3 + §6 (2026-06-27). Every panel mutation that
+// touches a diver, an instructor's assignment, or a group leaves an audit
+// row here. Append-only — never UPDATE or DELETE through the app. The
+// table also doubles as the substrate for §6 "every action re-runs motor
+// validation" by recording the validation result alongside the action.
+export const rosterAuditLog = pgTable(
+  "roster_audit_log",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    sedeId: uuid("sede_id")
+      .notNull()
+      .references(() => sedes.id, { onDelete: "cascade" }),
+    // Action codes (TS enum-compatible — keep the source of truth here):
+    //   create_walk_in / update_walk_in / delete_walk_in
+    //   reassign_instructor_this_day / reassign_instructor_all_program
+    //   instructor_swap_group_leader
+    //   revalidate_motor
+    action: text("action").notNull(),
+    // Subject diver (nullable — instructor-swap on a whole group lists
+    // the diver ids inside `payload` instead of pinning to one row).
+    diverId: uuid("diver_id").references(() => rosterDivers.id, {
+      onDelete: "set null",
+    }),
+    fecha: text("fecha"),
+    slot: text("slot"),
+    actorUserId: uuid("actor_user_id"),
+    actorLabel: text("actor_label"),
+    // Free-form snapshot:
+    //   create — { row: {...} }
+    //   update — { before: {...}, after: {...}, fields: [...] }
+    //   delete — { row: {...} }
+    //   reassign — { fromInstructor, toInstructor, days: [...] }
+    //   revalidate_motor — { ok: bool, failingSlots?: [...] }
+    payload: jsonb("payload").notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    sedeCreatedIdx: index("roster_audit_log_sede_created_idx").on(
+      t.sedeId,
+      t.createdAt,
+    ),
+    diverIdx: index("roster_audit_log_diver_idx").on(t.diverId),
+    sedeFechaIdx: index("roster_audit_log_sede_fecha_idx").on(
+      t.sedeId,
       t.fecha,
     ),
   }),
@@ -926,3 +995,5 @@ export type RosterDiver = typeof rosterDivers.$inferSelect;
 export type NewRosterDiver = typeof rosterDivers.$inferInsert;
 export type RosterGroup = typeof rosterGroups.$inferSelect;
 export type NewRosterGroup = typeof rosterGroups.$inferInsert;
+export type RosterAuditLog = typeof rosterAuditLog.$inferSelect;
+export type NewRosterAuditLog = typeof rosterAuditLog.$inferInsert;

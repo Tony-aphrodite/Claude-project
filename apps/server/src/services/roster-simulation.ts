@@ -21,7 +21,7 @@
 // customer ("July 15 doesn't work — no instructor for OW3", etc.).
 // ============================================================================
 
-import { and, eq, inArray, sql as drizzleSql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql as drizzleSql } from "drizzle-orm";
 
 import {
   getDb,
@@ -166,7 +166,9 @@ async function simulateOneDay(args: {
 
   // ── Load existing divers in this (sede, fecha, slot) ──────────────
   // We only need active rows: pending / deposit_paid / full_paid count
-  // toward capacity. Cancelled rows are excluded.
+  // toward capacity. Cancelled rows are excluded. Miguel v2.2 §3:
+  // soft-deleted rows (deletedAt IS NOT NULL) are also excluded — the
+  // walk-in was removed by the office, so the seat is free.
   const existing = await db
     .select()
     .from(rosterDivers)
@@ -176,16 +178,20 @@ async function simulateOneDay(args: {
         eq(rosterDivers.fecha, entry.fecha),
         eq(rosterDivers.slot, entry.slot),
         inArray(rosterDivers.estadoPago, ["pending", "deposit_paid", "full_paid"]),
+        isNull(rosterDivers.deletedAt),
       ),
     );
 
   // ── Load instructors available on this (sede, fecha) for this slot ─
+  // Miguel v2.2 addendum §1 (2026-06-27): also load the `role` column
+  // so the matching engine can pack DMs into fun-dive groups first.
   const availabilityRows = await db
     .select({
       instructorId: instructorAvailability.instructorId,
       slots: instructorAvailability.slots,
       nombre: instructorsTable.nombre,
       languages: instructorsTable.languages,
+      role: instructorsTable.role,
       active: instructorsTable.active,
     })
     .from(instructorAvailability)
@@ -206,6 +212,10 @@ async function simulateOneDay(args: {
       id: r.instructorId,
       nombre: r.nombre,
       languages: r.languages ?? undefined,
+      role:
+        r.role === "divemaster"
+          ? ("divemaster" as const)
+          : ("instructor" as const),
     }));
 
   // ── Compose engine input ──────────────────────────────────────────

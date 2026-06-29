@@ -155,6 +155,7 @@ export async function computeReservedCapacity(
          AND fecha = ${fecha}
          AND slot IN ${sql.raw(`(${walkInSlots.map((s) => `'${s}'`).join(",")})`)}
          AND estado_pago <> 'cancelled'
+         AND deleted_at IS NULL
     `)) as unknown as Array<{ reserved: number }>;
     walkInReserved = Number(walkRow?.reserved ?? 0);
   }

@@ -6,7 +6,7 @@
 // becomes authoritative for a sede, /roster/engine replaces /roster as
 // the operational view; until then both stay visible.
 
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 
 import {
   getDb,
@@ -41,6 +41,8 @@ export type InstructorRow = {
   nombre: string;
   nombreLegal: string | null;
   languages: string[];
+  /** Miguel v2.2 addendum §1: 'instructor' or 'divemaster'. */
+  role: "instructor" | "divemaster";
   active: boolean;
   notes: string | null;
 };
@@ -62,6 +64,7 @@ export async function listInstructors(sedeId: string): Promise<InstructorRow[]> 
     nombre: r.nombre,
     nombreLegal: r.nombreLegal,
     languages: r.languages ?? [],
+    role: r.role === "divemaster" ? ("divemaster" as const) : ("instructor" as const),
     active: r.active,
     notes: r.notes,
   }));
@@ -162,6 +165,8 @@ export async function listDiversForDate(input: {
         eq(rosterDivers.sedeId, input.sedeId),
         eq(rosterDivers.fecha, input.fecha),
         inArray(rosterDivers.estadoPago, ["pending", "deposit_paid", "full_paid"]),
+        // Miguel v2.2 addendum §3 (2026-06-27) — exclude soft-deleted walk-ins.
+        isNull(rosterDivers.deletedAt),
       ),
     )
     .orderBy(

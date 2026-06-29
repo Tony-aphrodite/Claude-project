@@ -21,6 +21,7 @@ import {
   setAvailability,
   setAvailabilityBulk,
   setInstructorActive,
+  setInstructorRole,
 } from "~/app/actions/roster-engine";
 import { PageHeader } from "~/app/_components/page-header";
 import { requireUserContext } from "~/lib/auth-context";
@@ -183,6 +184,27 @@ export default async function InstructorsPage({
                 className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
               />
             </div>
+            {/* Miguel v2.2 addendum §1 (2026-06-27): role distinguishes
+                Instructor (cursos + fun dives) from Divemaster (solo
+                fun dives). Default is Instructor — most common. */}
+            <div>
+              <label className="mb-1 block text-ink-700" htmlFor="role">
+                Rol
+              </label>
+              <select
+                id="role"
+                name="role"
+                defaultValue="instructor"
+                className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
+              >
+                <option value="instructor">
+                  Instructor (cursos + fun dives)
+                </option>
+                <option value="divemaster">
+                  Divemaster (solo fun dives)
+                </option>
+              </select>
+            </div>
             <button type="submit" className="btn-primary w-full text-sm">
               Crear
             </button>
@@ -202,6 +224,7 @@ export default async function InstructorsPage({
               <thead>
                 <tr className="border-b border-ink-200/70 text-left text-[11px] uppercase text-ink-500">
                   <th className="py-2">Nombre</th>
+                  <th className="py-2">Rol</th>
                   <th className="py-2">Idiomas</th>
                   <th className="py-2">Estado</th>
                   <th className="py-2">Acciones</th>
@@ -221,6 +244,27 @@ export default async function InstructorsPage({
                         <button
                           type="submit"
                           className="text-xs text-ink-600 hover:text-brand-300"
+                        >
+                          guardar
+                        </button>
+                      </form>
+                    </td>
+                    <td className="py-2">
+                      {/* Miguel v2.2 §1 — switch role inline. Submitting
+                          the select triggers setInstructorRole. */}
+                      <form action={setInstructorRole}>
+                        <input type="hidden" name="id" value={i.id} />
+                        <select
+                          name="role"
+                          defaultValue={i.role}
+                          className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-xs text-ink-900"
+                        >
+                          <option value="instructor">Instructor</option>
+                          <option value="divemaster">Divemaster</option>
+                        </select>
+                        <button
+                          type="submit"
+                          className="ml-2 text-xs text-ink-600 hover:text-brand-300"
                         >
                           guardar
                         </button>

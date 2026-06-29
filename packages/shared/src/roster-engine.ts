@@ -207,6 +207,14 @@ export interface InstructorInput {
   id: string;
   nombre: string;
   languages?: string[];
+  /**
+   * Miguel v2.2 addendum §1 (2026-06-27).
+   *   'instructor' (default) — can lead courses + fun dives.
+   *   'divemaster'           — fun dives only.
+   * Matching engine packs DMs into fun-dive groups FIRST so instructors
+   * stay free for course groups (spec §1 "el orden de asignación importa").
+   */
+  role?: "instructor" | "divemaster";
 }
 
 export interface AssignedGroup {

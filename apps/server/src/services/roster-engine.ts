@@ -120,24 +120,78 @@ function representativeProfile(
 }
 
 /**
- * Round-robin assignment of instructors to groups. Phase 2 baseline.
- * Phase 3 will add multi-day affinity (same OW students keep the same
- * instructor day 1 → 2 → 3, per spec test case #4).
+ * Round-robin assignment of instructors to groups, rol-aware.
  *
- * Determinism: instructors are consumed in input order. Caller controls
- * fairness by ordering `availableInstructors` upstream.
+ * Miguel v2.2 addendum §1 (2026-06-27) — Divemasters CAN'T lead course
+ * groups, only fun-dive groups. The order also matters: pack DMs into
+ * fun-dive groups FIRST so instructors stay free for the course groups
+ * that nobody else can cover.
+ *
+ *   Pass 1 — fun-dive groups consume divemasters first, then fall back
+ *            to instructors when no DM is left.
+ *   Pass 2 — course groups consume the remaining instructors only.
+ *
+ * A group whose required rol has no candidate left gets `instructorId =
+ * null` and surfaces as "unassignable" in the caller's validation step.
+ *
+ * Determinism: within each pool, candidates are consumed in input order.
+ * Caller controls fairness by ordering `availableInstructors` upstream.
  */
+function isFunDiveGroup(profiles: ActivityProfile[]): boolean {
+  // A group is fun-dive-only if every member's grupoActividad starts
+  // with "fundive_". That matches the §4.3 keys for FD / REF-phase-2
+  // (fundive_18m, fundive_30m, fundive_40m) — the only buckets DMs can
+  // lead.
+  return profiles.every((p) => p.grupoActividad.startsWith("fundive_"));
+}
+
 function assignInstructors(
   packedGroups: DivWithProfile[][],
   availableInstructors: InstructorInput[],
 ): Array<{ group: DivWithProfile[]; instructorId: string | null }> {
-  return packedGroups.map((group, idx) => {
-    const instructor = availableInstructors[idx];
+  // Partition the staff once. We mutate these arrays as we consume.
+  const dmPool: InstructorInput[] = availableInstructors.filter(
+    (i) => i.role === "divemaster",
+  );
+  const instructorPool: InstructorInput[] = availableInstructors.filter(
+    (i) => i.role !== "divemaster",
+  );
+
+  // Decide each group's pool eligibility before consumption, so the
+  // order of `packedGroups` doesn't bias the pass-1 / pass-2 split.
+  const decisions = packedGroups.map((group) => {
+    const profiles = group.map((d) => d.__profile);
     return {
       group,
-      instructorId: instructor ? instructor.id : null,
+      isFunDive: isFunDiveGroup(profiles),
+      instructorId: null as string | null,
     };
   });
+
+  // Pass 1 — fun-dive groups consume DMs first, then fall back to
+  // instructors if more fun-dive groups than DMs.
+  for (const d of decisions) {
+    if (!d.isFunDive) continue;
+    const fromDm = dmPool.shift();
+    if (fromDm) {
+      d.instructorId = fromDm.id;
+      continue;
+    }
+    const fromInstructor = instructorPool.shift();
+    if (fromInstructor) d.instructorId = fromInstructor.id;
+  }
+
+  // Pass 2 — course groups consume the surviving instructors. DMs are
+  // NEVER used here (§1 hard rule).
+  for (const d of decisions) {
+    if (d.isFunDive) continue;
+    if (d.instructorId !== null) continue; // already set (shouldn't happen)
+    const fromInstructor = instructorPool.shift();
+    if (fromInstructor) d.instructorId = fromInstructor.id;
+    // No instructor left → stays null → caller marks unassignable.
+  }
+
+  return decisions.map(({ group, instructorId }) => ({ group, instructorId }));
 }
 
 /**

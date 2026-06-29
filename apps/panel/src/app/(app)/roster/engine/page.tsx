@@ -275,12 +275,17 @@ export default async function EnginePage({
                                             <option value="">
                                               Sin asignar (auto)
                                             </option>
+                                            {/* §1+§2 rol annotation */}
                                             {activeInstructors.map((i) => (
                                               <option
                                                 key={i.id}
                                                 value={i.id}
                                               >
-                                                {i.nombre}
+                                                {i.nombre} [
+                                                {i.role === "divemaster"
+                                                  ? "DM"
+                                                  : "INST"}
+                                                ]
                                               </option>
                                             ))}
                                           </select>
@@ -458,7 +463,7 @@ export default async function EnginePage({
               className="mb-1 block text-ink-700"
               htmlFor="walkin-instructor"
             >
-              Instructor (opcional)
+              Instructor/DM (opcional)
             </label>
             <select
               id="walkin-instructor"
@@ -466,13 +471,21 @@ export default async function EnginePage({
               className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
             >
               <option value="">Auto (motor decide)</option>
+              {/* Miguel v2.2 §1+§2: show role inline so operator can
+                  pick the right staff for the activity. Server-side
+                  rolValidator blocks the save if DM + course; surfacing
+                  the role here avoids the round-trip. */}
               {activeInstructors.map((i) => (
                 <option key={i.id} value={i.id}>
-                  {i.nombre}
+                  {i.nombre} [{i.role === "divemaster" ? "DM" : "INST"}]
                   {i.languages.length > 0 ? ` · ${i.languages.join("/")}` : ""}
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-[10px] text-ink-500">
+              Los DM solo pueden guiar fun dives (FD / REF fase 2). El motor
+              rechaza el guardado si elegís un DM para un curso.
+            </p>
           </div>
           <div>
             <label className="mb-1 block text-ink-700" htmlFor="walkin-detail">
@@ -529,10 +542,62 @@ export default async function EnginePage({
         </form>
       </section>
 
+      {/* Miguel v2.2 addendum §5 (2026-06-27) — compact "quién está
+          disponible hoy" strip with rol visible. Instructors first,
+          then divemasters, so the operator sees at a glance who can
+          take a course vs only fun dives. */}
+      <section className="card">
+        <h2 className="mb-2 h-section">Disponibles hoy</h2>
+        {activeInstructors.length === 0 ? (
+          <p className="text-xs text-ink-600">
+            Sin staff activo. Las ventas van a quedar bloqueadas — agregá
+            instructores en{" "}
+            <code className="rounded bg-ink-200/60 px-1.5 py-0.5 text-[11px] text-brand-300">
+              /roster/instructors
+            </code>
+            .
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2 text-xs">
+            {activeInstructors
+              .slice()
+              .sort((a, b) => {
+                // Instructors first, then divemasters; within each group
+                // alphabetically.
+                if (a.role !== b.role) {
+                  return a.role === "instructor" ? -1 : 1;
+                }
+                return a.nombre.localeCompare(b.nombre);
+              })
+              .map((i) => (
+                <span
+                  key={i.id}
+                  className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 ${
+                    i.role === "divemaster"
+                      ? "border-amber-300/60 bg-amber-100/40 text-amber-900"
+                      : "border-brand-300/60 bg-brand-100/30 text-brand-900"
+                  }`}
+                  title={
+                    i.role === "divemaster"
+                      ? "Divemaster — solo fun dives (Miguel v2.2 §1)"
+                      : "Instructor — cursos + fun dives"
+                  }
+                >
+                  <span className="font-medium">{i.nombre}</span>
+                  <span className="text-[10px] uppercase opacity-70">
+                    {i.role === "divemaster" ? "DM" : "INST"}
+                  </span>
+                </span>
+              ))}
+          </div>
+        )}
+      </section>
+
       <p className="metric-sub">
-        Instructores activos hoy: {activeInstructors.length}. Si no hay
-        instructores cargados o sin disponibilidad para la fecha, las ventas
-        van a quedar bloqueadas — gestionar en{" "}
+        Instructores activos: {activeInstructors.filter((i) => i.role === "instructor").length}.
+        Divemasters: {activeInstructors.filter((i) => i.role === "divemaster").length}.
+        Si no hay instructores (no DMs) cargados para la fecha, las ventas de
+        cursos van a quedar bloqueadas — gestionar en{" "}
         <code className="rounded bg-ink-200/60 px-1.5 py-0.5 text-[11px] text-brand-300">
           /roster/instructors
         </code>
