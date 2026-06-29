@@ -149,6 +149,7 @@ export type ProcessResult =
         | "test_tag_missing"
         | "ai_silenced_post_handoff"
         | "ai_silenced_human_assignee"
+        | "ai_silenced_takeover_during_generation"
         | "sede_selector_button";
       branch?: string | null;
       latencyMs: number;
@@ -3648,6 +3649,49 @@ export async function processIncomingMessage(
       .catch((err) =>
         log.warn({ err }, "respond_io update_custom_fields failed (descuento)"),
       );
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // R2 race-check (Miguel 2026-06-29): block AI sends when human took over
+  // DURING Claude generation. Claude call latency is 3-10s; the upstream
+  // silence guard at the start of this handler reads the conversation row
+  // ONCE and proceeds with that snapshot. If a `conversation.assignee.
+  // changed` webhook lands and stamps `human_took_over=true` while Claude
+  // is generating, the in-memory `conversation` is stale and the AI's
+  // reply leaks AFTER takeover — exactly the symptom Miguel reported
+  // (handoff_at + 1-4s AI message; then silence guard takes over and
+  // blocks everything else). Re-read the flag from DB right before any
+  // outbound to Respond.io to close the race window.
+  // ────────────────────────────────────────────────────────────────────────
+  const [freshConv] = await getDb()
+    .select({
+      leadStage: conversaciones.leadStage,
+      leadMetadata: conversaciones.leadMetadata,
+    })
+    .from(conversaciones)
+    .where(eq(conversaciones.id, conversation.id))
+    .limit(1);
+  const freshHumanTookOver =
+    (freshConv?.leadMetadata as LeadMetadata | null)?.human_took_over === true;
+  if (freshHumanTookOver || freshConv?.leadStage === "handed_off") {
+    log.info(
+      {
+        conversationId: conversation.id,
+        contactId: payload.contact.id,
+        staleHumanTookOver:
+          (conversation.leadMetadata as LeadMetadata | null)?.human_took_over === true,
+        staleLeadStage: conversation.leadStage,
+        freshHumanTookOver,
+        freshLeadStage: freshConv?.leadStage,
+      },
+      "ai send aborted — human took over during Claude generation (R2 race-check, Miguel 2026-06-29)",
+    );
+    return {
+      ok: false,
+      ignored: true,
+      reason: "ai_silenced_takeover_during_generation",
+      latencyMs: Date.now() - t0,
+    };
   }
 
   // Step 10: send back to Respond.io. Owner spec §flujo: the deposit
