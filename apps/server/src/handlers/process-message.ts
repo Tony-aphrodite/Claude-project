@@ -2004,6 +2004,30 @@ export async function processIncomingMessage(
       _convMetaForPrompt?.deposit_amount
     );
 
+  // Pending internal notes (Miguel 2026-06-29 M1). Capture the snapshot
+  // BEFORE the Claude call so we know exactly which note IDs to remove
+  // after the send succeeds — anything queued by an operator DURING the
+  // Claude generation window will land in lead_metadata under a new ID
+  // and be picked up by the NEXT turn (capture-then-remove semantics
+  // prevent both double-consume and lost-note races).
+  const pendingNotesSnapshot =
+    (conversation.leadMetadata as LeadMetadata | null)?.pending_internal_notes ?? [];
+  const consumedNoteIds = pendingNotesSnapshot.map((n) => n.id);
+  const pendingNotesForPrompt = pendingNotesSnapshot.map((n) => ({
+    text: n.text,
+    by: n.by ?? null,
+    at: n.at,
+  }));
+  if (pendingNotesSnapshot.length > 0) {
+    log.info(
+      {
+        conversationId: conversation.id,
+        noteCount: pendingNotesSnapshot.length,
+      },
+      "internal-notes: consuming pending queue for this turn (M1)",
+    );
+  }
+
   const { system, messages } = buildFourBlockPrompt({
     systemPrompt,
     sedeKb,
@@ -2019,6 +2043,7 @@ export async function processIncomingMessage(
       depositExpected: _convStateDepositExpected,
       leadStage: conversation.leadStage,
     },
+    pendingInternalNotes: pendingNotesForPrompt,
   });
 
   // Step 7+8: tool_use handlers + Claude call
@@ -3895,6 +3920,54 @@ export async function processIncomingMessage(
         contactId: payload.contact.id,
         text: segment,
       });
+    }
+
+    // Internal-notes consume (Miguel 2026-06-29 M1). Now that the segments
+    // landed at Respond.io, the operator's notes have served their purpose
+    // — remove only the IDs we captured at the top of this turn so any
+    // note that arrived during Claude generation survives for next turn.
+    // Done in a fresh read-modify-write under the same per-conv lock that
+    // already serializes message processing, so there's no race with
+    // concurrent inbound messages on this conversation.
+    if (consumedNoteIds.length > 0) {
+      try {
+        const [convFresh] = await getDb()
+          .select({ leadMetadata: conversaciones.leadMetadata })
+          .from(conversaciones)
+          .where(eq(conversaciones.id, conversation.id))
+          .limit(1);
+        const meta = (convFresh?.leadMetadata as LeadMetadata | null) ?? {};
+        const consumed = new Set(consumedNoteIds);
+        const remaining = (meta.pending_internal_notes ?? []).filter(
+          (n) => !consumed.has(n.id),
+        );
+        const nextMeta: LeadMetadata = {
+          ...meta,
+          pending_internal_notes:
+            remaining.length > 0 ? remaining : undefined,
+        };
+        await getDb()
+          .update(conversaciones)
+          .set({ leadMetadata: nextMeta })
+          .where(eq(conversaciones.id, conversation.id));
+        log.info(
+          {
+            conversationId: conversation.id,
+            consumed: consumedNoteIds.length,
+            remaining: remaining.length,
+          },
+          "internal-notes: cleared consumed IDs after successful send (M1)",
+        );
+      } catch (err) {
+        log.warn(
+          {
+            err: (err as Error).message,
+            conversationId: conversation.id,
+            consumedNoteIds,
+          },
+          "internal-notes: clear failed (non-blocking — notes may replay next turn)",
+        );
+      }
     }
   } catch (err) {
     log.error({ err }, "respond_io send failed; AI text saved but not delivered");

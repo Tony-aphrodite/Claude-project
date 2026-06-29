@@ -1205,6 +1205,32 @@ export type LeadMetadata = {
     by: "ai" | "human" | "system" | "negative_intent";
     note?: string;
   }>;
+  /**
+   * Internal-note queue for the AI to consume on its NEXT turn (Miguel
+   * 2026-06-29 M1). An operator writing an internal note in Respond.io
+   * with the sede's AI user @-mentioned (e.g. "@David AI Roberto es amigo
+   * del dueño, dale 10%") lands a row here via the
+   * `/webhook/respond-io/internal-note/<slug>` handler. The note is
+   * one-shot: process-message reads pending notes when building the next
+   * AI prompt, then clears the consumed IDs after the response is sent.
+   * Miguel's rationale: "cada mensaje es diferente" — notes are
+   * situational, not standing rules. Standing facts (VIP, allergy, etc.)
+   * belong in Custom Fields, not here.
+   */
+  pending_internal_notes?: Array<{
+    /** UUID for atomic clear after consumption — avoids losing notes
+     *  that arrive DURING the AI generation window. */
+    id: string;
+    /** The note text the operator wrote, as it appeared in Respond.io. */
+    text: string;
+    /** Operator name, when Respond.io provides it (commentAuthor / etc.). */
+    by?: string | null;
+    /** ISO timestamp of webhook receipt. */
+    at: string;
+    /** Respond.io userId of the AI user that was @-mentioned — written for
+     *  audit even though the lookup already passed at receive time. */
+    mentioned_ai_id: number;
+  }>;
 };
 
 // Roster types removed 2026-05-06 — Miguel's actual Apps Script returns a

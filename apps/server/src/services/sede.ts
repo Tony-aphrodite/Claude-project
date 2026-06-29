@@ -37,7 +37,7 @@ const AI_ENABLED_SEDE_NAMES = [
   "Koh Phi Phi",
   "Nusa Penida",
 ] as const;
-type AiEnabledSedeName = (typeof AI_ENABLED_SEDE_NAMES)[number];
+export type AiEnabledSedeName = (typeof AI_ENABLED_SEDE_NAMES)[number];
 
 function isAiEnabled(branch: string): branch is AiEnabledSedeName {
   return (AI_ENABLED_SEDE_NAMES as readonly string[]).includes(branch);

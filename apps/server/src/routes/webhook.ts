@@ -24,6 +24,7 @@ import { loadEnv } from "../env.js";
 import { processAgentMessage } from "../handlers/process-agent-message.js";
 import { processIncomingMessage } from "../handlers/process-message.js";
 import { handleContactStateEvent } from "../handlers/contact-state-event.js";
+import { handleInternalNoteWebhook } from "../handlers/internal-note.js";
 import { withConversationLock } from "../services/conversation-lock.js";
 import {
   enqueueOrBatch,
@@ -404,6 +405,81 @@ export async function webhookRoutes(app: FastifyInstance) {
       //    fan-out (contact-state branch vs message branch) by calling
       //    the same processor functions directly.
       return handleVerifiedWebhook(req, reply, normalized, peekedEvent);
+    });
+  }
+
+  // Internal-note webhook routes (Miguel 2026-06-29 M1). One per sede so
+  // Miguel can register exactly five `comment.created` subscriptions in
+  // Respond.io. The slug → sede mapping is the same as the message
+  // webhook above; the URL slug authoritatively pins the note's sede so
+  // we don't need to read Branch from the payload (comment events
+  // sometimes omit the contact's Branch field).
+  for (const slug of SEDE_SLUGS) {
+    const sedeName = sedeSlugToName(slug);
+    if (!sedeName) continue;
+    app.post(`/webhook/respond-io/internal-note/${slug}`, async (req, reply) => {
+      const headerSig = pickSignatureHeader(
+        req.headers as Record<string, string | string[]>,
+      );
+      const rawBody = (req.body as { __rawBody?: Buffer })?.__rawBody;
+      if (!rawBody) {
+        req.log.error(
+          { sedeSlug: slug },
+          "missing rawBody on internal-note webhook request",
+        );
+        return reply.status(400).send({ error: { code: "no_body" } });
+      }
+      const tokenHeader = pickWorkflowTokenHeader(
+        req.headers as Record<string, string | string[] | undefined>,
+      );
+      const verdict = authenticateWebhook({
+        rawBody,
+        signatureHeader: headerSig,
+        tokenHeader,
+        hmacSecret: env.RESPOND_IO_WEBHOOK_SECRET,
+        hmacSecretsExtra: env.RESPOND_IO_WEBHOOK_SECRETS_EXTRA,
+        workflowToken: env.WEBHOOK_WORKFLOW_TOKEN || undefined,
+      });
+      if (!verdict.ok) {
+        req.log.warn(
+          { sedeSlug: slug, reason: verdict.reason },
+          "internal-note webhook auth rejected",
+        );
+        return reply.status(401).send({ error: { code: "auth_invalid" } });
+      }
+
+      const normalized = normalizeRespondIoPayload(req.body);
+
+      // Ack quickly; the actual handler runs async so Respond.io's
+      // retry policy stays happy under any DB latency spikes.
+      reply.send({ ok: true, queued: true });
+      void (async () => {
+        try {
+          const result = await handleInternalNoteWebhook(
+            normalized as Parameters<typeof handleInternalNoteWebhook>[0],
+            sedeName,
+            req.log,
+          );
+          captureWebhookDebug({
+            body: normalized,
+            classifiedAs:
+              result.ok && result.action === "queued"
+                ? `internal_note:queued:${slug}`
+                : result.ok
+                  ? `internal_note:logged_only:${slug}:${result.reason}`
+                  : `internal_note:error:${slug}:${result.reason}`,
+          });
+        } catch (err) {
+          req.log.error(
+            { err, sedeSlug: slug },
+            "internal-note webhook handler threw",
+          );
+          captureWebhookDebug({
+            body: normalized,
+            classifiedAs: `internal_note:exception:${slug}`,
+          });
+        }
+      })();
     });
   }
 

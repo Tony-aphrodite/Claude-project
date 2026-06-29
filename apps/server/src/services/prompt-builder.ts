@@ -89,6 +89,19 @@ export type BuildPromptInput = {
     depositExpected?: boolean;
     leadStage?: string | null;
   };
+  /**
+   * One-shot internal notes left by an operator in Respond.io with the
+   * sede AI user @-mentioned (Miguel 2026-06-29 M1). Each entry is its
+   * own line in the prompt — the AI is instructed to factor the notes
+   * into THIS turn's reply and then forget them (process-message clears
+   * the consumed IDs after the response is sent). Empty / undefined ⇒
+   * no block is emitted.
+   */
+  pendingInternalNotes?: ReadonlyArray<{
+    text: string;
+    by?: string | null;
+    at: string;
+  }>;
 };
 
 export type BuildPromptOutput = {
@@ -116,6 +129,7 @@ export function buildFourBlockPrompt(input: BuildPromptInput): BuildPromptOutput
     suggestedCurrency: input.suggestedCurrency,
     attachmentCount: attachments.length,
     conversationState: input.conversationState,
+    pendingInternalNotes: input.pendingInternalNotes,
   });
 
   const system: Anthropic.TextBlockParam[] = [
@@ -235,6 +249,7 @@ export function formatDynamicBlock(input: {
    */
   attachmentCount?: number;
   conversationState?: BuildPromptInput["conversationState"];
+  pendingInternalNotes?: BuildPromptInput["pendingInternalNotes"];
 }): string {
   const sedeNow = new Date().toLocaleString("en-US", {
     timeZone: input.sede.timezone,
@@ -306,7 +321,7 @@ ${langLine}
 
 === ROSTER PRÓXIMOS 7 DÍAS ===
 ${rosterText}
-${formatAttachmentBanner(input.attachmentCount ?? 0, input.conversationState)}
+${formatAttachmentBanner(input.attachmentCount ?? 0, input.conversationState)}${formatInternalNotesBlock(input.pendingInternalNotes)}
 === MENSAJE DEL CLIENTE ===
 ${input.incomingMessage}
 
@@ -423,6 +438,46 @@ REGLAS — IMÁGENES Y PDFs (Miguel 2026-06-25 + 2026-06-26):
 4) NO arranques con tu saludo de presentación solo porque entró un archivo — la conversación ya está en curso, seguila desde el último turno del HISTORIAL.
 5) Si el cliente mandó VARIOS archivos en este turno, respondé UNA SOLA vez tratándolos en conjunto. No emitas N respuestas separadas.
 6) El IDIOMA de tu respuesta se mantiene igual al que ya venías usando — un archivo sin texto NUNCA cambia el idioma (Miguel 2026-06-26 #2).
+`;
+}
+
+/**
+ * Render the one-shot internal-note block (Miguel 2026-06-29 M1). The
+ * operator dropped a note in Respond.io with the sede AI @-mentioned;
+ * process-message read the pending queue and is passing the unconsumed
+ * entries here. The note overrides nothing — the AI still follows its
+ * normal playbook — but it adds situational context for THIS turn.
+ *
+ * Layout choices:
+ *   - Block lives right before "=== MENSAJE DEL CLIENTE ===" so the AI
+ *     reads the operator's note immediately BEFORE the customer text.
+ *   - "by" / "at" are folded into the line so the AI knows who said
+ *     what and when (useful when an older note pre-dates the customer
+ *     reply by an hour and is no longer applicable).
+ *   - The closing instruction is explicit: USE THIS for THIS reply,
+ *     don't surface that you got an internal note. Without that, Claude
+ *     occasionally narrates "tengo una nota de Patrick que dice…".
+ */
+function formatInternalNotesBlock(
+  notes?: BuildPromptInput["pendingInternalNotes"],
+): string {
+  if (!notes || notes.length === 0) return "";
+  const lines = notes
+    .map((n, i) => {
+      const who = n.by ? ` — ${n.by}` : "";
+      const when = n.at ? ` @ ${n.at}` : "";
+      return `${i + 1}. (${n.at ? "interna" : "interna"}${who}${when}) ${n.text}`;
+    })
+    .join("\n");
+  return `
+=== NOTA INTERNA DEL EQUIPO (no la cita el cliente, NO la repitas textualmente) ===
+${lines}
+
+REGLAS sobre la nota interna:
+- Tu equipo te dejó esta info AHORA para que la uses en TU PRÓXIMA respuesta. Aplicala con criterio (precio, tono, info específica, etc.).
+- NUNCA escribas "tengo una nota interna que dice…" ni reveles que existe esta indicación. Hablale al cliente naturalmente, incorporando la info como si la supieras vos.
+- Si la nota contradice lo que el cliente acaba de pedir, priorizá la nota — tu equipo sabe algo que vos (AI) no podés ver.
+- Si la nota es ambigua o incompleta, seguí con tu respuesta normal sin inventar detalles.
 `;
 }
 
