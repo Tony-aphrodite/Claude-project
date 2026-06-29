@@ -16,6 +16,8 @@ import { Fragment } from "react";
 import {
   createWalkInDiver,
   deleteWalkInDiver,
+  reassignDiver,
+  swapGroupLeader,
   updateWalkInDiver,
 } from "~/app/actions/roster-engine";
 import { ActionForm } from "~/app/_components/action-form";
@@ -96,6 +98,33 @@ export default async function EnginePage({
     bucket.push(d);
   }
 
+  // §5 daily ops single-view stats (Miguel 2026-06-27 addendum). Compute
+  // once per render so the operator's top banner stays in lock-step with
+  // the turno boxes below.
+  const perSlotCount: Record<string, number> = {
+    AM: 0,
+    PM: 0,
+    POOL_AM: 0,
+    POOL_PM: 0,
+    NIGHT: 0,
+  };
+  for (const d of divers) {
+    perSlotCount[d.slot] = (perSlotCount[d.slot] ?? 0) + 1;
+  }
+  const totalDiversToday = divers.length;
+  const unassignedGroupCount = groups.filter((g) => g.instructorId === null).length;
+  const unassignedDiverCount = divers.filter((d) => d.groupId === null).length;
+  const instructorCount = activeInstructors.filter(
+    (i) => i.role === "instructor",
+  ).length;
+  const divemasterCount = activeInstructors.filter(
+    (i) => i.role === "divemaster",
+  ).length;
+  const sortedStaff = activeInstructors.slice().sort((a, b) => {
+    if (a.role !== b.role) return a.role === "instructor" ? -1 : 1;
+    return a.nombre.localeCompare(b.nombre);
+  });
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -137,6 +166,148 @@ export default async function EnginePage({
         </button>
       </form>
 
+      {/* ===========================================================
+          §5 — Daily ops top banner (Miguel v2.2 addendum 2026-06-27).
+          Three sections side-by-side on desktop, stacked on mobile:
+          (a) summary stats — total + per-slot counts + alerts
+          (b) "Disponibles hoy" staff strip with rol badges
+          (c) compact admin link to /roster/instructors
+
+          The strip moved here from the bottom of the page so the
+          operator opens the screen and immediately sees both the
+          shape of the day AND which staff is available. Config
+          (capacity grid, 30-day availability) lives one click away
+          in the sidebar — keeps the operational screen clean.
+          =========================================================== */}
+      <section className="card">
+        <div className="grid gap-4 lg:grid-cols-[1fr_2fr]">
+          {/* (a) Summary stats */}
+          <div className="space-y-2">
+            <h2 className="h-section">Resumen del día</h2>
+            <div className="flex items-baseline gap-2">
+              <span className="metric-value">{totalDiversToday}</span>
+              <span className="metric-sub">
+                buceador{totalDiversToday === 1 ? "" : "es"} hoy
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-3 text-[11px] text-ink-600">
+              {(["AM", "PM", "POOL_AM", "POOL_PM", "NIGHT"] as const).map(
+                (s) => (
+                  <span
+                    key={s}
+                    className="inline-flex items-center gap-1.5 rounded-md bg-ink-200/40 px-2 py-0.5"
+                  >
+                    <span className="font-semibold text-ink-800">{s}</span>
+                    <span className="tabular-nums">{perSlotCount[s] ?? 0}</span>
+                  </span>
+                ),
+              )}
+            </div>
+            {/* Alerts row — only render the ones that fire. */}
+            <div className="space-y-1 text-[11px]">
+              {unassignedGroupCount > 0 ? (
+                <div className="inline-flex items-center gap-1.5 rounded-md bg-warn-500/10 px-2 py-0.5 text-warn-700 ring-1 ring-inset ring-warn-500/30">
+                  ⚠ {unassignedGroupCount} grupo
+                  {unassignedGroupCount === 1 ? "" : "s"} sin instructor
+                </div>
+              ) : null}
+              {unassignedDiverCount > 0 ? (
+                <div className="inline-flex items-center gap-1.5 rounded-md bg-warn-500/10 px-2 py-0.5 text-warn-700 ring-1 ring-inset ring-warn-500/30">
+                  ⚠ {unassignedDiverCount} buceador
+                  {unassignedDiverCount === 1 ? "" : "es"} sin asignar
+                </div>
+              ) : null}
+              {activeInstructors.length === 0 ? (
+                <div className="inline-flex items-center gap-1.5 rounded-md bg-bad-500/10 px-2 py-0.5 text-bad-700 ring-1 ring-inset ring-bad-500/30">
+                  🚫 Sin staff activo — ventas bloqueadas
+                </div>
+              ) : null}
+              {instructorCount === 0 && activeInstructors.length > 0 ? (
+                <div className="inline-flex items-center gap-1.5 rounded-md bg-bad-500/10 px-2 py-0.5 text-bad-700 ring-1 ring-inset ring-bad-500/30">
+                  🚫 Sin instructores — solo fun dives son vendibles hoy
+                </div>
+              ) : null}
+              {unassignedGroupCount === 0 &&
+              unassignedDiverCount === 0 &&
+              activeInstructors.length > 0 &&
+              instructorCount > 0 ? (
+                <div className="inline-flex items-center gap-1.5 rounded-md bg-ok-500/10 px-2 py-0.5 text-ok-700 ring-1 ring-inset ring-ok-500/30">
+                  ✓ Roster limpio
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* (b) Staff strip + (c) admin link */}
+          <div className="space-y-2">
+            <div className="flex items-baseline justify-between">
+              <h2 className="h-section">Disponibles hoy</h2>
+              <div className="flex items-center gap-2 text-[11px] text-ink-500">
+                <span>
+                  <span className="text-brand-300 font-semibold">
+                    {instructorCount}
+                  </span>{" "}
+                  inst
+                </span>
+                <span className="text-ink-400">·</span>
+                <span>
+                  <span className="text-warn-700 font-semibold">
+                    {divemasterCount}
+                  </span>{" "}
+                  DM
+                </span>
+                <span className="text-ink-400">·</span>
+                <a
+                  href="/roster/instructors"
+                  className="text-ink-500 hover:text-brand-300"
+                >
+                  configurar →
+                </a>
+              </div>
+            </div>
+            {activeInstructors.length === 0 ? (
+              <p className="text-xs text-ink-600">
+                Sin staff activo. Las ventas van a quedar bloqueadas — agregá
+                instructores en{" "}
+                <code className="rounded bg-ink-200/60 px-1.5 py-0.5 text-[11px] text-brand-300">
+                  /roster/instructors
+                </code>
+                .
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-2 text-xs">
+                {sortedStaff.map((i) => (
+                  <span
+                    key={i.id}
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-medium ring-1 ring-inset transition-colors ${
+                      i.role === "divemaster"
+                        ? "border-warn-500/40 bg-warn-500/15 text-warn-700 ring-warn-500/30"
+                        : "border-brand-400/40 bg-brand-400/10 text-brand-300 ring-brand-400/30"
+                    }`}
+                    title={
+                      i.role === "divemaster"
+                        ? "Divemaster — solo fun dives (Miguel v2.2 §1)"
+                        : "Instructor — cursos + fun dives"
+                    }
+                  >
+                    <span>{i.nombre}</span>
+                    <span
+                      className={`rounded px-1 text-[9px] font-bold uppercase tracking-wider ${
+                        i.role === "divemaster"
+                          ? "bg-warn-500/25 text-warn-700"
+                          : "bg-brand-400/20 text-brand-300"
+                      }`}
+                    >
+                      {i.role === "divemaster" ? "DM" : "INST"}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
       {/* Per-slot panels */}
       <div className="grid gap-4 lg:grid-cols-2">
         {ENGINE_SLOTS.map((slot) => {
@@ -144,8 +315,20 @@ export default async function EnginePage({
           const unassignedKey = `${slot}::none`;
           const unassigned = grouped.get(unassignedKey) ?? [];
           return (
-            <section key={slot} className="card">
-              <h3 className="mb-3 h-section">Turno {slot}</h3>
+            <section key={slot} className="card !p-4">
+              <div className="mb-3 flex items-baseline justify-between">
+                <h3 className="h-section">Turno {slot}</h3>
+                {/* §5 — slot-level density indicator. Shows total divers
+                    in this turno + group count at a glance, mirrors the
+                    "n/m" style of the Sheet. */}
+                <span className="text-[11px] text-ink-500 tabular-nums">
+                  {(perSlotCount[slot] ?? 0)} buceador
+                  {(perSlotCount[slot] ?? 0) === 1 ? "" : "es"}
+                  {slotGroups.length > 0
+                    ? ` · ${slotGroups.length} grupo${slotGroups.length === 1 ? "" : "s"}`
+                    : ""}
+                </span>
+              </div>
 
               {slotGroups.length === 0 && unassigned.length === 0 ? (
                 <p className="text-xs text-ink-600">
@@ -162,6 +345,18 @@ export default async function EnginePage({
                             <span className="font-semibold text-brand-300">
                               {g.instructorNombre ?? "(sin instructor)"}
                             </span>
+                            {/* §4 swap líder — only show when the group
+                                actually has an instructor; an empty
+                                group has nothing to swap from. */}
+                            {g.instructorId ? (
+                              <a
+                                href={`#swap-${g.id}`}
+                                className="text-[10px] text-ink-500 hover:text-brand-300"
+                                title="Cambiar el líder del grupo entero (sin re-agrupar)"
+                              >
+                                swap líder
+                              </a>
+                            ) : null}
                             <span className="text-ink-500">·</span>
                             <span className="text-ink-600">
                               {g.grupoActividad} · {g.perfilProfundidad}m · ratio{" "}
@@ -172,6 +367,74 @@ export default async function EnginePage({
                             {bucket.length}/{g.ratioMax}
                           </span>
                         </div>
+                        {/* §4 swap leader inline form — expanded by
+                            #swap-{g.id} hash. Hidden by default. */}
+                        {g.instructorId ? (
+                          <div
+                            id={`swap-${g.id}`}
+                            className="hidden target:block mb-2 rounded-lg border border-brand-400/30 bg-brand-400/5 p-2"
+                          >
+                            <ActionForm
+                              action={swapGroupLeader}
+                              className="flex flex-wrap items-end gap-2 text-[11px]"
+                            >
+                              <input
+                                type="hidden"
+                                name="sede_id"
+                                value={selectedSede.id}
+                              />
+                              <input
+                                type="hidden"
+                                name="fecha"
+                                value={fecha}
+                              />
+                              <input
+                                type="hidden"
+                                name="slot"
+                                value={g.slot}
+                              />
+                              <input
+                                type="hidden"
+                                name="from_instructor_id"
+                                value={g.instructorId}
+                              />
+                              <label className="flex flex-col gap-0.5">
+                                <span className="text-ink-500">
+                                  Nuevo líder (mismo grupo, mismo ratio)
+                                </span>
+                                <select
+                                  name="to_instructor_id"
+                                  required
+                                  className="rounded border border-ink-200 bg-ink-100/60 px-1.5 py-0.5 text-ink-900"
+                                >
+                                  <option value="">— elegir —</option>
+                                  {activeInstructors
+                                    .filter((i) => i.id !== g.instructorId)
+                                    .map((i) => (
+                                      <option key={i.id} value={i.id}>
+                                        {i.nombre} [
+                                        {i.role === "divemaster" ? "DM" : "INST"}
+                                        ]
+                                      </option>
+                                    ))}
+                                </select>
+                              </label>
+                              <SubmitButton
+                                variant="primary"
+                                loadingLabel="swap…"
+                                className="text-[10px]"
+                              >
+                                aplicar swap
+                              </SubmitButton>
+                              <a
+                                href="#"
+                                className="text-[10px] text-ink-500 hover:text-ink-700"
+                              >
+                                cancelar
+                              </a>
+                            </ActionForm>
+                          </div>
+                        ) : null}
                         <table className="w-full text-xs">
                           <tbody>
                             {bucket.map((d) => (
@@ -209,6 +472,20 @@ export default async function EnginePage({
                                           className="text-ink-500 hover:text-brand-300"
                                         >
                                           mover
+                                        </a>
+                                        {/* §4 reassign (este día / todo el
+                                            programa) — opens a separate
+                                            inline form via #reassign-{id}
+                                            hash. Distinct from mover which
+                                            changes slot/activity in place;
+                                            reassign only changes
+                                            instructor, optionally cascading
+                                            across program days. */}
+                                        <a
+                                          href={`#reassign-${d.id}`}
+                                          className="text-ink-500 hover:text-brand-300"
+                                        >
+                                          reasignar
                                         </a>
                                         <ActionForm action={deleteWalkInDiver}>
                                           <input
@@ -341,6 +618,91 @@ export default async function EnginePage({
                                     </td>
                                   </tr>
                                 ) : null}
+                                {/* §4 reassign form — separate from
+                                    #edit so the operator's choices stay
+                                    focused (instructor + scope only). */}
+                                {d.origen === "Manual" ? (
+                                  <tr
+                                    id={`reassign-${d.id}`}
+                                    className="hidden target:table-row border-t border-warn-500/30 bg-warn-500/5"
+                                  >
+                                    <td colSpan={6} className="px-2 py-2">
+                                      <ActionForm
+                                        action={reassignDiver}
+                                        className="flex flex-wrap items-end gap-3 text-[11px]"
+                                      >
+                                        <input
+                                          type="hidden"
+                                          name="id"
+                                          value={d.id}
+                                        />
+                                        <label className="flex flex-col gap-0.5">
+                                          <span className="text-warn-700">
+                                            Nuevo instructor / DM
+                                          </span>
+                                          <select
+                                            name="to_instructor_id"
+                                            defaultValue={d.instructorId ?? ""}
+                                            className="rounded border border-ink-200 bg-ink-100/60 px-1.5 py-0.5 text-ink-900"
+                                          >
+                                            <option value="">
+                                              Sin asignar (desligar)
+                                            </option>
+                                            {activeInstructors.map((i) => (
+                                              <option key={i.id} value={i.id}>
+                                                {i.nombre} [
+                                                {i.role === "divemaster"
+                                                  ? "DM"
+                                                  : "INST"}
+                                                ]
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                        <fieldset className="flex flex-col gap-0.5">
+                                          <legend className="text-warn-700">
+                                            Alcance
+                                          </legend>
+                                          <label className="flex items-center gap-1.5">
+                                            <input
+                                              type="radio"
+                                              name="scope"
+                                              value="this_day"
+                                              defaultChecked
+                                              className="accent-warn-500"
+                                            />
+                                            <span>Solo este día</span>
+                                          </label>
+                                          <label className="flex items-center gap-1.5">
+                                            <input
+                                              type="radio"
+                                              name="scope"
+                                              value="all_program"
+                                              className="accent-warn-500"
+                                            />
+                                            <span>
+                                              Todo el programa (cascada
+                                              multi-día)
+                                            </span>
+                                          </label>
+                                        </fieldset>
+                                        <SubmitButton
+                                          variant="warn"
+                                          loadingLabel="reasignando…"
+                                          className="text-[10px]"
+                                        >
+                                          aplicar
+                                        </SubmitButton>
+                                        <a
+                                          href="#"
+                                          className="text-[10px] text-ink-500 hover:text-ink-700"
+                                        >
+                                          cancelar
+                                        </a>
+                                      </ActionForm>
+                                    </td>
+                                  </tr>
+                                ) : null}
                               </Fragment>
                             ))}
                           </tbody>
@@ -361,32 +723,100 @@ export default async function EnginePage({
                           rendered as a passive list — the office had
                           no way to remove a mis-typed walk-in until
                           the engine ran. */}
-                      <ul className="space-y-1 text-xs text-ink-700">
+                      <ul className="space-y-2 text-xs text-ink-700">
                         {unassigned.map((d) => (
-                          <li
-                            key={d.id}
-                            className="flex items-center justify-between gap-2"
-                          >
-                            <span>
-                              {d.nombre} ({d.activity} / {d.nivelCertificacion})
-                              {d.origen === "Manual" ? " · walk-in" : ""}
-                            </span>
+                          <li key={d.id} className="space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span>
+                                {d.nombre} ({d.activity} /{" "}
+                                {d.nivelCertificacion})
+                                {d.origen === "Manual" ? " · walk-in" : ""}
+                              </span>
+                              {d.origen === "Manual" ? (
+                                <span className="flex gap-2 text-[10px]">
+                                  <a
+                                    href={`#reassign-un-${d.id}`}
+                                    className="text-ink-500 hover:text-brand-300"
+                                  >
+                                    asignar
+                                  </a>
+                                  <ActionForm action={deleteWalkInDiver}>
+                                    <input
+                                      type="hidden"
+                                      name="id"
+                                      value={d.id}
+                                    />
+                                    <SubmitButton
+                                      variant="subtle"
+                                      loadingLabel="borrando…"
+                                    >
+                                      eliminar
+                                    </SubmitButton>
+                                  </ActionForm>
+                                </span>
+                              ) : null}
+                            </div>
+                            {/* §4 reassign for unassigned walk-ins —
+                                give the office a fast path to attach
+                                a specific instructor without waiting
+                                for the engine to run. Same
+                                reassignDiver action; defaults to
+                                this-day scope. */}
                             {d.origen === "Manual" ? (
-                              <span className="flex gap-2 text-[10px]">
-                                <ActionForm action={deleteWalkInDiver}>
+                              <div
+                                id={`reassign-un-${d.id}`}
+                                className="hidden target:block rounded-lg border border-brand-400/30 bg-brand-400/5 p-2"
+                              >
+                                <ActionForm
+                                  action={reassignDiver}
+                                  className="flex flex-wrap items-end gap-2 text-[10px]"
+                                >
                                   <input
                                     type="hidden"
                                     name="id"
                                     value={d.id}
                                   />
+                                  <input
+                                    type="hidden"
+                                    name="scope"
+                                    value="this_day"
+                                  />
+                                  <label className="flex flex-col gap-0.5">
+                                    <span className="text-ink-500">
+                                      Asignar a
+                                    </span>
+                                    <select
+                                      name="to_instructor_id"
+                                      required
+                                      className="rounded border border-ink-200 bg-ink-100/60 px-1.5 py-0.5 text-ink-900"
+                                    >
+                                      <option value="">— elegir —</option>
+                                      {activeInstructors.map((i) => (
+                                        <option key={i.id} value={i.id}>
+                                          {i.nombre} [
+                                          {i.role === "divemaster"
+                                            ? "DM"
+                                            : "INST"}
+                                          ]
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </label>
                                   <SubmitButton
-                                    variant="subtle"
-                                    loadingLabel="borrando…"
+                                    variant="primary"
+                                    loadingLabel="asignando…"
+                                    className="text-[10px]"
                                   >
-                                    eliminar
+                                    asignar
                                   </SubmitButton>
+                                  <a
+                                    href="#"
+                                    className="text-[10px] text-ink-500 hover:text-ink-700"
+                                  >
+                                    cancelar
+                                  </a>
                                 </ActionForm>
-                              </span>
+                              </div>
                             ) : null}
                           </li>
                         ))}
@@ -575,73 +1005,6 @@ export default async function EnginePage({
         </ActionForm>
       </section>
 
-      {/* Miguel v2.2 addendum §5 (2026-06-27) — compact "quién está
-          disponible hoy" strip with rol visible. Instructors first,
-          then divemasters, so the operator sees at a glance who can
-          take a course vs only fun dives. */}
-      <section className="card">
-        <h2 className="mb-2 h-section">Disponibles hoy</h2>
-        {activeInstructors.length === 0 ? (
-          <p className="text-xs text-ink-600">
-            Sin staff activo. Las ventas van a quedar bloqueadas — agregá
-            instructores en{" "}
-            <code className="rounded bg-ink-200/60 px-1.5 py-0.5 text-[11px] text-brand-300">
-              /roster/instructors
-            </code>
-            .
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-2 text-xs">
-            {activeInstructors
-              .slice()
-              .sort((a, b) => {
-                // Instructors first, then divemasters; within each group
-                // alphabetically.
-                if (a.role !== b.role) {
-                  return a.role === "instructor" ? -1 : 1;
-                }
-                return a.nombre.localeCompare(b.nombre);
-              })
-              .map((i) => (
-                <span
-                  key={i.id}
-                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-medium ring-1 ring-inset transition-colors ${
-                    i.role === "divemaster"
-                      ? "border-warn-500/40 bg-warn-500/15 text-warn-700 ring-warn-500/30"
-                      : "border-brand-400/40 bg-brand-400/10 text-brand-300 ring-brand-400/30"
-                  }`}
-                  title={
-                    i.role === "divemaster"
-                      ? "Divemaster — solo fun dives (Miguel v2.2 §1)"
-                      : "Instructor — cursos + fun dives"
-                  }
-                >
-                  <span>{i.nombre}</span>
-                  <span
-                    className={`rounded px-1 text-[9px] font-bold uppercase tracking-wider ${
-                      i.role === "divemaster"
-                        ? "bg-warn-500/25 text-warn-700"
-                        : "bg-brand-400/20 text-brand-300"
-                    }`}
-                  >
-                    {i.role === "divemaster" ? "DM" : "INST"}
-                  </span>
-                </span>
-              ))}
-          </div>
-        )}
-      </section>
-
-      <p className="metric-sub">
-        Instructores activos: {activeInstructors.filter((i) => i.role === "instructor").length}.
-        Divemasters: {activeInstructors.filter((i) => i.role === "divemaster").length}.
-        Si no hay instructores (no DMs) cargados para la fecha, las ventas de
-        cursos van a quedar bloqueadas — gestionar en{" "}
-        <code className="rounded bg-ink-200/60 px-1.5 py-0.5 text-[11px] text-brand-300">
-          /roster/instructors
-        </code>
-        .
-      </p>
     </div>
   );
 }

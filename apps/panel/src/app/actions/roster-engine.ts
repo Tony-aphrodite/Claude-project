@@ -987,6 +987,23 @@ export async function deleteWalkInDiver(formData: FormData): Promise<void> {
 // ============================================================================
 
 /**
+ * Form-driven router. One inline form on each walk-in card, the operator
+ * picks a destination instructor + radio "this day / all program", and
+ * the same submit handler dispatches to the right backend per the
+ * `scope` field. Keeps the UI to one button + one form instead of two.
+ *
+ *   formData.scope === 'all_program' → reassignDiverAllProgram
+ *   anything else (default 'this_day') → reassignDiverThisDay
+ */
+export async function reassignDiver(formData: FormData): Promise<void> {
+  const scope = String(formData.get("scope") ?? "this_day");
+  if (scope === "all_program") {
+    return reassignDiverAllProgram(formData);
+  }
+  return reassignDiverThisDay(formData);
+}
+
+/**
  * Operation B, single day. The diver `id` keeps their slot+activity but
  * moves to a new instructor (which may be NULL = unassigned). Runs the
  * same rol check + capacity check used by createWalkInDiver, in a
