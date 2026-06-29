@@ -23,7 +23,9 @@ import {
   setInstructorActive,
   setInstructorRole,
 } from "~/app/actions/roster-engine";
+import { ActionForm } from "~/app/_components/action-form";
 import { PageHeader } from "~/app/_components/page-header";
+import { SubmitButton } from "~/app/_components/submit-button";
 import { requireUserContext } from "~/lib/auth-context";
 import {
   listAvailability,
@@ -151,7 +153,12 @@ export default async function InstructorsPage({
         {/* Create form */}
         <section className="card">
           <h2 className="mb-3 h-section">Nuevo instructor</h2>
-          <form action={createInstructor} className="space-y-3 text-sm">
+          <ActionForm
+            action={createInstructor}
+            className="space-y-3 text-sm"
+            resetOnSuccess
+            successMessage="Instructor creado"
+          >
             <input type="hidden" name="sede_id" value={selectedSede.id} />
             <div>
               <label className="mb-1 block text-ink-700" htmlFor="nombre">
@@ -205,10 +212,14 @@ export default async function InstructorsPage({
                 </option>
               </select>
             </div>
-            <button type="submit" className="btn-primary w-full text-sm">
+            <SubmitButton
+              variant="primary"
+              loadingLabel="Creando…"
+              className="w-full"
+            >
               Crear
-            </button>
-          </form>
+            </SubmitButton>
+          </ActionForm>
         </section>
 
         {/* List */}
@@ -234,25 +245,28 @@ export default async function InstructorsPage({
                 {instructors.map((i) => (
                   <tr key={i.id} className="border-b border-ink-200/40">
                     <td className="py-2">
-                      <form action={renameInstructor} className="flex gap-2">
+                      <ActionForm
+                        action={renameInstructor}
+                        className="flex gap-2"
+                      >
                         <input type="hidden" name="id" value={i.id} />
                         <input
                           name="nombre"
                           defaultValue={i.nombre}
                           className="w-32 rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
                         />
-                        <button
-                          type="submit"
-                          className="text-xs text-ink-600 hover:text-brand-300"
+                        <SubmitButton
+                          variant="subtle"
+                          loadingLabel="…"
                         >
                           guardar
-                        </button>
-                      </form>
+                        </SubmitButton>
+                      </ActionForm>
                     </td>
                     <td className="py-2">
                       {/* Miguel v2.2 §1 — switch role inline. Submitting
                           the select triggers setInstructorRole. */}
-                      <form action={setInstructorRole}>
+                      <ActionForm action={setInstructorRole}>
                         <input type="hidden" name="id" value={i.id} />
                         <select
                           name="role"
@@ -262,13 +276,14 @@ export default async function InstructorsPage({
                           <option value="instructor">Instructor</option>
                           <option value="divemaster">Divemaster</option>
                         </select>
-                        <button
-                          type="submit"
-                          className="ml-2 text-xs text-ink-600 hover:text-brand-300"
+                        <SubmitButton
+                          variant="subtle"
+                          loadingLabel="…"
+                          className="ml-2"
                         >
                           guardar
-                        </button>
-                      </form>
+                        </SubmitButton>
+                      </ActionForm>
                     </td>
                     <td className="py-2 text-ink-600">
                       {i.languages.join(", ") || "—"}
@@ -281,20 +296,20 @@ export default async function InstructorsPage({
                       )}
                     </td>
                     <td className="py-2">
-                      <form action={setInstructorActive}>
+                      <ActionForm action={setInstructorActive}>
                         <input type="hidden" name="id" value={i.id} />
                         <input
                           type="hidden"
                           name="active"
                           value={i.active ? "false" : "true"}
                         />
-                        <button
-                          type="submit"
-                          className="text-xs text-ink-600 hover:text-brand-300"
+                        <SubmitButton
+                          variant="subtle"
+                          loadingLabel="…"
                         >
                           {i.active ? "desactivar" : "reactivar"}
-                        </button>
-                      </form>
+                        </SubmitButton>
+                      </ActionForm>
                     </td>
                   </tr>
                 ))}
@@ -348,7 +363,7 @@ export default async function InstructorsPage({
                       {/* Bulk-fill: pick slots, apply to all VIEW_DAYS at
                           once. Second form (no slots) clears the range. */}
                       <td className="py-2 pr-3 align-top">
-                        <form
+                        <ActionForm
                           action={setAvailabilityBulk}
                           className="flex flex-col items-stretch gap-1"
                         >
@@ -387,14 +402,15 @@ export default async function InstructorsPage({
                               </label>
                             ))}
                           </div>
-                          <button
-                            type="submit"
+                          <SubmitButton
+                            variant="subtle"
+                            loadingLabel="…"
                             className="rounded bg-brand-500/15 px-2 py-0.5 text-[10px] font-medium text-brand-300 ring-1 ring-inset ring-brand-400/30 hover:bg-brand-500/30"
                           >
                             Marcar todo
-                          </button>
-                        </form>
-                        <form
+                          </SubmitButton>
+                        </ActionForm>
+                        <ActionForm
                           action={setAvailabilityBulk}
                           className="mt-1"
                         >
@@ -415,19 +431,20 @@ export default async function InstructorsPage({
                           />
                           <input type="hidden" name="days" value={VIEW_DAYS} />
                           {/* No `slots` inputs → server treats as clear */}
-                          <button
-                            type="submit"
+                          <SubmitButton
+                            variant="subtle"
+                            loadingLabel="…"
                             className="w-full rounded bg-ink-200/60 px-2 py-0.5 text-[10px] text-ink-700 hover:bg-bad-500/20 hover:text-bad-700"
                           >
                             Limpiar todo
-                          </button>
-                        </form>
+                          </SubmitButton>
+                        </ActionForm>
                       </td>
                       {dateList.map((fecha) => {
                         const current = byDate.get(fecha) ?? [];
                         return (
                           <td key={fecha} className="px-1 py-1 align-top">
-                            <form
+                            <ActionForm
                               action={setAvailability}
                               className="flex flex-col items-center gap-1"
                             >
@@ -463,13 +480,14 @@ export default async function InstructorsPage({
                                   </span>
                                 </label>
                               ))}
-                              <button
-                                type="submit"
+                              <SubmitButton
+                                variant="subtle"
+                                loadingLabel="…"
                                 className="rounded bg-ink-200/60 px-1.5 py-0.5 text-[10px] text-ink-700 hover:bg-brand-400/20 hover:text-brand-300"
                               >
                                 ✓
-                              </button>
-                            </form>
+                              </SubmitButton>
+                            </ActionForm>
                           </td>
                         );
                       })}

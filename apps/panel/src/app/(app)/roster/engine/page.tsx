@@ -18,7 +18,9 @@ import {
   deleteWalkInDiver,
   updateWalkInDiver,
 } from "~/app/actions/roster-engine";
+import { ActionForm } from "~/app/_components/action-form";
 import { PageHeader } from "~/app/_components/page-header";
+import { SubmitButton } from "~/app/_components/submit-button";
 import { requireUserContext } from "~/lib/auth-context";
 import {
   listDiversForDate,
@@ -208,19 +210,19 @@ export default async function EnginePage({
                                         >
                                           mover
                                         </a>
-                                        <form action={deleteWalkInDiver}>
+                                        <ActionForm action={deleteWalkInDiver}>
                                           <input
                                             type="hidden"
                                             name="id"
                                             value={d.id}
                                           />
-                                          <button
-                                            type="submit"
-                                            className="text-ink-500 hover:text-bad-500"
+                                          <SubmitButton
+                                            variant="subtle"
+                                            loadingLabel="borrando…"
                                           >
                                             eliminar
-                                          </button>
-                                        </form>
+                                          </SubmitButton>
+                                        </ActionForm>
                                       </div>
                                     ) : null}
                                   </td>
@@ -236,7 +238,7 @@ export default async function EnginePage({
                                     className="hidden target:table-row border-t border-brand-400/30 bg-brand-400/5"
                                   >
                                     <td colSpan={6} className="px-2 py-2">
-                                      <form
+                                      <ActionForm
                                         action={updateWalkInDiver}
                                         className="flex flex-wrap items-end gap-2 text-[11px]"
                                       >
@@ -322,19 +324,20 @@ export default async function EnginePage({
                                             </option>
                                           </select>
                                         </label>
-                                        <button
-                                          type="submit"
+                                        <SubmitButton
+                                          variant="subtle"
+                                          loadingLabel="guardando…"
                                           className="rounded bg-brand-500/15 px-2 py-0.5 text-[10px] font-medium text-brand-300 ring-1 ring-inset ring-brand-400/30 hover:bg-brand-500/30"
                                         >
                                           guardar
-                                        </button>
+                                        </SubmitButton>
                                         <a
                                           href="#"
                                           className="text-[10px] text-ink-500 hover:text-ink-700"
                                         >
                                           cancelar
                                         </a>
-                                      </form>
+                                      </ActionForm>
                                     </td>
                                   </tr>
                                 ) : null}
@@ -370,19 +373,19 @@ export default async function EnginePage({
                             </span>
                             {d.origen === "Manual" ? (
                               <span className="flex gap-2 text-[10px]">
-                                <form action={deleteWalkInDiver}>
+                                <ActionForm action={deleteWalkInDiver}>
                                   <input
                                     type="hidden"
                                     name="id"
                                     value={d.id}
                                   />
-                                  <button
-                                    type="submit"
-                                    className="text-ink-500 hover:text-bad-500"
+                                  <SubmitButton
+                                    variant="subtle"
+                                    loadingLabel="borrando…"
                                   >
                                     eliminar
-                                  </button>
-                                </form>
+                                  </SubmitButton>
+                                </ActionForm>
                               </span>
                             ) : null}
                           </li>
@@ -404,9 +407,11 @@ export default async function EnginePage({
           Cliente que entra sin pasar por la AI. Se carga con el mismo formato
           y el motor lo agrupa al próximo cálculo.
         </p>
-        <form
+        <ActionForm
           action={createWalkInDiver}
           className="grid gap-3 text-sm md:grid-cols-2 lg:grid-cols-4"
+          resetOnSuccess
+          successMessage="Walk-in cargado"
         >
           <input type="hidden" name="sede_id" value={selectedSede.id} />
           <input type="hidden" name="fecha" value={fecha} />
@@ -563,11 +568,11 @@ export default async function EnginePage({
             />
           </div>
           <div className="md:col-span-2 lg:col-span-4">
-            <button type="submit" className="btn-primary text-sm">
+            <SubmitButton variant="primary" loadingLabel="Cargando walk-in…">
               Cargar walk-in
-            </button>
+            </SubmitButton>
           </div>
-        </form>
+        </ActionForm>
       </section>
 
       {/* Miguel v2.2 addendum §5 (2026-06-27) — compact "quién está
@@ -600,10 +605,10 @@ export default async function EnginePage({
               .map((i) => (
                 <span
                   key={i.id}
-                  className={`inline-flex items-center gap-1.5 rounded border px-2 py-1 ${
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 font-medium ring-1 ring-inset transition-colors ${
                     i.role === "divemaster"
-                      ? "border-amber-300/60 bg-amber-100/40 text-amber-900"
-                      : "border-brand-300/60 bg-brand-100/30 text-brand-900"
+                      ? "border-warn-500/40 bg-warn-500/15 text-warn-700 ring-warn-500/30"
+                      : "border-brand-400/40 bg-brand-400/10 text-brand-300 ring-brand-400/30"
                   }`}
                   title={
                     i.role === "divemaster"
@@ -611,8 +616,14 @@ export default async function EnginePage({
                       : "Instructor — cursos + fun dives"
                   }
                 >
-                  <span className="font-medium">{i.nombre}</span>
-                  <span className="text-[10px] uppercase opacity-70">
+                  <span>{i.nombre}</span>
+                  <span
+                    className={`rounded px-1 text-[9px] font-bold uppercase tracking-wider ${
+                      i.role === "divemaster"
+                        ? "bg-warn-500/25 text-warn-700"
+                        : "bg-brand-400/20 text-brand-300"
+                    }`}
+                  >
                     {i.role === "divemaster" ? "DM" : "INST"}
                   </span>
                 </span>
