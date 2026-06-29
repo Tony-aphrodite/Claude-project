@@ -55,8 +55,8 @@ Critical takeaways:
 
 ### 1. Try Scuba / Bautizo — `TryScuba` — 3,600 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531779/dpm_koh_tao_tryscuba_en_dkbzvd.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531782/dpm_koh_tao_tryscuba_es_hqnhei.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_tryscuba_en_dkbzvd.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_tryscuba_es_hqnhei.jpg
 
 **Texto catálogo (EN):**
 > Our Try Scuba Diving is a 1-day experience for beginners — a short intro class on equipment and safety, then 2 dives in the sea 🤿
@@ -78,8 +78,8 @@ Precio 3,600/pp · grupo 2+ 3,300/pp · 1 día · edad mín 10 (8-9 máx 5m, con
 
 ### 2. Scuba Diver — `ScubaDiver` — 8,600 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531764/dpm_koh_tao_scuba_en_iet9wt.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531768/dpm_koh_tao_scuba_es_cgqkih.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_scuba_en_iet9wt.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_scuba_es_cgqkih.jpg
 
 KB: Precio 8,600 · 1 día · edad mín 10 · prof máx 12m · cert SSI Scuba Diver (internacional + de por vida), upgradeable a OW en cualquier momento/lugar · incluye licencia, 2 boat dives, instructor, equipo, seguro, snacks.
 
@@ -87,8 +87,8 @@ KB: Precio 8,600 · 1 día · edad mín 10 · prof máx 12m · cert SSI Scuba Di
 
 ### 3. Open Water — `OW` — 11,000 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531736/dpm_koh_tao_ow_en_u7blqz.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531739/dpm_koh_tao_ow_es_bw6noq.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_ow_en_u7blqz.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_ow_es_bw6noq.jpg
 
 KB: Precio 11,000 · piso negociación 10,000 (primera oferta) → mínimo absoluto 9,500 · 3 días (puede hacerse en 2 al mismo precio, 4 dives en vez de 6) · edad mín 10 · prof 18m (Junior <15 = 12m, auto-upgrade a 18m a los 15) · cert SSI Open Water · incluye cert, instructor, equipo, seguro, 6 boat dives, remera DPM o botella, snacks · alojamiento +1,000 THB (3 noches).
 
@@ -96,8 +96,8 @@ KB: Precio 11,000 · piso negociación 10,000 (primera oferta) → mínimo absol
 
 ### 4. Open Water 30 ⭐ — `OW30` — 17,900 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531743/dpm_koh_tao_ow30_en_k8tdml.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531750/dpm_koh_tao_ow30_es_jqdvrd.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_ow30_en_k8tdml.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_ow30_es_jqdvrd.jpg
 
 KB: Precio 17,900 (ahorra 5,300 vs 23,200) · ~EUR 505 / GBP 426 / USD 518 · 3 días · edad mín 10 · prof 30m · exclusivo DPM · máx 4 alumnos/instructor · cert SSI OW + SSI Deep Adventurer · incluye ambas cert, instructor, equipo, seguro, 6 dives, remera + máscara&snorkel + botella gratis, todas las tasas, 50% off Fun Dives en las otras 4 sedes (1 vez por sede), snacks · alojamiento +1,000 (3 noches) = 18,900.
 
@@ -105,8 +105,8 @@ KB: Precio 17,900 (ahorra 5,300 vs 23,200) · ~EUR 505 / GBP 426 / USD 518 · 3 
 
 ### 5. Advanced — `AOW` — 10,000 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531686/dpm_koh_tao_advanced_en_x3lpty.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531674/dpm_koh_tao_advanced_es_b142kz.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_advanced_en_x3lpty.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_advanced_es_b142kz.jpg
 
 KB: Precio 10,000 · 2 días · requisito Open Water · prof 30m · sin teoría ni exámenes · 5 dives (Perfect Buoyancy, Navigation, Deep, Wreck, Night) · cert SSI Advanced Adventurer · incluye instructor, equipo, seguro, 5 dives, snacks.
 
@@ -116,8 +116,8 @@ KB: Precio 10,000 · 2 días · requisito Open Water · prof 30m · sin teoría 
 
 ### 6. Deep Adventure (paquete) — `Adventures` — 3,900 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1782221440/dpm_koh_tao_deepadv_en_2_lflppo.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1782221451/dpm_koh_tao_deepadv_es_2_kuzjri.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_deepadv_en_2_lflppo.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_deepadv_es_2_kuzjri.jpg
 
 **Texto catálogo (EN):**
 > The Deep Adventure takes you down to 30 m even with just your Open Water 🤿 You get a lifetime SSI Deep Adventurer recognition card. It comes as a 2-dive package — your deep dive plus a fun dive — for 3,900 THB, including pro instructor, full gear and insurance.
@@ -135,8 +135,8 @@ KB: Precio **3,900 = paquete de 2 inmersiones** (1 buceo profundo a 30m + 1 fun 
 
 ### 7. Deep Specialty — `DeepSpecialty` — 7,900 / 8,900 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1782218928/dpm_koh_tao_deepspec_en_ansq50.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1782218956/dpm_koh_tao_deepspec_es_d1ys4p.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_deepspec_en_ansq50.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_deepspec_es_d1ys4p.jpg
 
 KB: Precio doble — **7,900** si Advanced (1 día, 2 dives) / **8,900** si Open Water (2 días, 4 dives) · prof **40m** · requisito Open Water · cert SSI Deep Specialty de por vida · incluye instructor, equipo, seguro, snacks.
 
@@ -144,8 +144,8 @@ KB: Precio doble — **7,900** si Advanced (1 día, 2 dives) / **8,900** si Open
 
 ### 8. Nitrox Specialty — `NitroxSpecialty` — 7,900 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1782219037/dpm_koh_tao_nitrox_en_guetss.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1782219024/dpm_koh_tao_nitrox_es_trar3i.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_nitrox_en_guetss.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_nitrox_es_trar3i.jpg
 
 KB: Precio 7,900 · aire enriquecido hasta 40% O2 · 2 inmersiones Nitrox · cert SSI Enriched Air de por vida · incluye instructor, equipo, seguro, snacks.
 
@@ -153,8 +153,8 @@ KB: Precio 7,900 · aire enriquecido hasta 40% O2 · 2 inmersiones Nitrox · cer
 
 ### 9. Night Adventure — `NightAdventure` — 2,900 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1782219570/dpm_koh_tao_nightadventure_en_whq0cl.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1782219582/dpm_koh_tao_nightadventure_es_i8cace.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_nightadventure_en_whq0cl.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_nightadventure_es_i8cace.jpg
 
 KB: Precio 2,900 · formato 1 sola inmersión (excepción a la regla de mínimo 2) · requisito Open Water mínimo · certifica de por vida para buceos nocturnos · reconocimiento SSI Night.
 
@@ -162,8 +162,8 @@ KB: Precio 2,900 · formato 1 sola inmersión (excepción a la regla de mínimo 
 
 ### 10. Night Fun Dive — `NightFunDive` — 1,200 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1782219274/dpm_koh_tao_nightdive_en_kgxkyf.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1782219261/dpm_koh_tao_nightdive_es_p8kks2.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_nightdive_en_kgxkyf.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_nightdive_es_p8kks2.jpg
 
 KB: Precio **1,200** · inmersión guiada nocturna (1 dive) · requisito **buceador nocturno** (Advanced o tener la Night Adventure certificada) · incluye equipo, guía, seguro.
 
@@ -171,8 +171,8 @@ KB: Precio **1,200** · inmersión guiada nocturna (1 dive) · requisito **bucea
 
 ### 11. Fun Dives — `FunDive` — 2,100 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531722/dpm_koh_tao_fundives_en_bwrdxl.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531726/dpm_koh_tao_fundives_es_crqekn.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_fundives_en_bwrdxl.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_fundives_es_crqekn.jpg
 
 KB: Precio 2,100/salida · 2 boat dives por salida · requisito cualquier certificación · **requiere haber buceado dentro de los últimos 12 meses** (si no, Refresh).
 
@@ -180,8 +180,8 @@ KB: Precio 2,100/salida · 2 boat dives por salida · requisito cualquier certif
 
 ### 12. Refresh + Fun Dive — `Refresh` — 2,600 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531746/dpm_koh_tao_refresh_en_ohu0zc.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531754/dpm_koh_tao_refresh_es_w89eio.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_refresh_en_ohu0zc.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_refresh_es_w89eio.jpg
 
 KB: Precio 2,600 · requerido si el certificado no buceó en **+12 meses** · requisito Scuba/OW/Advanced/Rescue · DM e Instructor no necesitan Refresh · incluye repaso teórico, inmersión de skills en aguas poco profundas, 1 fun dive, guía, equipo, seguro, snacks.
 
@@ -189,8 +189,8 @@ KB: Precio 2,600 · requerido si el certificado no buceó en **+12 meses** · re
 
 ### 13. React Right + Rescue — `StressRescue` — 12,600 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531761/dpm_koh_tao_rescue_en_pgfyfr.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531757/dpm_koh_tao_rescue_es_dxes8m.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_rescue_en_pgfyfr.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_rescue_es_dxes8m.jpg
 
 KB: Precio **12,600** · 3 días · requisito **Advanced** · cert SSI Rescue Diver + SSI React Right · 4 boat dives · incluye instructor, equipo, seguro, snacks.
 
@@ -200,8 +200,8 @@ KB: Precio **12,600** · 3 días · requisito **Advanced** · cert SSI Rescue Di
 
 ### 14. Divemaster — `DMT` — 44,000 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531707/dpm_koh_tao_divemaster_en_x7vjea.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1781531711/dpm_koh_tao_divemaster_es_monoe4.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_divemaster_en_x7vjea.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_divemaster_es_monoe4.jpg
 
 KB: Precio 44,000 (incluye Deep Specialty + alojamiento durante la formación) · 6 semanas · bucea 5-6 días/sem · alojamiento incluido en DPM Hostel · para consultas: pedir número, dar oficina +66636575799, escalar — NUNCA cotizar disponibilidad.
 
@@ -224,8 +224,8 @@ KB: 1 día · dirigido por bióloga marina de DPM KT · taller + 2 actividades a
 
 ### 21. Perfect Buoyancy — `PerfectBuoyancy` — 7,900 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1782264806/dpm_koh_tao_perfectbuoy_en_tuhvfr.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1782264821/dpm_koh_tao_perfectbuoy_es_zdtfmz.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_perfectbuoy_en_tuhvfr.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_perfectbuoy_es_zdtfmz.jpg
 
 **Texto catálogo (EN):**
 > The Perfect Buoyancy specialty fine-tunes your control underwater — you'll hover effortlessly, save air and protect the reef 🤿 2 specialty dives with a pro instructor, and you earn a lifetime SSI Perfect Buoyancy certification.
@@ -243,8 +243,8 @@ KB: Precio 7,900 · especialidad de flotabilidad · 2 inmersiones · cert SSI Pe
 
 ### 22. Upgrade Open Water (Basic Diver) — `UpgradeBasic` — 7,400 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1782264774/dpm_koh_tao_upgradebasic_en_eck2nf.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1782264789/dpm_koh_tao_upgradebasic_es_gedgqx.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_upgradebasic_en_eck2nf.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_upgradebasic_es_gedgqx.jpg
 
 **Texto catálogo (EN):**
 > If you already hold the SSI Basic Diver card, this upgrade takes you to the full Open Water certification 🤿 4 boat dives with a pro instructor, certified to 18 m anywhere in the world, lifetime.
@@ -262,8 +262,8 @@ KB: Precio 7,400 · requisito tarjeta SSI Basic Diver · cert SSI Open Water · 
 
 ### 23. Upgrade Open Water (Scuba Diver) — `UpgradeScuba` — 5,000 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1782264724/dpm_koh_tao_upgradescuba_en_vd0ean.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1782264754/dpm_koh_tao_upgradescuba_es_vhbrtp.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_upgradescuba_en_vd0ean.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_upgradescuba_es_vhbrtp.jpg
 
 **Texto catálogo (EN):**
 > Already certified as SSI Scuba Diver? This upgrade completes your full Open Water certification 🤿 2 boat dives with a pro instructor, certified to 18 m worldwide, lifetime.
@@ -281,8 +281,8 @@ KB: Precio 5,000 · requisito cert SSI Scuba Diver · cert SSI Open Water · 2 b
 
 ### 24. Instructor — `Instructor` — 80,000 THB
 
-URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1782264697/dpm_koh_tao_instructor_en_leuvju.jpg
-URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1782264711/dpm_koh_tao_instructor_es_ojl5aa.jpg
+URL EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_instructor_en_leuvju.jpg
+URL ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_koh_tao_instructor_es_ojl5aa.jpg
 
 **Texto catálogo (EN):**
 > Ready to go pro? The Instructor course is the level above Divemaster — you learn to teach and certify divers for life 🌊 It's a full professional training with DPM.

@@ -258,40 +258,40 @@ Las URLs abajo son **referencia documental para el operador** — el AI NO debe 
 `RESPOND_IO_CATALOG_KOH_PHI_PHI_<PROGRAMA>_<EN|ES>=<cloudinary URL>`.
 
 ### Try Scuba
-- ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_try_scuba_es_wrxmna.jpg
-- EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_try_scuba_en_uxzq8z.jpg
+- ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_try_scuba_es_wrxmna.jpg
+- EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_try_scuba_en_uxzq8z.jpg
 
 ### Basic Diver (Scuba Diver upgrade path)
-- ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_basic_diver_es_qg1rqs.jpg
-- EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_basic_diver_en_srtufj.jpg
+- ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_basic_diver_es_qg1rqs.jpg
+- EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_basic_diver_en_srtufj.jpg
 
 ### Fun Dives
-- ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_fun_dives_es_cinwd7.jpg
-- EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_fun_dives_en_ej5vy4.jpg
+- ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_fun_dives_es_cinwd7.jpg
+- EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_fun_dives_en_ej5vy4.jpg
 
 ### Adventure Dives
-- ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_adventure_es_ie7z18.jpg
-- EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_adventure_en_edtiye.jpg
+- ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_adventure_es_ie7z18.jpg
+- EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_adventure_en_edtiye.jpg
 
 ### Scuba Diver
-- ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_scuba_diver_es_ivutxa.jpg
-- EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_scuba_diver_en_v7bndp.jpg
+- ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_scuba_diver_es_ivutxa.jpg
+- EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_scuba_diver_en_v7bndp.jpg
 
 ### Refresh
-- ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_refresh_es_ydgtsd.jpg
-- EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_refresh_en_azdith.jpg
+- ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_refresh_es_ydgtsd.jpg
+- EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_refresh_en_azdith.jpg
 
 ### Open Water
-- ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_es_rkyeno.jpg
-- EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_en_kgpsta.jpg
+- ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_open_water_es_rkyeno.jpg
+- EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_open_water_en_kgpsta.jpg
 
 ### Advanced
-- ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854326/dpm_phi_phi_advanced_es_og7z6b.jpg
-- EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_advanced_en_ks3ugc.jpg
+- ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_advanced_es_og7z6b.jpg
+- EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_advanced_en_ks3ugc.jpg
 
 ### Open Water 30
-- ES: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_30_es_s23xaw.jpg
-- EN: https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_30_en_alu5fx.jpg
+- ES: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_open_water_30_es_s23xaw.jpg
+- EN: https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_open_water_30_en_alu5fx.jpg
 
 ---
 

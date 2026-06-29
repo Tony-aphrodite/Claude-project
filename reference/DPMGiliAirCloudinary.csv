@@ -1,23 +1,23 @@
 sede,slug,programa_en,programa_es,precio_idr,idioma,branch_code,cloudinary_url
-Gili Air,ow,Open Water,Open Water,"6,400,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526466/dpm_gili_air_ow_en_us3ote.jpg
-Gili Air,ow,Open Water,Open Water,"6,400,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526468/dpm_gili_air_ow_es_hepacs.jpg
-Gili Air,ow30,Open Water 30,Open Water 30,"9,500,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526470/dpm_gili_air_ow30_en_qhkj8o.jpg
-Gili Air,ow30,Open Water 30,Open Water 30,"9,500,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526473/dpm_gili_air_ow30_es_kjc13c.jpg
-Gili Air,advanced,Advanced,Curso Avanzado,"5,400,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526494/dpm_gili_air_advanced_en_si6bs8.jpg
-Gili Air,advanced,Advanced,Curso Avanzado,"5,400,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526497/dpm_gili_air_advanced_es_yu6qeq.jpg
-Gili Air,rescue,Stress & Rescue,Rescue Course,"6,400,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526485/dpm_gili_air_rescue_en_pupmvo.jpg
-Gili Air,rescue,Stress & Rescue,Rescue Course,"6,400,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526489/dpm_gili_air_rescue_es_vxtnlb.jpg
-Gili Air,deep,Deep Specialty,Especialidad Profunda,"4,190,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526450/dpm_gili_air_deep_en_bxxkdc.jpg
-Gili Air,deep,Deep Specialty,Especialidad Profunda,"4,190,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526451/dpm_gili_air_deep_es_ulmr6r.jpg
-Gili Air,nitrox,Nitrox Specialty,Nitrox Specialty,"3,200,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526461/dpm_gili_air_nitrox_en_gumqvj.jpg
-Gili Air,nitrox,Nitrox Specialty,Nitrox Specialty,"3,200,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526463/dpm_gili_air_nitrox_es_mt7gx7.jpg
-Gili Air,reactright,React Right,React Right,"2,400,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526476/dpm_gili_air_reactright_en_lca8sb.jpg
-Gili Air,reactright,React Right,React Right,"2,400,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526478/dpm_gili_air_reactright_es_ts8qro.jpg
-Gili Air,tryscuba,Try Scuba Diving,Bautizo de Buceo,"1,750,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526490/dpm_gili_air_tryscuba_en_v8zlyj.jpg
-Gili Air,tryscuba,Try Scuba Diving,Bautizo de Buceo,"1,750,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526497/dpm_gili_air_tryscuba_es_xvn8eh.jpg
-Gili Air,deepadv,Deep Adventure,Aventura Profunda,"1,680,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526452/dpm_gili_air_deepadv_en_kjsu3w.jpg
-Gili Air,deepadv,Deep Adventure,Aventura Profunda,"1,680,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526454/dpm_gili_air_deepadv_es_jlahrj.jpg
-Gili Air,refresh,Refresh + Fun Dive,Refresh + Fun Dive,"1,540,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526482/dpm_gili_air_refresh_en_ik98nv.jpg
-Gili Air,refresh,Refresh + Fun Dive,Refresh + Fun Dive,"1,540,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526482/dpm_gili_air_refresh_es_mbonls.jpg
-Gili Air,fundives,Fun Dives,Fun Dives,"1,180,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526456/dpm_gili_air_fundives_en_zpnwcf.jpg
-Gili Air,fundives,Fun Dives,Fun Dives,"1,180,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/v1781526459/dpm_gili_air_fundives_es_nppn7d.jpg
+Gili Air,ow,Open Water,Open Water,"6,400,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_ow_en_us3ote.jpg
+Gili Air,ow,Open Water,Open Water,"6,400,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_ow_es_hepacs.jpg
+Gili Air,ow30,Open Water 30,Open Water 30,"9,500,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_ow30_en_qhkj8o.jpg
+Gili Air,ow30,Open Water 30,Open Water 30,"9,500,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_ow30_es_kjc13c.jpg
+Gili Air,advanced,Advanced,Curso Avanzado,"5,400,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_advanced_en_si6bs8.jpg
+Gili Air,advanced,Advanced,Curso Avanzado,"5,400,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_advanced_es_yu6qeq.jpg
+Gili Air,rescue,Stress & Rescue,Rescue Course,"6,400,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_rescue_en_pupmvo.jpg
+Gili Air,rescue,Stress & Rescue,Rescue Course,"6,400,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_rescue_es_vxtnlb.jpg
+Gili Air,deep,Deep Specialty,Especialidad Profunda,"4,190,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_deep_en_bxxkdc.jpg
+Gili Air,deep,Deep Specialty,Especialidad Profunda,"4,190,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_deep_es_ulmr6r.jpg
+Gili Air,nitrox,Nitrox Specialty,Nitrox Specialty,"3,200,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_nitrox_en_gumqvj.jpg
+Gili Air,nitrox,Nitrox Specialty,Nitrox Specialty,"3,200,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_nitrox_es_mt7gx7.jpg
+Gili Air,reactright,React Right,React Right,"2,400,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_reactright_en_lca8sb.jpg
+Gili Air,reactright,React Right,React Right,"2,400,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_reactright_es_ts8qro.jpg
+Gili Air,tryscuba,Try Scuba Diving,Bautizo de Buceo,"1,750,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_tryscuba_en_v8zlyj.jpg
+Gili Air,tryscuba,Try Scuba Diving,Bautizo de Buceo,"1,750,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_tryscuba_es_xvn8eh.jpg
+Gili Air,deepadv,Deep Adventure,Aventura Profunda,"1,680,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_deepadv_en_kjsu3w.jpg
+Gili Air,deepadv,Deep Adventure,Aventura Profunda,"1,680,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_deepadv_es_jlahrj.jpg
+Gili Air,refresh,Refresh + Fun Dive,Refresh + Fun Dive,"1,540,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_refresh_en_ik98nv.jpg
+Gili Air,refresh,Refresh + Fun Dive,Refresh + Fun Dive,"1,540,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_refresh_es_mbonls.jpg
+Gili Air,fundives,Fun Dives,Fun Dives,"1,180,000 IDR",EN,GAEN,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_fundives_en_zpnwcf.jpg
+Gili Air,fundives,Fun Dives,Fun Dives,"1,180,000 IDR",ES,GAES,https://res.cloudinary.com/drk4qqccv/image/upload/dpm_gili_air_fundives_es_nppn7d.jpg

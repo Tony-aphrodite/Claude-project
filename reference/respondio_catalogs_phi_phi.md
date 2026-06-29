@@ -22,15 +22,15 @@ Las 18 URLs (9 cursos × 2 idiomas, EN + ES) están en KB-05 como fuente documen
 
 | CatalogProgram | Course (label) | URL EN | URL ES |
 |---|---|---|---|
-| `TryScuba` | Try Scuba Diving / Bautizo | [try_scuba_en_uxzq8z](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_try_scuba_en_uxzq8z.jpg) | [try_scuba_es_wrxmna](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_try_scuba_es_wrxmna.jpg) |
-| `ScubaDiver` | Scuba Diver (1-day cert) | [scuba_diver_en_v7bndp](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_scuba_diver_en_v7bndp.jpg) | [scuba_diver_es_ivutxa](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_scuba_diver_es_ivutxa.jpg) |
-| *(alt. label)* | Basic Diver — Scuba Diver upgrade path | [basic_diver_en_srtufj](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_basic_diver_en_srtufj.jpg) | [basic_diver_es_qg1rqs](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_basic_diver_es_qg1rqs.jpg) |
-| `FunDive` | Fun Dives | [fun_dives_en_ej5vy4](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_fun_dives_en_ej5vy4.jpg) | [fun_dives_es_cinwd7](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_fun_dives_es_cinwd7.jpg) |
-| `Adventures` | Adventure Dives / SSI Adventure | [adventure_en_edtiye](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_adventure_en_edtiye.jpg) | [adventure_es_ie7z18](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_adventure_es_ie7z18.jpg) |
-| `Refresh` | Refresh + 2 Fun Dives | [refresh_en_azdith](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_refresh_en_azdith.jpg) | [refresh_es_ydgtsd](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_refresh_es_ydgtsd.jpg) |
-| `OW` | Open Water Course | [open_water_en_kgpsta](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_en_kgpsta.jpg) | [open_water_es_rkyeno](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_es_rkyeno.jpg) |
-| `OW30` | Open Water 30 (intensivo 3 días) | [open_water_30_en_alu5fx](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_30_en_alu5fx.jpg) | [open_water_30_es_s23xaw](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_30_es_s23xaw.jpg) |
-| `AOW` | Advanced / Curso Avanzado | [advanced_en_ks3ugc](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_advanced_en_ks3ugc.jpg) | [advanced_es_og7z6b](https://res.cloudinary.com/drk4qqccv/image/upload/v1774854326/dpm_phi_phi_advanced_es_og7z6b.jpg) |
+| `TryScuba` | Try Scuba Diving / Bautizo | [try_scuba_en_uxzq8z](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_try_scuba_en_uxzq8z.jpg) | [try_scuba_es_wrxmna](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_try_scuba_es_wrxmna.jpg) |
+| `ScubaDiver` | Scuba Diver (1-day cert) | [scuba_diver_en_v7bndp](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_scuba_diver_en_v7bndp.jpg) | [scuba_diver_es_ivutxa](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_scuba_diver_es_ivutxa.jpg) |
+| *(alt. label)* | Basic Diver — Scuba Diver upgrade path | [basic_diver_en_srtufj](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_basic_diver_en_srtufj.jpg) | [basic_diver_es_qg1rqs](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_basic_diver_es_qg1rqs.jpg) |
+| `FunDive` | Fun Dives | [fun_dives_en_ej5vy4](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_fun_dives_en_ej5vy4.jpg) | [fun_dives_es_cinwd7](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_fun_dives_es_cinwd7.jpg) |
+| `Adventures` | Adventure Dives / SSI Adventure | [adventure_en_edtiye](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_adventure_en_edtiye.jpg) | [adventure_es_ie7z18](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_adventure_es_ie7z18.jpg) |
+| `Refresh` | Refresh + 2 Fun Dives | [refresh_en_azdith](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_refresh_en_azdith.jpg) | [refresh_es_ydgtsd](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_refresh_es_ydgtsd.jpg) |
+| `OW` | Open Water Course | [open_water_en_kgpsta](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_open_water_en_kgpsta.jpg) | [open_water_es_rkyeno](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_open_water_es_rkyeno.jpg) |
+| `OW30` | Open Water 30 (intensivo 3 días) | [open_water_30_en_alu5fx](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_open_water_30_en_alu5fx.jpg) | [open_water_30_es_s23xaw](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_open_water_30_es_s23xaw.jpg) |
+| `AOW` | Advanced / Curso Avanzado | [advanced_en_ks3ugc](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_advanced_en_ks3ugc.jpg) | [advanced_es_og7z6b](https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_advanced_es_og7z6b.jpg) |
 
 **Cobertura del funnel principal: 9/9 cursos esenciales.**
 
@@ -49,22 +49,22 @@ KB-05 lista una imagen separada de "Basic Diver" como upgrade path desde Scuba D
 Setear bajo Variables del servicio `@dpm/server`. Cada línea es una env var separada. Si la key ya existe con un fragment ID viejo (e.g. `xini7rpxbl`), **reemplazá el valor con la URL** — el código nuevo en `catalog-registry.ts` auto-detecta URL vs fragment ID por el prefijo `http(s)://`.
 
 ```
-RESPOND_IO_CATALOG_KOH_PHI_PHI_TRYSCUBA_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_try_scuba_en_uxzq8z.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_TRYSCUBA_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_try_scuba_es_wrxmna.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_SCUBADIVER_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_scuba_diver_en_v7bndp.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_SCUBADIVER_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_scuba_diver_es_ivutxa.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_FUNDIVE_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_fun_dives_en_ej5vy4.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_FUNDIVE_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_fun_dives_es_cinwd7.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_ADVENTURES_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_adventure_en_edtiye.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_ADVENTURES_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_adventure_es_ie7z18.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_REFRESH_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_refresh_en_azdith.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_REFRESH_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854329/dpm_phi_phi_refresh_es_ydgtsd.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_OW_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_en_kgpsta.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_OW_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_es_rkyeno.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_OW30_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_30_en_alu5fx.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_OW30_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854328/dpm_phi_phi_open_water_30_es_s23xaw.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_AOW_EN=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854327/dpm_phi_phi_advanced_en_ks3ugc.jpg
-RESPOND_IO_CATALOG_KOH_PHI_PHI_AOW_ES=https://res.cloudinary.com/drk4qqccv/image/upload/v1774854326/dpm_phi_phi_advanced_es_og7z6b.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_TRYSCUBA_EN=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_try_scuba_en_uxzq8z.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_TRYSCUBA_ES=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_try_scuba_es_wrxmna.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_SCUBADIVER_EN=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_scuba_diver_en_v7bndp.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_SCUBADIVER_ES=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_scuba_diver_es_ivutxa.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_FUNDIVE_EN=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_fun_dives_en_ej5vy4.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_FUNDIVE_ES=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_fun_dives_es_cinwd7.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_ADVENTURES_EN=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_adventure_en_edtiye.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_ADVENTURES_ES=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_adventure_es_ie7z18.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_REFRESH_EN=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_refresh_en_azdith.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_REFRESH_ES=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_refresh_es_ydgtsd.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_OW_EN=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_open_water_en_kgpsta.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_OW_ES=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_open_water_es_rkyeno.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_OW30_EN=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_open_water_30_en_alu5fx.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_OW30_ES=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_open_water_30_es_s23xaw.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_AOW_EN=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_advanced_en_ks3ugc.jpg
+RESPOND_IO_CATALOG_KOH_PHI_PHI_AOW_ES=https://res.cloudinary.com/drk4qqccv/image/upload/dpm_phi_phi_advanced_es_og7z6b.jpg
 ```
 
 **Total: 16 env vars (8 cursos del funnel × 2 idiomas).**
