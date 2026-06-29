@@ -47,21 +47,23 @@ import { pickAllAttachments } from "./respond-io-attachment.js";
 import { AI_ENABLED_SEDE_NAMES_CONST } from "./sede.js";
 
 // Debounce window: how long we wait after the most recent message
-// before firing the batch. Tightened 5s → 2s 2026-06-19 then raised to
-// 5s 2026-06-23 — Miguel screenshot 2026-06-23 showed AI replying twice
-// to "Yes" + "I have Open and Nitrox" because the second message
-// arrived ~3s after the first (slow mobile typing) and the 2s window
-// had already expired. WhatsApp customers commonly take 3-5s between
-// short follow-on messages, so 2s missed the common case. 5s catches
-// it; the extra perceived latency on single messages is acceptable
-// (still feels like a human composing).
-const DEBOUNCE_MS = 5_000;
+// before firing the batch. Tightened 5s → 2s 2026-06-19; raised to
+// 5s 2026-06-23 ("Yes" + "I have Open and Nitrox" arriving ~3s apart);
+// raised again to 8s 2026-06-27 — Miguel R1 (Adam Nashef case, 3 replies
+// in 9s at payment step). Customer messages spaced 5-7s apart were each
+// closing the 5s window separately, so each one fired its own AI turn.
+// 8s catches the typical "type, pause, type" payment-screenshot flow
+// where the gap can be 6-7s; perceived latency on single messages
+// (+3s vs prior) still reads as human composition speed on WhatsApp.
+const DEBOUNCE_MS = 8_000;
 
 // Hard cap on total wait time from the first message in a batch. If a
 // customer types nonstop, we fire whatever we have rather than keep
-// extending. Raised 6s → 12s 2026-06-23 to match the wider debounce
-// (need cap > 2 × debounce for the cap to actually do work).
-const HARD_CAP_MS = 12_000;
+// extending. Raised 6s → 12s 2026-06-23; raised to 18s 2026-06-27
+// alongside DEBOUNCE_MS → 8s (need cap > 2 × debounce for the cap to
+// actually do work — otherwise a single nonstop typist hits the cap
+// faster than the natural debounce close, defeating the purpose).
+const HARD_CAP_MS = 18_000;
 
 // ─── Message-id dedup (Miguel 2026-06-18 feedback) ──────────────────────────
 // Respond.io fires multiple webhooks per customer message because we have
