@@ -216,22 +216,34 @@ On the AI confirmation path (currently writes `roster_bookings`), ALSO write per
 
 ---
 
-## #6 — Boat capacity: includes instructor seat or not?
+## #6 — Boat capacity: includes instructor seat or not? — RESOLVED ✅
 
 **Miguel's words (2026-06-30 morning Q2):**
 > "también debo comprender si al instructor lo cuenta como un espacio en el barco o no?"
 
-**Current model:** boat capacity = customer seats only. Instructor goes regardless (own logistics). Per-sede caps:
-- KT 35 · PP 22 · NP 18 · GT 20 · GA 20
+**Miguel's answer (2026-06-30 afternoon):**
+> "si cuenta pero realmente nosotros tenemos la posibilidad de aumentar
+>  o bajar la cantidad de lugares en el barco verdad? así que no
+>  debería ser un problema"
 
-These match Miguel's 2026-06-23 sheet audit: `CAPACIDAD + RESERVADOS = <cap>` per slot, where RESERVADOS counted customers only.
+**Resolution:** the boat total physically includes the instructor's
+seat (PP 22 = 2 instructors + 20 customers, etc.), BUT Miguel chooses
+to handle that operationally — he can adjust the per-sede capacity
+ceiling via /roster's "Capacidad por defecto" form to leave headroom
+for whatever instructor count he expects on that day / slot.
 
-**Pending:** Miguel needs to confirm this interpretation. Two outcomes:
+**Decision:** keep the current model. The number in `SEDE_BOAT_CAPACITY`
+remains the customer ceiling (a value Miguel sets per sede); the
+matching engine doesn't reserve an extra seat for the instructor. If
+Miguel later asks for automated instructor-seat math, the change is
+single-spot in `apps/server/src/services/roster-engine.ts` —
+subtract 1 from `boatCapacity` per group in the boat validation step.
 
-- **"22 = customer ceiling, instructor goes aparte"** → no code change needed.
-- **"22 = total including instructor"** → matching engine must subtract 1 per group's instructor before validating boat capacity (spec §6 secondary check).
+**Per-sede current values** (Miguel sheet audit 2026-06-23 +
+unchanged by this resolution): KT 35 · PP 22 · NP 18 · GT 20 · GA 20.
+Miguel adjusts via /roster.
 
-**Files affected (if needs change):** `apps/server/src/services/roster-engine.ts` — the boat-capacity validation step in `buildRoster`.
+**No code change shipped for this item.**
 
 ---
 
