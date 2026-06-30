@@ -3,8 +3,10 @@ import { redirect } from "next/navigation";
 
 import { LATENCY_TARGETS } from "@dpm/shared";
 
+import { HealthIndicator } from "~/app/_components/health-indicator";
 import { requireUserContext } from "~/lib/auth-context";
 import { getDashboardSnapshot } from "~/lib/db-queries";
+import { getHealthSnapshot } from "~/lib/health-stats";
 
 export const dynamic = "force-dynamic";
 
@@ -231,7 +233,13 @@ export default async function Dashboard() {
   const user = await requireUserContext();
   if (user.role !== "admin") redirect("/pipeline");
 
-  const snap = await getDashboardSnapshot(24);
+  // Resilience-layer #5 (Miguel 2026-06-12): AI semáforo. Fetched in
+  // parallel with the dashboard snapshot so the page load doesn't get
+  // a serial cost — each is < 50ms.
+  const [snap, health] = await Promise.all([
+    getDashboardSnapshot(24),
+    getHealthSnapshot(),
+  ]);
   const lat = snap.latency;
   const errors = snap.errors;
   const conv = snap.conversations;
@@ -253,6 +261,12 @@ export default async function Dashboard() {
 
   return (
     <>
+      {/* ─────── Health indicator (Miguel resilience #5) ─────── */}
+      {/* Rendered ABOVE the hero so a red light catches the operator's
+          eye before they read anything else on the page. The chip is
+          self-contained — clicking elsewhere doesn't dismiss it. */}
+      <HealthIndicator snap={health} />
+
       {/* ─────── Hero ─────── */}
       <section className="hero">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">

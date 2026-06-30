@@ -12,6 +12,7 @@ import { StageChip, STAGE_META } from "~/app/_components/stage";
 import { SubmitButton } from "~/app/_components/submit-button";
 import { releaseConversationToAi } from "~/app/actions/inbox";
 import { overrideLeadStage, triggerReroll } from "~/app/actions/leads";
+import { saveAiResponseAsTemplate } from "~/app/actions/saved-responses";
 import { requireUserContext } from "~/lib/auth-context";
 import { getConversation } from "~/lib/db-queries";
 
@@ -271,41 +272,154 @@ export default async function ConversationDetail({
             const isCliente = m.sender === "cliente";
             const isAi = m.sender === "ai";
             return (
-              <div
-                key={m.id}
-                className={`flex ${isCliente ? "justify-start" : "justify-end"}`}
-              >
-                <div className={isCliente ? "bubble-cliente" : isAi ? "bubble-ai" : "bubble-agente"}>
-                  <div className="bubble-meta flex items-center justify-between gap-3">
-                    <span>
-                      {isCliente
-                        ? "Cliente"
+              <div key={m.id} className="space-y-1">
+                <div
+                  className={`flex ${isCliente ? "justify-start" : "justify-end"}`}
+                >
+                  <div
+                    className={
+                      isCliente
+                        ? "bubble-cliente"
                         : isAi
-                          ? "AI"
-                          : `Agente${m.agenteName ? ` · ${m.agenteName}` : ""}`}
-                    </span>
-                    <span>{new Date(m.createdAt).toLocaleString()}</span>
-                  </div>
-                  <div className="whitespace-pre-wrap">{m.content}</div>
-                  {isAi && fuentes.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {fuentes.map((f) => (
-                        <span
-                          key={f}
-                          className="rounded bg-ink-900/15 px-1.5 py-0.5 font-mono text-[10px] text-ink-900/95 ring-1 ring-inset ring-ink-900/20"
-                          title="Fuente declarada por la AI"
+                          ? "bubble-ai"
+                          : "bubble-agente"
+                    }
+                  >
+                    <div className="bubble-meta flex items-center justify-between gap-3">
+                      <span>
+                        {isCliente
+                          ? "Cliente"
+                          : isAi
+                            ? "AI"
+                            : `Agente${m.agenteName ? ` · ${m.agenteName}` : ""}`}
+                      </span>
+                      <span>{new Date(m.createdAt).toLocaleString()}</span>
+                    </div>
+                    <div className="whitespace-pre-wrap">{m.content}</div>
+                    {isAi && fuentes.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {fuentes.map((f) => (
+                          <span
+                            key={f}
+                            className="rounded bg-ink-900/15 px-1.5 py-0.5 font-mono text-[10px] text-ink-900/95 ring-1 ring-inset ring-ink-900/20"
+                            title="Fuente declarada por la AI"
+                          >
+                            {f}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {isAi && fuentes.length === 0 && (
+                      <div className="mt-2 text-[10px] text-warn-50/80">
+                        sin fuentes declaradas
+                      </div>
+                    )}
+                    {/* Resilience layer #7 (Miguel 2026-06-12): per-AI-message
+                        "Guardar respuesta" action. Hidden expandable form
+                        below; this anchor toggles it via #save-{id}. */}
+                    {isAi && (
+                      <div className="mt-2 text-right">
+                        <a
+                          href={`#save-${m.id}`}
+                          className="text-[10px] text-white/70 hover:text-white underline-offset-2 hover:underline"
                         >
-                          {f}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {isAi && fuentes.length === 0 && (
-                    <div className="mt-2 text-[10px] text-warn-50/80">
-                      sin fuentes declaradas
-                    </div>
-                  )}
+                          Guardar como respuesta rápida
+                        </a>
+                      </div>
+                    )}
+                  </div>
                 </div>
+                {/* Inline save form — sits BELOW the bubble, full-width
+                    so the operator can name + tag without cramping the
+                    chat. CSS-only show/hide via :target hash. */}
+                {isAi ? (
+                  <div
+                    id={`save-${m.id}`}
+                    className="hidden target:block ml-auto w-full max-w-lg rounded-lg border border-brand-400/30 bg-brand-400/5 p-3"
+                  >
+                    <ActionForm
+                      action={saveAiResponseAsTemplate}
+                      className="flex flex-col gap-2 text-xs"
+                      resetOnSuccess
+                      successMessage="Respuesta guardada en la biblioteca"
+                    >
+                      <input
+                        type="hidden"
+                        name="conversacionId"
+                        value={conv.conv.id}
+                      />
+                      <input type="hidden" name="mensajeId" value={m.id} />
+                      <label className="flex flex-col gap-0.5">
+                        <span className="text-ink-500">Nombre corto</span>
+                        <input
+                          name="name"
+                          required
+                          placeholder='Ej: "Explicación OW + bancos GA"'
+                          className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
+                        />
+                      </label>
+                      <label className="flex flex-col gap-0.5">
+                        <span className="text-ink-500">
+                          Tags (separados por coma)
+                        </span>
+                        <input
+                          name="tags"
+                          placeholder="ej: curso_ow, precios, objecion"
+                          className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
+                        />
+                      </label>
+                      <fieldset className="flex flex-col gap-0.5">
+                        <legend className="text-ink-500">Alcance</legend>
+                        <label className="flex items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name="scope"
+                            value="general"
+                            defaultChecked
+                            className="accent-brand-400"
+                          />
+                          <span>General (todas las sedes)</span>
+                        </label>
+                        <label className="flex items-center gap-1.5">
+                          <input
+                            type="radio"
+                            name="scope"
+                            value="sede"
+                            className="accent-brand-400"
+                          />
+                          <span>Solo {conv.sedeName}</span>
+                        </label>
+                      </fieldset>
+                      <label className="flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          name="include_prompt"
+                          value="true"
+                          defaultChecked
+                          className="accent-brand-400"
+                        />
+                        <span>
+                          Guardar también la pregunta del cliente que generó
+                          esto
+                        </span>
+                      </label>
+                      <div className="flex items-center justify-end gap-2">
+                        <a
+                          href="#"
+                          className="text-ink-500 hover:text-ink-700"
+                        >
+                          cancelar
+                        </a>
+                        <SubmitButton
+                          variant="primary"
+                          loadingLabel="Guardando…"
+                        >
+                          Guardar
+                        </SubmitButton>
+                      </div>
+                    </ActionForm>
+                  </div>
+                ) : null}
               </div>
             );
           })}

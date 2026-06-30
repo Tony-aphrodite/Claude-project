@@ -98,6 +98,7 @@ import { followUpProcessor } from "../services/follow-up.js";
 import { sendMetaProductCard } from "../services/meta-whatsapp.js";
 import { rosterDbService } from "../services/roster-db.js";
 import { writeAiRosterDivers } from "../services/ai-roster-divers.js";
+import { sendAiFallbackMessage } from "../services/ai-fallback-message.js";
 import { salesLoggerService } from "../services/sales-logger.js";
 import {
   agenteCierreFor,
@@ -151,6 +152,7 @@ export type ProcessResult =
         | "ai_silenced_post_handoff"
         | "ai_silenced_human_assignee"
         | "ai_silenced_takeover_during_generation"
+        | "ai_call_failed_fallback_sent"
         | "sede_selector_button";
       branch?: string | null;
       latencyMs: number;
@@ -3363,16 +3365,57 @@ export async function processIncomingMessage(
   }
 
   const claudeT0 = Date.now();
-  const claudeResult = await callClaude({
-    system,
-    messages,
-    toolHandlers,
-    conversacionId: conversation.id,
-    sedeId: sede.id,
-    promptVersionId: promptVersion?.id,
-    expectedLanguage: detectedLanguage,
-    incomingMessage: incomingText,
-  });
+  // Resilience layer #3 (Miguel 2026-06-12): if callClaude blows up
+  // — Anthropic 5xx, request timeout, tool-handler crash, etc. — the
+  // customer used to receive total silence while we returned an error.
+  // Wrap the call here; on failure, send a per-language holding-
+  // pattern message via sendAiFallbackMessage and exit the handler
+  // gracefully. The customer's next inbound retries the AI path
+  // normally (no state was written by the failed call).
+  let claudeResult: Awaited<ReturnType<typeof callClaude>>;
+  try {
+    claudeResult = await callClaude({
+      system,
+      messages,
+      toolHandlers,
+      conversacionId: conversation.id,
+      sedeId: sede.id,
+      promptVersionId: promptVersion?.id,
+      expectedLanguage: detectedLanguage,
+      incomingMessage: incomingText,
+    });
+  } catch (claudeErr) {
+    const errMessage =
+      claudeErr instanceof Error ? claudeErr.message : String(claudeErr);
+    log.error(
+      {
+        conversationId: conversation.id,
+        contactId: payload.contact.id,
+        claudeLatencyMs: Date.now() - claudeT0,
+        totalLatencySoFarMs: Date.now() - t0,
+        err: errMessage,
+      },
+      "AI call failed — sending fallback message so customer doesn't hit silence",
+    );
+
+    // Best-effort fallback. The function itself never throws (it
+    // returns ok:false on send failure), so we don't need a second
+    // catch here.
+    await sendAiFallbackMessage({
+      conversacionId: conversation.id,
+      respondIoConversationId: conversation.respondIoConversationId,
+      respondIoContactId: payload.contact.id,
+      language: detectedLanguage ?? contact.language ?? "es",
+      reasonInternal: `callClaude_failed: ${errMessage.slice(0, 200)}`,
+    });
+
+    return {
+      ok: false,
+      ignored: true,
+      reason: "ai_call_failed_fallback_sent",
+      latencyMs: Date.now() - t0,
+    };
+  }
   log.info(
     {
       conversationId: conversation.id,

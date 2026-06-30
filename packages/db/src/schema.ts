@@ -997,3 +997,76 @@ export type RosterGroup = typeof rosterGroups.$inferSelect;
 export type NewRosterGroup = typeof rosterGroups.$inferInsert;
 export type RosterAuditLog = typeof rosterAuditLog.$inferSelect;
 export type NewRosterAuditLog = typeof rosterAuditLog.$inferInsert;
+
+// ── saved_responses ─────────────────────────────────────────────────────
+// Miguel 2026-06-12 resilience layer #7 ("Botón Guardar respuesta").
+// Operator clicks "Guardar" on an AI reply that turned out well; that
+// text lands here and becomes available to the future quick-reply panel
+// (#6). The schema deliberately captures BOTH the AI's reply AND the
+// customer's prompt-question that triggered it so the library reads as
+// "question → good answer" pairs, not isolated text blobs.
+//
+// Sede scoping:
+//   sede_id = NULL  → general response, available to every sede.
+//   sede_id = <uuid> → only surfaced inside that sede's panel.
+//
+// Soft-delete via archived_at (same pattern as roster_divers). Hard
+// delete is reserved for compliance ("forget this conversation") only.
+export const savedResponses = pgTable(
+  "saved_responses",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    sedeId: uuid("sede_id").references(() => sedes.id, {
+      onDelete: "set null",
+    }),
+    /** Short label the operator picks — appears in the quick-reply picker. */
+    name: text("name").notNull(),
+    /** The AI text the operator wants to reuse. */
+    responseText: text("response_text").notNull(),
+    /** Optional customer question that produced this reply. */
+    promptText: text("prompt_text"),
+    /** Comma-grouped operator tags ("objecion_precio", "curso_ow", etc.). */
+    tags: text("tags").array().notNull().default(sql`ARRAY[]::text[]`),
+    /** ISO 639-1 language of the response — drives the language filter. */
+    language: text("language").notNull().default("es"),
+    /** Supabase user.id of the saving operator. */
+    createdByUserId: uuid("created_by_user_id"),
+    /** Email of the saving operator — for at-a-glance display. */
+    createdByLabel: text("created_by_label"),
+    /** Conversation the response came from — set NULL on conv delete. */
+    sourceConversacionId: uuid("source_conversacion_id").references(
+      () => conversaciones.id,
+      { onDelete: "set null" },
+    ),
+    /** Message row the response came from — set NULL on row delete. */
+    sourceMensajeId: uuid("source_mensaje_id").references(() => mensajes.id, {
+      onDelete: "set null",
+    }),
+    /** Count of times the operator used this from the quick-reply panel. */
+    timesUsed: integer("times_used").notNull().default(0),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    /** Soft delete — non-null means archived. */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    // Quick-reply panel reads "available responses for THIS sede" —
+    // a `(sede_id, archived_at)` index makes that a single scan.
+    sedeArchivedIdx: index("saved_responses_sede_archived_idx").on(
+      t.sedeId,
+      t.archivedAt,
+    ),
+    // Language filter: panel often pre-filters to the customer's language.
+    languageIdx: index("saved_responses_language_idx").on(t.language),
+    // Tags array search — kept simple; gin index added in SQL migration
+    // because Drizzle doesn't model `USING GIN` indexes directly.
+  }),
+);
+
+export type SavedResponse = typeof savedResponses.$inferSelect;
+export type NewSavedResponse = typeof savedResponses.$inferInsert;
