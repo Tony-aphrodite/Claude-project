@@ -8,10 +8,15 @@
 //   /conversations      → <empty state> (page.tsx)
 //   /conversations/[id] → chat pane + right info panel ([id]/page.tsx)
 //
-// The parent (app)/layout.tsx detects /conversations and drops its
-// max-w-7xl + px-6/py-6 container so we render edge-to-edge inside
-// <main>. Height is pinned to the viewport so the three panes (list,
-// chat, info) scroll independently.
+// FULL-BLEED ESCAPE: the parent (app)/layout.tsx wraps everything in
+// `mx-auto max-w-7xl px-6 py-6`, which leaves visible side gutters on
+// wide monitors. Messengers need to fill the entire available area, so
+// we use `position: fixed` to escape the parent's box completely. The
+// `left-60` matches the app sidebar's w-60 (240px) so we paint over
+// exactly the area between the app sidebar and the right viewport edge.
+//
+// This approach affects ONLY /conversations — every other route renders
+// with its original `max-w-7xl` chrome untouched.
 // ============================================================================
 
 import { requireUserContext } from "~/lib/auth-context";
@@ -39,10 +44,11 @@ export default async function ConversationsLayout({
   });
 
   return (
-    // Edge-to-edge inside <main>. The parent (app) layout has already
-    // dropped its constrained container for /conversations, so we just
-    // take whatever width <main> hands us.
-    <div className="flex h-screen overflow-hidden">
+    // Fixed positioning escapes the parent's max-w-7xl container so we
+    // paint edge-to-edge. left-60 matches the app sidebar width (w-60 =
+    // 15rem = 240px). On mobile the app sidebar is hidden (md:flex), so
+    // below the md breakpoint we set left-0 to fill the whole viewport.
+    <div className="fixed inset-y-0 left-0 right-0 z-10 flex overflow-hidden md:left-60">
       <ConversationSidebar
         conversations={conversations}
         showSede={user.role === "admin"}
