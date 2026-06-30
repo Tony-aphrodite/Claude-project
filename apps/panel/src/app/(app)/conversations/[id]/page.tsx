@@ -7,11 +7,15 @@ import {
   type LeadStage,
 } from "@dpm/shared";
 
+import { ActionForm } from "~/app/_components/action-form";
 import { StageChip, STAGE_META } from "~/app/_components/stage";
+import { SubmitButton } from "~/app/_components/submit-button";
+import { releaseConversationToAi } from "~/app/actions/inbox";
 import { overrideLeadStage, triggerReroll } from "~/app/actions/leads";
 import { requireUserContext } from "~/lib/auth-context";
 import { getConversation } from "~/lib/db-queries";
 
+import { ChatComposer } from "./_chat-composer";
 import { ReplaySection } from "./replay-section";
 
 export const dynamic = "force-dynamic";
@@ -194,6 +198,68 @@ export default async function ConversationDetail({
           </ol>
         </section>
       )}
+
+      {/* ------------------------------------------------------------ */}
+      {/* Operator inbox — Miguel 2026-06-12 #2.                       */}
+      {/* Composer (write+send) + AI-vs-human attendant indicator +    */}
+      {/* release-to-AI control. All gated behind sede write access    */}
+      {/* in the server action.                                        */}
+      {/* ------------------------------------------------------------ */}
+      <section className="card">
+        <header className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
+          <div className="flex items-baseline gap-3">
+            <h2 className="h-section">Responder al cliente</h2>
+            {/* Attendant indicator — single source of truth: the
+                human_took_over flag on leadMetadata. Set by the
+                operator's own send (this page) OR by Respond.io
+                assignee-change webhook (process-agent-message
+                already manages it). */}
+            {meta.human_took_over ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-warn-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-warn-700 ring-1 ring-inset ring-warn-500/40">
+                <span
+                  aria-hidden="true"
+                  className="h-1.5 w-1.5 rounded-full bg-warn-500"
+                />
+                Humano atendiendo
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-400/15 px-2.5 py-0.5 text-[11px] font-semibold text-brand-300 ring-1 ring-inset ring-brand-400/40">
+                <span
+                  aria-hidden="true"
+                  className="h-1.5 w-1.5 rounded-full bg-brand-400"
+                />
+                AI activa
+              </span>
+            )}
+          </div>
+          {meta.human_took_over ? (
+            // When the conversation is human-attended, expose the
+            // release-to-AI control inline. Two clicks max: this one,
+            // and then the AI naturally picks up on the next inbound.
+            // (For an instant re-roll, the existing "Re-roll AI"
+            // section below stays available.)
+            <ActionForm action={releaseConversationToAi}>
+              <input
+                type="hidden"
+                name="conversacionId"
+                value={conv.conv.id}
+              />
+              <SubmitButton variant="ghost" loadingLabel="Liberando…">
+                Liberar a AI
+              </SubmitButton>
+            </ActionForm>
+          ) : null}
+        </header>
+        <p className="mb-3 text-xs text-ink-600">
+          El mensaje va por WhatsApp al instante. Al enviar, la AI se
+          silencia automáticamente — vos quedás al mando hasta que la
+          liberes (botón arriba) o la re-arranques con Re-roll AI.
+        </p>
+        <ChatComposer
+          conversacionId={conv.conv.id}
+          humanAttending={meta.human_took_over === true}
+        />
+      </section>
 
       <section className="card !p-0 overflow-hidden">
         <div className="px-5 py-3 border-b border-ink-300/40 bg-ink-200/40">
