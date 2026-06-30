@@ -28,9 +28,31 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { FormEvent, ReactNode } from "react";
 
+/**
+ * Result-pattern envelope returned by panel server actions.
+ *
+ * Why: Next.js sanitizes thrown Error messages in production builds —
+ * the operator sees "An error occurred in the Server Components render"
+ * instead of our Spanish "Un divemaster no puede dictar OW1 …" message.
+ * Returning the error AS A VALUE keeps the message intact end-to-end
+ * because Next.js doesn't touch return values.
+ *
+ * Convention: every server action used with <ActionForm> should return
+ * `{ ok: true }` on success and `{ ok: false, error: <msg> }` on
+ * validation failure. Genuine runtime errors (DB down, network) still
+ * throw — those land in the catch block below as a generic banner.
+ */
+export type ActionResult =
+  | { ok: true; message?: string }
+  | { ok: false; error: string };
+
 type ActionFormProps = {
-  /** Server action receiving FormData. Throw on validation failure. */
-  action: (formData: FormData) => Promise<unknown> | unknown;
+  /**
+   * Server action receiving FormData. May return an ActionResult,
+   * `void` (legacy actions that still throw), or `undefined`. The
+   * wrapper handles all three.
+   */
+  action: (formData: FormData) => Promise<ActionResult | void | unknown>;
   /** Inputs + buttons. Same shape as a native <form>. */
   children: ReactNode;
   className?: string;
@@ -65,9 +87,21 @@ export function ActionForm({
 
     startTransition(async () => {
       try {
-        await action(formData);
-        // Refresh server components so the table / list under the form
-        // shows the new row immediately.
+        const result = await action(formData);
+        // Result-pattern: action returned `{ ok: false, error: "…" }`.
+        // Treat as a validation failure and surface the message.
+        if (
+          result &&
+          typeof result === "object" &&
+          "ok" in result &&
+          (result as { ok: unknown }).ok === false
+        ) {
+          const r = result as { ok: false; error?: string };
+          setErrorMessage(r.error ?? "Error desconocido");
+          return;
+        }
+        // Success — either `{ ok: true }`, `void`, or anything that
+        // isn't an explicit failure envelope.
         router.refresh();
         if (resetOnSuccess) {
           formEl.reset();
@@ -78,6 +112,9 @@ export function ActionForm({
           setTimeout(() => setShowSuccess(false), 2500);
         }
       } catch (err) {
+        // Genuine thrown error (DB down, network, etc.). In production
+        // the message is sanitized by Next.js; we still surface
+        // whatever we have so the operator knows something failed.
         const message =
           err instanceof Error ? err.message : "Algo salió mal. Reintentá.";
         setErrorMessage(message);

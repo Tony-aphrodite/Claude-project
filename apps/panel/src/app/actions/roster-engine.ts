@@ -33,6 +33,41 @@ import { generateRefCode, isValidRefCode } from "@dpm/shared";
 import { requireSedeWriteAccess } from "~/lib/auth-context";
 import { validateActivityRol } from "~/lib/roster-activity-rol";
 
+// ============================================================================
+// Result envelope (Miguel 2026-06-30 — production error message survival).
+//
+// Next.js masks thrown Error messages in production builds, so a server
+// action's `throw new Error("Código inválido…")` reaches the client as
+// the generic "An error occurred in the Server Components render…"
+// banner — the operator never sees the actual validation reason.
+//
+// Fix: every panel action wraps its body in `runAction`, which catches
+// any throw and returns `{ ok: false, error: <msg> }`. The message is a
+// return value, not a thrown exception, so Next.js leaves it untouched.
+// <ActionForm> reads the envelope and renders the message inline.
+//
+// Genuine runtime errors (DB connection lost, FK violation we didn't
+// expect) still propagate as a generic banner from the catch in
+// ActionForm. The user-facing validation errors — the ones we author
+// in this file with Spanish text — now survive end-to-end.
+// ============================================================================
+
+export type ActionResult =
+  | { ok: true; message?: string }
+  | { ok: false; error: string };
+
+async function runAction<T>(
+  fn: () => Promise<T>,
+): Promise<ActionResult> {
+  try {
+    await fn();
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error desconocido";
+    return { ok: false, error: message };
+  }
+}
+
 // Audit log helper — every walk-in CRUD action and every reassign writes
 // one row. Always called inside the action's transaction so the audit
 // row commits atomically with the mutation. Miguel v2.2 §3 + §6
@@ -125,7 +160,8 @@ async function resolveInstructorSede(instructorId: string): Promise<string | nul
 
 // ─── Instructor CRUD ───────────────────────────────────────────────
 
-export async function createInstructor(formData: FormData): Promise<void> {
+export async function createInstructor(formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
   const sedeId = String(formData.get("sede_id") ?? "");
   const nombre = String(formData.get("nombre") ?? "").trim();
   const nombreLegal = String(formData.get("nombre_legal") ?? "").trim() || null;
@@ -156,6 +192,7 @@ export async function createInstructor(formData: FormData): Promise<void> {
   });
 
   revalidatePath("/roster/instructors");
+  });
 }
 
 /**
@@ -164,7 +201,8 @@ export async function createInstructor(formData: FormData): Promise<void> {
  * vice-versa without rebuilding the row. Idempotent (role unchanged →
  * no-op).
  */
-export async function setInstructorRole(formData: FormData): Promise<void> {
+export async function setInstructorRole(formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
   const id = String(formData.get("id") ?? "");
   const rawRole = String(formData.get("role") ?? "").trim();
   if (!id) throw new Error("id required");
@@ -180,9 +218,11 @@ export async function setInstructorRole(formData: FormData): Promise<void> {
     .where(eq(instructorsTable.id, id));
 
   revalidatePath("/roster/instructors");
+  });
 }
 
-export async function setInstructorActive(formData: FormData): Promise<void> {
+export async function setInstructorActive(formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
   const id = String(formData.get("id") ?? "");
   const active = String(formData.get("active") ?? "") === "true";
   if (!id) throw new Error("id required");
@@ -195,9 +235,11 @@ export async function setInstructorActive(formData: FormData): Promise<void> {
     .where(eq(instructorsTable.id, id));
 
   revalidatePath("/roster/instructors");
+  });
 }
 
-export async function renameInstructor(formData: FormData): Promise<void> {
+export async function renameInstructor(formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
   const id = String(formData.get("id") ?? "");
   const nombre = String(formData.get("nombre") ?? "").trim();
   if (!id || !nombre) throw new Error("id + nombre required");
@@ -210,6 +252,7 @@ export async function renameInstructor(formData: FormData): Promise<void> {
     .where(eq(instructorsTable.id, id));
 
   revalidatePath("/roster/instructors");
+  });
 }
 
 // ─── Availability ──────────────────────────────────────────────────
@@ -220,7 +263,8 @@ export async function renameInstructor(formData: FormData): Promise<void> {
 // ConfinadasPM; the engine is now aligned with that reality).
 const ALL_SLOTS = ["AM", "PM", "POOL_AM", "POOL_PM", "NIGHT"] as const;
 
-export async function setAvailability(formData: FormData): Promise<void> {
+export async function setAvailability(formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
   const sedeId = String(formData.get("sede_id") ?? "");
   const fecha = String(formData.get("fecha") ?? "");
   const instructorId = String(formData.get("instructor_id") ?? "");
@@ -280,6 +324,7 @@ export async function setAvailability(formData: FormData): Promise<void> {
 
   revalidatePath("/roster/instructors");
   revalidatePath("/roster/engine");
+  });
 }
 
 /**
@@ -296,7 +341,8 @@ export async function setAvailability(formData: FormData): Promise<void> {
  *
  * Range: fromDate (inclusive) + days entries.
  */
-export async function setAvailabilityBulk(formData: FormData): Promise<void> {
+export async function setAvailabilityBulk(formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
   const sedeId = String(formData.get("sede_id") ?? "");
   const instructorId = String(formData.get("instructor_id") ?? "");
   const fromDate = String(formData.get("from_date") ?? "");
@@ -381,6 +427,7 @@ export async function setAvailabilityBulk(formData: FormData): Promise<void> {
 
   revalidatePath("/roster/instructors");
   revalidatePath("/roster/engine");
+  });
 }
 
 // ─── Walk-in diver entry ───────────────────────────────────────────
@@ -436,7 +483,8 @@ function defaultDepthForActivity(activity: string, nivel: string): number {
   }
 }
 
-export async function createWalkInDiver(formData: FormData): Promise<void> {
+export async function createWalkInDiver(formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
   const sedeId = String(formData.get("sede_id") ?? "");
   const ctx = await requireSedeWriteAccess(sedeId);
   const fecha = String(formData.get("fecha") ?? "");
@@ -604,6 +652,7 @@ export async function createWalkInDiver(formData: FormData): Promise<void> {
   );
 
   revalidatePath("/roster/engine");
+  });
 }
 
 /**
@@ -619,7 +668,8 @@ export async function createWalkInDiver(formData: FormData): Promise<void> {
  * conversation flow and editing them would diverge the engine view
  * from the source of truth.
  */
-export async function updateWalkInDiver(formData: FormData): Promise<void> {
+export async function updateWalkInDiver(formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("id required");
 
@@ -870,6 +920,7 @@ export async function updateWalkInDiver(formData: FormData): Promise<void> {
   }
 
   revalidatePath("/roster/engine");
+  });
 }
 
 /**
@@ -885,7 +936,8 @@ export async function updateWalkInDiver(formData: FormData): Promise<void> {
  * Idempotent: re-running on an already-soft-deleted row is a no-op
  * (the WHERE clause filters it out).
  */
-export async function deleteWalkInDiver(formData: FormData): Promise<void> {
+export async function deleteWalkInDiver(formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
   const id = String(formData.get("id") ?? "");
   if (!id) throw new Error("id required");
 
@@ -953,6 +1005,7 @@ export async function deleteWalkInDiver(formData: FormData): Promise<void> {
   });
 
   revalidatePath("/roster/engine");
+  });
 }
 
 // ============================================================================
@@ -995,7 +1048,7 @@ export async function deleteWalkInDiver(formData: FormData): Promise<void> {
  *   formData.scope === 'all_program' → reassignDiverAllProgram
  *   anything else (default 'this_day') → reassignDiverThisDay
  */
-export async function reassignDiver(formData: FormData): Promise<void> {
+export async function reassignDiver(formData: FormData): Promise<ActionResult> {
   const scope = String(formData.get("scope") ?? "this_day");
   if (scope === "all_program") {
     return reassignDiverAllProgram(formData);
@@ -1009,7 +1062,8 @@ export async function reassignDiver(formData: FormData): Promise<void> {
  * same rol check + capacity check used by createWalkInDiver, in a
  * SERIALIZABLE transaction.
  */
-export async function reassignDiverThisDay(formData: FormData): Promise<void> {
+export async function reassignDiverThisDay(formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
   const id = String(formData.get("id") ?? "");
   const rawTo = String(formData.get("to_instructor_id") ?? "").trim();
   if (!id) throw new Error("id required");
@@ -1081,6 +1135,7 @@ export async function reassignDiverThisDay(formData: FormData): Promise<void> {
   );
 
   revalidatePath("/roster/engine");
+  });
 }
 
 /**
@@ -1093,7 +1148,8 @@ export async function reassignDiverThisDay(formData: FormData): Promise<void> {
  * The cascade re-validates the destination instructor's rol against
  * EACH affected day's activity (§4 "todo el programa").
  */
-export async function reassignDiverAllProgram(formData: FormData): Promise<void> {
+export async function reassignDiverAllProgram(formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
   const id = String(formData.get("id") ?? "");
   const rawTo = String(formData.get("to_instructor_id") ?? "").trim();
   if (!id) throw new Error("id required");
@@ -1215,6 +1271,7 @@ export async function reassignDiverAllProgram(formData: FormData): Promise<void>
   );
 
   revalidatePath("/roster/engine");
+  });
 }
 
 /**
@@ -1230,7 +1287,8 @@ export async function reassignDiverAllProgram(formData: FormData): Promise<void>
  * activity (a DM can't pick up a course group even via swap). Each
  * affected diver row gets the same `from→to` update inside one txn.
  */
-export async function swapGroupLeader(formData: FormData): Promise<void> {
+export async function swapGroupLeader(formData: FormData): Promise<ActionResult> {
+  return runAction(async () => {
   const sedeId = String(formData.get("sede_id") ?? "");
   const fecha = String(formData.get("fecha") ?? "");
   const slot = String(formData.get("slot") ?? "");
@@ -1332,4 +1390,5 @@ export async function swapGroupLeader(formData: FormData): Promise<void> {
   );
 
   revalidatePath("/roster/engine");
+  });
 }
