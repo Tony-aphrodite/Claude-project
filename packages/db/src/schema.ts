@@ -12,6 +12,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -1128,3 +1129,66 @@ export const savedResponses = pgTable(
 
 export type SavedResponse = typeof savedResponses.$inferSelect;
 export type NewSavedResponse = typeof savedResponses.$inferInsert;
+
+// ── conversation_views ──────────────────────────────────────────────────
+// Per-(user, conversation) "last seen" stamp powering the Unread tab in
+// the conversations sidebar (Steve 2026-06-30 messenger-style redesign).
+//
+// "Unread" semantics: a conversation is unread for user U if the most
+// recent `cliente`-sender message timestamp is > the user's last_seen_at
+// (or no view row exists at all). Upserted whenever the user opens the
+// conversation detail page. Soft signal — never blocks operations.
+export const conversationViews = pgTable(
+  "conversation_views",
+  {
+    /** Supabase user.id — the operator who viewed. */
+    userId: uuid("user_id").notNull(),
+    conversacionId: uuid("conversacion_id")
+      .notNull()
+      .references(() => conversaciones.id, { onDelete: "cascade" }),
+    /** Wall-clock instant the user last opened this conversation. */
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    // Composite PK guarantees one row per (user, conversation).
+    pk: primaryKey({ columns: [t.userId, t.conversacionId] }),
+    // Sidebar query: "conversations this user hasn't seen since their
+    // last visit". Lookup by user + last_seen_at.
+    userSeenIdx: index("conversation_views_user_seen_idx").on(
+      t.userId,
+      t.lastSeenAt,
+    ),
+  }),
+);
+
+export type ConversationView = typeof conversationViews.$inferSelect;
+export type NewConversationView = typeof conversationViews.$inferInsert;
+
+// ── conversation_stars ──────────────────────────────────────────────────
+// Per-(user, conversation) star toggle powering the Starred tab in the
+// sidebar (Steve 2026-06-30 messenger-style redesign). Each operator
+// curates their own starred list — Miguel's stars are independent of
+// Tony's. Star/unstar is a simple insert/delete (no soft delete).
+export const conversationStars = pgTable(
+  "conversation_stars",
+  {
+    /** Supabase user.id — the operator who starred. */
+    userId: uuid("user_id").notNull(),
+    conversacionId: uuid("conversacion_id")
+      .notNull()
+      .references(() => conversaciones.id, { onDelete: "cascade" }),
+    starredAt: timestamp("starred_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.conversacionId] }),
+    // Sidebar query: "all conversations starred by this user". Lookup by
+    // user_id only is fine — the composite PK index covers it.
+  }),
+);
+
+export type ConversationStar = typeof conversationStars.$inferSelect;
+export type NewConversationStar = typeof conversationStars.$inferInsert;
