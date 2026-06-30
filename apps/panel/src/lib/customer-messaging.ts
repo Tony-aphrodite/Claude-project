@@ -41,6 +41,13 @@ export interface OutboundSendInput {
   respondIoConversationId: string;
   /** Respond.io contact ID — fallback when conversation id is unresolved. */
   respondIoContactId: string;
+  /**
+   * Customer's WhatsApp phone in E.164 format (e.g. "+34612345678").
+   * REQUIRED for `meta_direct` provider; ignored by `respond_io` (it
+   * looks up the channel via contact id). Callers can pass the value
+   * from `chat_contacts.phone`.
+   */
+  customerPhone?: string | null;
   /** Customer-facing text. Plain text only; no markdown / templates. */
   text: string;
   /** Email of the operator sending — for audit, not transport. */
@@ -177,29 +184,162 @@ class RespondIoProvider implements OutboundMessageProvider {
   }
 }
 
-// ── Meta direct provider (stub — implement when Miguel says go) ───────────
+// ── Meta direct provider — full implementation ────────────────────────────
 
 class MetaDirectProvider implements OutboundMessageProvider {
   readonly name = "meta_direct" as const;
 
-  async send(_input: OutboundSendInput): Promise<OutboundSendResult> {
-    // Placeholder. When we wire Meta WhatsApp Business API directly:
-    //   1. Acquire long-lived access token + phone-number-id (env).
-    //   2. POST https://graph.facebook.com/v22.0/{phone-number-id}/messages
-    //      body: { messaging_product: "whatsapp", to, text: { body } }
-    //   3. Parse `messages[0].id` for provider id.
-    //   4. Map Meta error codes to user-friendly Spanish messages.
-    //   5. Honour 24h customer-service window — outside it requires
-    //      template messages, which is a different code path.
-    //
-    // Until then, return a clear error so flipping the env var by
-    // mistake produces a recoverable banner, not a crash.
-    return {
-      ok: false,
-      provider: this.name,
-      error:
-        "Provider 'meta_direct' aún no implementado. Setea OUTBOUND_PROVIDER=respond_io (o quitalo) hasta tener la integración Meta lista.",
-    };
+  async send(input: OutboundSendInput): Promise<OutboundSendResult> {
+    const phoneNumberId = process.env.META_WHATSAPP_PHONE_NUMBER_ID;
+    const accessToken = process.env.META_WHATSAPP_ACCESS_TOKEN;
+    const apiVersion = process.env.META_WHATSAPP_API_VERSION ?? "v22.0";
+
+    if (!phoneNumberId || !accessToken) {
+      return {
+        ok: false,
+        provider: this.name,
+        error:
+          "Credenciales de Meta no configuradas. Setea META_WHATSAPP_PHONE_NUMBER_ID y META_WHATSAPP_ACCESS_TOKEN en Vercel (o volvé a OUTBOUND_PROVIDER=respond_io).",
+      };
+    }
+    if (!input.customerPhone) {
+      return {
+        ok: false,
+        provider: this.name,
+        error:
+          "El número de WhatsApp del cliente no está disponible. Probable causa: chat_contacts.phone está vacío para este contacto. Volvé a OUTBOUND_PROVIDER=respond_io o llená el teléfono.",
+      };
+    }
+
+    const url = `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`;
+    // Meta accepts E.164 without the leading "+"; tolerate both forms
+    // by always stripping. If the caller passed something else (local
+    // number, missing country code), Meta returns error 132000 and we
+    // surface a clear message.
+    const to = input.customerPhone.trim().replace(/^\+/, "");
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to,
+          type: "text",
+          text: {
+            body: input.text,
+            // preview_url=false avoids Meta auto-fetching link
+            // previews — fast + predictable; operators can copy URLs
+            // without surprises.
+            preview_url: false,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        let errCode: number | undefined;
+        let errMessage: string | undefined;
+        try {
+          const body = (await res.json()) as {
+            error?: { code?: number; message?: string };
+          };
+          errCode = body.error?.code;
+          errMessage = body.error?.message;
+        } catch {
+          errMessage = (await res.text().catch(() => "")) || `HTTP ${res.status}`;
+        }
+        return {
+          ok: false,
+          provider: this.name,
+          error: mapMetaError(errCode, errMessage, res.status),
+        };
+      }
+
+      let providerMessageId: string | undefined;
+      try {
+        const json = (await res.json()) as {
+          messages?: Array<{ id?: string }>;
+        };
+        if (json.messages?.[0]?.id) {
+          providerMessageId = json.messages[0].id;
+        }
+      } catch {
+        // Non-fatal — Meta accepted the send; the id is for our audit.
+      }
+
+      return {
+        ok: true,
+        provider: this.name,
+        ...(providerMessageId !== undefined ? { providerMessageId } : {}),
+      };
+    } catch (err) {
+      if ((err as { name?: string }).name === "AbortError") {
+        return {
+          ok: false,
+          provider: this.name,
+          error: "Meta API tardó más de 8s — reintentá en unos segundos",
+        };
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        ok: false,
+        provider: this.name,
+        error: `Error enviando vía Meta directo: ${message}`,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/**
+ * Map Meta WhatsApp Business API error codes to operator-friendly
+ * Spanish messages. Codes covered are the realistic ones for our send
+ * flow; unknown codes fall through to a generic format with the raw
+ * Meta message preserved so we don't hide debugging info.
+ *
+ * Reference: https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes
+ */
+function mapMetaError(
+  code: number | undefined,
+  message: string | undefined,
+  httpStatus: number,
+): string {
+  const raw = message ?? "sin mensaje";
+  switch (code) {
+    case 100:
+      // Generic invalid-parameter; Meta returns this for many shapes,
+      // surface the raw Meta message so the operator sees the field.
+      return `Parámetro inválido (Meta 100): ${raw}`;
+    case 131047:
+      // 24-hour customer service window expired. Free-form text is no
+      // longer allowed — operator needs a Meta-approved template.
+      return "El cliente lleva más de 24h sin escribirnos. Meta no permite enviar texto libre fuera de esa ventana; hay que usar una plantilla aprobada (template). Considerá pedirle al cliente que mande primero un mensaje para reabrir la ventana.";
+    case 131051:
+      return "Tipo de mensaje no soportado por Meta para este canal.";
+    case 131056:
+      // Pair rate limit (per recipient).
+      return "Demasiados mensajes a este número en poco tiempo. Esperá 30 segundos y reintentá.";
+    case 132000:
+      return "El número del cliente no está registrado en WhatsApp.";
+    case 190:
+      return "Access token de Meta expirado o inválido. Renovar en Meta Business Manager > WhatsApp > Configuration.";
+    case 200:
+      return "El access token de Meta no tiene permiso para enviar mensajes (whatsapp_business_messaging scope).";
+    case 80007:
+      return "Rate limit alcanzado en la API de Meta. Esperá ~1 minuto.";
+    case undefined:
+      return `Meta API devolvió HTTP ${httpStatus} sin código de error: ${raw}`;
+    default:
+      return `Meta API devolvió error ${code}: ${raw}`;
   }
 }
 

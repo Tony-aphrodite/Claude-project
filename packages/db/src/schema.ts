@@ -998,6 +998,64 @@ export type NewRosterGroup = typeof rosterGroups.$inferInsert;
 export type RosterAuditLog = typeof rosterAuditLog.$inferSelect;
 export type NewRosterAuditLog = typeof rosterAuditLog.$inferInsert;
 
+// ── inbound_messages_queue ─────────────────────────────────────────────
+// Miguel 2026-06-12 resilience layer #1 ("Ingesta a prueba de caídas":
+// el mensaje no se pierde nunca).
+//
+// Every inbound webhook insert lands here BEFORE the message-batcher
+// or process-message touches it. Status starts at 'received'; the
+// handler updates to 'processed' on success or 'failed' on any thrown
+// error. Operator can retry a failed row from /admin/inbound-queue —
+// the message gets re-fed through process-message.
+//
+// `webhook_debug_log` already captured every payload for forensics,
+// but operationally it has no status / retry concept. This table is
+// the durable queue: even if the server crashes mid-handler, the row
+// stays at 'received' and an operator can recover it.
+//
+// Idempotency: unique (respond_io_message_id) so Respond.io fan-out
+// retries are absorbed at INSERT time (ON CONFLICT DO NOTHING). The
+// dedup check downstream (isDuplicateMessageId) still applies — this
+// just guards the queue itself from accidental duplicates.
+export const inboundMessagesQueue = pgTable(
+  "inbound_messages_queue",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    /** Respond.io message id — natural dedup key. */
+    respondIoMessageId: text("respond_io_message_id"),
+    respondIoContactId: text("respond_io_contact_id"),
+    /** Full normalised webhook body for re-processing. */
+    payload: jsonb("payload").notNull(),
+    /** received | processing | processed | failed | abandoned */
+    status: text("status").notNull().default("received"),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    /** Short error message on failure — full stack lives in `errores`. */
+    failReason: text("fail_reason"),
+    /** Times the operator (or auto-retry) tried to re-process. */
+    retryCount: integer("retry_count").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+  },
+  (t) => ({
+    // Dedup at the table layer — covers webhook fan-out + retry storms.
+    msgIdUnique: uniqueIndex("inbound_msg_queue_respond_msgid_unique").on(
+      t.respondIoMessageId,
+    ),
+    // /admin/inbound-queue?status=failed reads sorted by recency.
+    statusReceivedIdx: index("inbound_msg_queue_status_received_idx").on(
+      t.status,
+      t.receivedAt,
+    ),
+  }),
+);
+
+export type InboundMessageQueueRow =
+  typeof inboundMessagesQueue.$inferSelect;
+export type NewInboundMessageQueueRow =
+  typeof inboundMessagesQueue.$inferInsert;
+
 // ── saved_responses ─────────────────────────────────────────────────────
 // Miguel 2026-06-12 resilience layer #7 ("Botón Guardar respuesta").
 // Operator clicks "Guardar" on an AI reply that turned out well; that

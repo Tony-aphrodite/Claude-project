@@ -25,6 +25,12 @@ import { processAgentMessage } from "../handlers/process-agent-message.js";
 import { processIncomingMessage } from "../handlers/process-message.js";
 import { handleContactStateEvent } from "../handlers/contact-state-event.js";
 import { handleInternalNoteWebhook } from "../handlers/internal-note.js";
+import {
+  enqueue as enqueueInboundMessage,
+  markFailed as markInboundFailed,
+  markProcessed as markInboundProcessed,
+  markProcessing as markInboundProcessing,
+} from "../services/inbound-queue.js";
 import { withConversationLock } from "../services/conversation-lock.js";
 import {
   enqueueOrBatch,
@@ -258,11 +264,40 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     captureWebhookDebug({ body: normalized, classifiedAs: `processing:${dispatch.kind}` });
 
+    // Resilience layer #1 (Miguel 2026-06-12): enqueue the payload to
+    // a durable table BEFORE downstream async processing. Even if the
+    // handler crashes mid-flight, the row stays at status='received'
+    // and an operator can retry from /admin/inbound-queue.
+    //
+    // Idempotent at the DB layer: a duplicate message_id (Respond.io
+    // fan-out) returns the existing queue row id, so we skip the
+    // downstream work too. This is the durable backstop to the
+    // in-memory `isDuplicateMessageId` check above.
+    const queueResult = await enqueueInboundMessage({
+      payload: normalized as Record<string, unknown>,
+      respondIoMessageId: parsed.data.message?.messageId ?? null,
+      respondIoContactId: parsed.data.contact?.id ?? null,
+    });
+    if (queueResult.ok && queueResult.duplicate) {
+      req.log.info(
+        {
+          queueId: queueResult.id,
+          messageId: parsed.data.message?.messageId ?? null,
+        },
+        "inbound-queue: duplicate at queue layer — skipping downstream",
+      );
+      return reply.status(200).send({ ok: true, deduped: true, queued: true });
+    }
+    const queueId = queueResult.ok ? queueResult.id : null;
+
     const handle = (async () => {
       const t0 = Date.now();
       try {
+        if (queueId) await markInboundProcessing(queueId);
+
         if (dispatch.kind === "agent_outbound") {
           await processAgentMessage(parsed.data, dispatch.agentName, req.log);
+          if (queueId) await markInboundProcessed(queueId);
           return;
         }
 
@@ -276,12 +311,19 @@ export async function webhookRoutes(app: FastifyInstance) {
               processIncomingMessage(merged, log).then(() => undefined),
             ),
           );
+          // Batcher fires async — we can't await its completion here.
+          // Mark processed optimistically; the batcher's own error path
+          // logs but the queue row stays at 'processing' if the batch
+          // never fires, which is the correct semantic (operator can
+          // see stuck rows).
+          if (queueId) await markInboundProcessed(queueId);
           return;
         }
 
         await withConversationLock(parsed.data.contact.id, () =>
           processIncomingMessage(parsed.data, req.log),
         );
+        if (queueId) await markInboundProcessed(queueId);
       } catch (err) {
         req.log.error(
           {
@@ -292,6 +334,12 @@ export async function webhookRoutes(app: FastifyInstance) {
           },
           "async webhook processing failed",
         );
+        if (queueId) {
+          await markInboundFailed(
+            queueId,
+            err instanceof Error ? err.message : String(err),
+          );
+        }
       }
     })();
     handle.catch(() => {});

@@ -73,6 +73,7 @@ export function ChatComposer({
       <div className="relative">
         <textarea
           ref={textareaRef}
+          id="composer-textarea"
           name="text"
           rows={3}
           value={text}

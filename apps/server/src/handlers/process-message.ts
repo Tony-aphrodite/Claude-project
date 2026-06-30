@@ -99,6 +99,7 @@ import { sendMetaProductCard } from "../services/meta-whatsapp.js";
 import { rosterDbService } from "../services/roster-db.js";
 import { writeAiRosterDivers } from "../services/ai-roster-divers.js";
 import { sendAiFallbackMessage } from "../services/ai-fallback-message.js";
+import { sendAdminAlert } from "../services/admin-alert.js";
 import { salesLoggerService } from "../services/sales-logger.js";
 import {
   agenteCierreFor,
@@ -3407,6 +3408,23 @@ export async function processIncomingMessage(
       respondIoContactId: payload.contact.id,
       language: detectedLanguage ?? contact.language ?? "es",
       reasonInternal: `callClaude_failed: ${errMessage.slice(0, 200)}`,
+    });
+
+    // Resilience layer #4 (Miguel 2026-06-12): alert the admin team so
+    // a human is aware the AI just failed for a real customer. Has its
+    // own 15-min cooldown, so a recurring Anthropic outage produces
+    // ~4 pings per hour, not one per failed message. Fire-and-forget;
+    // the alert itself never throws.
+    void sendAdminAlert({
+      kind: "ai_call_failed",
+      severity: "bad",
+      message: `AI no respondió a ${contact.name ?? payload.contact.id}. Revisar Railway logs y cubrir manualmente desde /conversations/${conversation.id}.`,
+      context: {
+        conversationId: conversation.id,
+        contactId: payload.contact.id,
+        sede: sede.nombre,
+        errorMessage: errMessage.slice(0, 500),
+      },
     });
 
     return {

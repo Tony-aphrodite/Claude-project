@@ -15,8 +15,10 @@ import { overrideLeadStage, triggerReroll } from "~/app/actions/leads";
 import { saveAiResponseAsTemplate } from "~/app/actions/saved-responses";
 import { requireUserContext } from "~/lib/auth-context";
 import { getConversation } from "~/lib/db-queries";
+import { listQuickRepliesForSede } from "~/lib/quick-replies";
 
 import { ChatComposer } from "./_chat-composer";
+import { QuickReplyPanel } from "./_quick-reply-panel";
 import { ReplaySection } from "./replay-section";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +37,14 @@ export default async function ConversationDetail({
   if (user.role === "office" && conv.conv.sedeId !== user.sedeId) {
     notFound();
   }
+
+  // Resilience layer #6 (Miguel 2026-06-12): pull the operator's saved
+  // quick replies for this sede + the universal "general" ones. Quick
+  // panel renders alongside the composer; clicking "Usar" fills the
+  // textarea via the shared composer-textarea id.
+  const quickReplies = conv.conv.sedeId
+    ? await listQuickRepliesForSede({ sedeId: conv.conv.sedeId })
+    : [];
 
   const contact = conv.contact;
   const stage = conv.conv.leadStage as LeadStage;
@@ -256,10 +266,16 @@ export default async function ConversationDetail({
           silencia automáticamente — vos quedás al mando hasta que la
           liberes (botón arriba) o la re-arranques con Re-roll AI.
         </p>
-        <ChatComposer
-          conversacionId={conv.conv.id}
-          humanAttending={meta.human_took_over === true}
-        />
+        {/* Composer + quick-reply sidebar side-by-side on desktop;
+            stacked on mobile. The QuickReplyPanel writes into the
+            composer's textarea by id, no parent state coordination. */}
+        <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+          <ChatComposer
+            conversacionId={conv.conv.id}
+            humanAttending={meta.human_took_over === true}
+          />
+          <QuickReplyPanel items={quickReplies} />
+        </div>
       </section>
 
       <section className="card !p-0 overflow-hidden">

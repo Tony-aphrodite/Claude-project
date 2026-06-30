@@ -39,7 +39,7 @@
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 
-import { conversaciones, getDb, mensajes } from "@dpm/db";
+import { chatContacts, conversaciones, getDb, mensajes } from "@dpm/db";
 import type { LeadMetadata, LeadStage } from "@dpm/shared";
 
 import { requireSedeWriteAccess } from "~/lib/auth-context";
@@ -159,6 +159,9 @@ export async function sendOperatorMessage(
     }
 
     const db = getDb();
+    // Pull conversation + the contact's WhatsApp phone in one round-trip.
+    // The phone is required by the Meta direct provider; Respond.io
+    // doesn't need it but it's cheap to load either way.
     const [conv] = await db
       .select({
         id: conversaciones.id,
@@ -167,8 +170,13 @@ export async function sendOperatorMessage(
         respondIoConversationId: conversaciones.respondIoConversationId,
         respondIoContactId: conversaciones.respondIoContactId,
         leadMetadata: conversaciones.leadMetadata,
+        customerPhone: chatContacts.phone,
       })
       .from(conversaciones)
+      .leftJoin(
+        chatContacts,
+        eq(chatContacts.respondIoContactId, conversaciones.respondIoContactId),
+      )
       .where(eq(conversaciones.id, conversacionId))
       .limit(1);
     if (!conv) {
@@ -188,6 +196,7 @@ export async function sendOperatorMessage(
     const sendResult = await sendCustomerMessage({
       respondIoConversationId: conv.respondIoConversationId,
       respondIoContactId: conv.respondIoContactId,
+      customerPhone: conv.customerPhone ?? null,
       text,
       operatorEmail: ctx.email,
       operatorUserId: ctx.userId,
