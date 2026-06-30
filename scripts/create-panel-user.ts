@@ -193,7 +193,7 @@ async function main() {
     console.log(`✓ created user ${args.email} (id=${id})`);
   }
   console.log("");
-  console.log("Login at: https://claude-project-panel.vercel.app/login");
+  console.log("Login at: https://pdm-diving.vercel.app/login");
   console.log(`Email:    ${args.email}`);
   console.log(`Password: ${args.password}`);
   console.log(`Role:     ${args.role}${args.sede ? ` (sede: ${args.sede})` : ""}`);

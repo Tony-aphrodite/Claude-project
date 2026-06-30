@@ -243,7 +243,7 @@ data llegue limpia, así que el milestone de migración va a estar
 diseñado pensando en eso.
 
 Demo del panel:
-Está vivo. Entrá a https://claude-project-panel.vercel.app/login,
+Está vivo. Entrá a https://pdm-diving.vercel.app/login,
 pedí magic link a tu correo y vas a ver:
   • Editor de KB por sede con preview / Save / Diff con activa /
     Activar / Historial / Rollback

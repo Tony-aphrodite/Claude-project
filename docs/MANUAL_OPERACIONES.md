@@ -66,7 +66,7 @@ Estos agentes:
 ### URL del panel
 
 ```
-https://claude-project-panel.vercel.app/
+https://pdm-diving.vercel.app/
 ```
 
 > En el futuro Miguel quiere apuntar un dominio propio (por ejemplo `panel.dpmdiving.com`) a este panel, pero por ahora usás directamente la URL de Vercel.
@@ -430,10 +430,10 @@ Contactalos si:
 
 | Recurso | URL |
 |---|---|
-| **Panel principal** | `https://claude-project-panel.vercel.app/` |
-| **Depósitos auto-confirmados** | `https://claude-project-panel.vercel.app/depositos-auto` |
-| **Conversaciones** | `https://claude-project-panel.vercel.app/conversations` |
-| **Roster** | `https://claude-project-panel.vercel.app/roster` |
+| **Panel principal** | `https://pdm-diving.vercel.app/` |
+| **Depósitos auto-confirmados** | `https://pdm-diving.vercel.app/depositos-auto` |
+| **Conversaciones** | `https://pdm-diving.vercel.app/conversations` |
+| **Roster** | `https://pdm-diving.vercel.app/roster` |
 | **Respond.io** | `https://app.respond.io` |
 | **Email operativo** | `gilit@dpmdiving.com` (Wise + Mandiri + BCA llegan acá) |
 
