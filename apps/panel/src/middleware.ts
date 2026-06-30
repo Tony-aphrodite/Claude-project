@@ -32,10 +32,19 @@ export async function middleware(req: NextRequest) {
     process.env.NODE_ENV !== "production" &&
     process.env.DEV_AUTH_BYPASS === "1"
   ) {
-    return NextResponse.next({ request: { headers: req.headers } });
+    const devHeaders = new Headers(req.headers);
+    devHeaders.set("x-pathname", pathname);
+    return NextResponse.next({ request: { headers: devHeaders } });
   }
 
-  const res = NextResponse.next({ request: { headers: req.headers } });
+  // Echo the current pathname into a request header so server layouts
+  // (which can't use usePathname()) can adapt their chrome per-route —
+  // e.g. /conversations needs full-bleed width without the max-w-7xl
+  // container the rest of the app uses.
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-pathname", pathname);
+
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

@@ -8,11 +8,10 @@
 //   /conversations      → <empty state> (page.tsx)
 //   /conversations/[id] → chat pane + right info panel ([id]/page.tsx)
 //
-// We break out of the (app) layout's max-width container (-mx-6 -my-6)
-// because messenger UIs need full-bleed width — the constrained padding
-// looks ridiculous when there's a chat pane involved. The height is
-// pinned to the viewport so the sidebar list scrolls independently of
-// the chat pane.
+// The parent (app)/layout.tsx detects /conversations and drops its
+// max-w-7xl + px-6/py-6 container so we render edge-to-edge inside
+// <main>. Height is pinned to the viewport so the three panes (list,
+// chat, info) scroll independently.
 // ============================================================================
 
 import { requireUserContext } from "~/lib/auth-context";
@@ -40,10 +39,10 @@ export default async function ConversationsLayout({
   });
 
   return (
-    // Negative margins undo the parent (app)/layout.tsx's px-6/py-6 so
-    // we can paint edge-to-edge. The height calc leaves room for the
-    // parent's top safe area (none, but reserves padding-equivalent).
-    <div className="-mx-6 -my-6 flex h-[calc(100vh)] overflow-hidden">
+    // Edge-to-edge inside <main>. The parent (app) layout has already
+    // dropped its constrained container for /conversations, so we just
+    // take whatever width <main> hands us.
+    <div className="flex h-screen overflow-hidden">
       <ConversationSidebar
         conversations={conversations}
         showSede={user.role === "admin"}
