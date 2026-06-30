@@ -481,7 +481,9 @@ function ToolsTab({
                 name="conversacionId"
                 value={conversacionId}
               />
-              <button className="btn-primary text-xs">Re-roll AI ahora</button>
+              <SubmitButton variant="primary" loadingLabel="Re-rolling…">
+                Re-roll AI ahora
+              </SubmitButton>
             </form>
           </>
         )}
@@ -513,7 +515,9 @@ function ToolsTab({
               placeholder="motivo del override"
             />
           </label>
-          <button className="btn-primary text-xs">Aplicar</button>
+          <SubmitButton variant="primary" loadingLabel="Aplicando…">
+            Aplicar
+          </SubmitButton>
         </form>
       </div>
 

@@ -5,6 +5,7 @@
 import { getCurrentUserContext } from "~/lib/auth-context";
 
 import { Sidebar } from "../_components/sidebar";
+import { TopProgress } from "../_components/top-progress";
 
 export default async function AppLayout({
   children,
@@ -19,6 +20,9 @@ export default async function AppLayout({
 
   return (
     <div className="flex min-h-screen">
+      {/* Global navigation progress bar — covers every link click in the
+          panel. Steve 2026-06-30: any action ≥ 2s must show feedback. */}
+      <TopProgress />
       <Sidebar user={user} />
       <main className="flex-1 min-w-0">
         <div className="mx-auto w-full max-w-7xl px-6 py-6 space-y-6">
