@@ -36,8 +36,8 @@ export function RightPanel({
   const [tab, setTab] = useState<Tab>("info");
 
   return (
-    <aside className="flex h-full w-[340px] flex-col border-l border-ink-300/40 bg-ink-100/20">
-      <div className="flex border-b border-ink-300/40 text-[13px] font-medium">
+    <aside className="flex h-full w-[340px] flex-col border-l border-ink-200/70 bg-abyss-rail">
+      <div className="flex border-b border-ink-200/70 text-[13px] font-medium">
         {TABS.map((t) => {
           const active = tab === t.key;
           return (

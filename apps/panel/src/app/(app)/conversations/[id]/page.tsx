@@ -342,7 +342,7 @@ function InfoTab({
 }) {
   return (
     <div className="flex flex-col gap-4 text-xs">
-      <div className="rounded-lg border border-ink-300/40 bg-white/40 p-3">
+      <div className="card-tight">
         <dl className="grid grid-cols-[80px_1fr] gap-y-1.5">
           <dt className="text-ink-500">Nombre</dt>
           <dd className="text-ink-900">{contact?.name ?? "—"}</dd>
@@ -366,7 +366,7 @@ function InfoTab({
       </div>
 
       {meta.ref_code ? (
-        <div className="rounded-lg border border-warn-500/30 bg-warn-50/40 p-3">
+        <div className="rounded-xl border border-warn-500/30 bg-warn-500/10 p-3 shadow-card backdrop-blur-sm">
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-warn-700">
             Depósito en curso
           </div>
@@ -395,7 +395,7 @@ function InfoTab({
             </span>
           </div>
           <ol className="relative space-y-2.5 pl-4">
-            <span className="absolute left-1 top-1 bottom-1 w-px bg-ink-200" />
+            <span className="absolute left-1 top-1 bottom-1 w-px bg-ink-300/60" />
             {history
               .slice()
               .reverse()
@@ -405,7 +405,7 @@ function InfoTab({
                 return (
                   <li key={`${h.at}-${i}`} className="relative">
                     <span
-                      className="absolute -left-[15px] top-1 h-2 w-2 rounded-full ring-2 ring-white"
+                      className="absolute -left-[15px] top-1 h-2 w-2 rounded-full ring-2 ring-abyss-rail"
                       style={{ background: toMeta.fg }}
                     />
                     <div className="text-[11px]">
@@ -447,8 +447,8 @@ function ToolsTab({
   return (
     <div className="flex flex-col gap-4 text-xs">
       {/* Re-roll or release */}
-      <div className="rounded-lg border border-ink-300/40 bg-white/40 p-3">
-        <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+      <div className="card-tight">
+        <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-brand-300">
           AI control
         </h3>
         {humanTookOver ? (
@@ -488,8 +488,8 @@ function ToolsTab({
       </div>
 
       {/* Stage override */}
-      <div className="rounded-lg border border-ink-300/40 bg-white/40 p-3">
-        <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+      <div className="card-tight">
+        <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-brand-300">
           Override etapa
         </h3>
         <form action={overrideLeadStage} className="flex flex-col gap-2">
