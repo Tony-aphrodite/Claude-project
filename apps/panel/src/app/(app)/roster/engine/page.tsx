@@ -83,13 +83,29 @@ export default async function EnginePage({
   ]);
   const activeInstructors = instructors.filter((i) => i.active);
 
-  // Group divers by (slot, group_id|null).
-  // Divers without a group_id are "unassigned" — sale arrived but the
-  // engine hasn't packed yet (or no instructor available).
-  type GroupKey = string; // `${slot}::${groupId|"none"}`
+  // §1 — Miguel 2026-06-30: grouping cascade (engine → manual → none).
+  // Old behaviour grouped only by group_id, so a diver with a manually
+  // assigned instructor but no engine group_id landed in "Sin asignar"
+  // even though Miguel had just clicked "asignar". Now we cascade:
+  //
+  //   • d.groupId set         → `${slot}::${groupId}`        (engine group)
+  //   • d.instructorId set    → `${slot}::manual-${instId}`  (manual group)
+  //   • both null             → `${slot}::none`              (sin asignar)
+  //
+  // The render path adds a "manual group" panel between engine groups and
+  // the unassigned bucket so the operator sees the diver under the
+  // instructor they just picked.
+  type GroupKey = string;
   const grouped = new Map<GroupKey, DiverRow[]>();
   for (const d of divers) {
-    const key: GroupKey = `${d.slot}::${d.groupId ?? "none"}`;
+    let key: GroupKey;
+    if (d.groupId) {
+      key = `${d.slot}::${d.groupId}`;
+    } else if (d.instructorId) {
+      key = `${d.slot}::manual-${d.instructorId}`;
+    } else {
+      key = `${d.slot}::none`;
+    }
     let bucket = grouped.get(key);
     if (!bucket) {
       bucket = [];
@@ -97,6 +113,10 @@ export default async function EnginePage({
     }
     bucket.push(d);
   }
+
+  // Quick instructor lookup for manual-group headers.
+  const instructorById = new Map<string, (typeof instructors)[number]>();
+  for (const i of instructors) instructorById.set(i.id, i);
 
   // §5 daily ops single-view stats (Miguel 2026-06-27 addendum). Compute
   // once per render so the operator's top banner stays in lock-step with
@@ -113,7 +133,12 @@ export default async function EnginePage({
   }
   const totalDiversToday = divers.length;
   const unassignedGroupCount = groups.filter((g) => g.instructorId === null).length;
-  const unassignedDiverCount = divers.filter((d) => d.groupId === null).length;
+  // §1 — only count divers that are TRULY unassigned (no engine group
+  // AND no manual instructor). A diver Miguel just manually attached to
+  // Billy via the asignar form should no longer trip the warning.
+  const unassignedDiverCount = divers.filter(
+    (d) => d.groupId === null && d.instructorId === null,
+  ).length;
   const instructorCount = activeInstructors.filter(
     (i) => i.role === "instructor",
   ).length;
@@ -314,6 +339,33 @@ export default async function EnginePage({
           const slotGroups = groups.filter((g) => g.slot === slot);
           const unassignedKey = `${slot}::none`;
           const unassigned = grouped.get(unassignedKey) ?? [];
+
+          // §1 — Miguel 2026-06-30: collect manually-assigned buckets
+          // (instructor_id set, group_id null) for THIS slot. Render as
+          // synthetic groups between engine groups and "Sin asignar".
+          // Each bucket maps to one instructor → one card.
+          const manualBuckets: Array<{
+            instructorId: string;
+            instructorNombre: string;
+            instructorRole: "instructor" | "divemaster";
+            divers: DiverRow[];
+          }> = [];
+          for (const [key, divers] of grouped) {
+            if (!key.startsWith(`${slot}::manual-`)) continue;
+            const instructorId = key.slice(`${slot}::manual-`.length);
+            const inst = instructorById.get(instructorId);
+            manualBuckets.push({
+              instructorId,
+              instructorNombre: inst?.nombre ?? "(instructor desconocido)",
+              instructorRole: inst?.role ?? "instructor",
+              divers,
+            });
+          }
+          // Stable sort so the same instructor always renders in the
+          // same position regardless of insertion order.
+          manualBuckets.sort((a, b) =>
+            a.instructorNombre.localeCompare(b.instructorNombre),
+          );
           return (
             <section key={slot} className="card !p-4">
               <div className="mb-3 flex items-baseline justify-between">
@@ -330,7 +382,9 @@ export default async function EnginePage({
                 </span>
               </div>
 
-              {slotGroups.length === 0 && unassigned.length === 0 ? (
+              {slotGroups.length === 0 &&
+              manualBuckets.length === 0 &&
+              unassigned.length === 0 ? (
                 <p className="text-xs text-ink-600">
                   Sin buceadores en este turno.
                 </p>
@@ -446,7 +500,16 @@ export default async function EnginePage({
                                     {d.groupOrder ?? "?"}
                                   </td>
                                   <td className="py-1 pr-2 text-ink-900">
-                                    {d.nombre}
+                                    <div className="flex flex-col">
+                                      <span>{d.nombre}</span>
+                                      {/* §2 — Miguel 2026-06-30: ref code
+                                          must be visible. Used by the
+                                          diver to access the future SSI
+                                          online registro. */}
+                                      <span className="font-mono text-[9px] text-ink-500">
+                                        {d.codigoBuceador}
+                                      </span>
+                                    </div>
                                   </td>
                                   <td className="py-1 pr-2 text-ink-600">
                                     {d.activity}
@@ -711,6 +774,191 @@ export default async function EnginePage({
                     );
                   })}
 
+                  {/* §1 — Manual-assignment buckets. One card per
+                      instructor with at least 1 manually-assigned diver
+                      in this slot. Visually distinct from engine groups
+                      (brand-amber accent) so the operator can tell
+                      "engine packed this" vs "I packed this manually". */}
+                  {manualBuckets.map((mb) => (
+                    <div
+                      key={`manual-${mb.instructorId}`}
+                      className="card-tight border-warn-500/30 bg-warn-500/5"
+                    >
+                      <div className="mb-2 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-warn-700">
+                            {mb.instructorNombre}
+                          </span>
+                          <span
+                            className={`rounded px-1 text-[9px] font-bold uppercase tracking-wider ${
+                              mb.instructorRole === "divemaster"
+                                ? "bg-warn-500/25 text-warn-700"
+                                : "bg-brand-400/20 text-brand-300"
+                            }`}
+                          >
+                            {mb.instructorRole === "divemaster" ? "DM" : "INST"}
+                          </span>
+                          <span className="text-ink-500">·</span>
+                          <span className="rounded bg-warn-500/15 px-1.5 py-0.5 text-[10px] text-warn-700 ring-1 ring-inset ring-warn-500/30">
+                            manual
+                          </span>
+                          <span className="text-ink-500 text-[10px]">
+                            asignación manual; el motor no agrupó todavía
+                          </span>
+                        </div>
+                        <span className="text-ink-500 text-[11px] tabular-nums">
+                          {mb.divers.length}
+                        </span>
+                      </div>
+                      <table className="w-full text-xs">
+                        <tbody>
+                          {mb.divers.map((d) => (
+                            <Fragment key={d.id}>
+                              <tr className="border-t border-warn-500/20">
+                                <td className="py-1 pr-2 text-ink-500">—</td>
+                                <td className="py-1 pr-2 text-ink-900">
+                                  <div className="flex flex-col">
+                                    <span>{d.nombre}</span>
+                                    <span className="font-mono text-[9px] text-ink-500">
+                                      {d.codigoBuceador}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="py-1 pr-2 text-ink-600">
+                                  {d.activity}
+                                  {d.activityDetail
+                                    ? `:${d.activityDetail}`
+                                    : ""}
+                                </td>
+                                <td className="py-1 pr-2 text-ink-500">
+                                  {d.nivelCertificacion}
+                                </td>
+                                <td className="py-1 pr-2">
+                                  {d.origen === "Manual" ? (
+                                    <span className="badge-warn">walk-in</span>
+                                  ) : null}
+                                </td>
+                                <td className="py-1 text-right">
+                                  {d.origen === "Manual" ? (
+                                    <div className="flex justify-end gap-2 text-[10px]">
+                                      <a
+                                        href={`#reassign-${d.id}`}
+                                        className="text-ink-500 hover:text-brand-300"
+                                      >
+                                        reasignar
+                                      </a>
+                                      <ActionForm
+                                        action={deleteWalkInDiver}
+                                      >
+                                        <input
+                                          type="hidden"
+                                          name="id"
+                                          value={d.id}
+                                        />
+                                        <SubmitButton
+                                          variant="subtle"
+                                          loadingLabel="borrando…"
+                                        >
+                                          eliminar
+                                        </SubmitButton>
+                                      </ActionForm>
+                                    </div>
+                                  ) : null}
+                                </td>
+                              </tr>
+                              {/* Reassign form (same UX as the engine
+                                  group case) — lets the operator move
+                                  to a different instructor or to "todo
+                                  el programa" cascade. */}
+                              {d.origen === "Manual" ? (
+                                <tr
+                                  id={`reassign-${d.id}`}
+                                  className="hidden target:table-row border-t border-warn-500/30 bg-warn-500/5"
+                                >
+                                  <td colSpan={6} className="px-2 py-2">
+                                    <ActionForm
+                                      action={reassignDiver}
+                                      className="flex flex-wrap items-end gap-3 text-[11px]"
+                                    >
+                                      <input
+                                        type="hidden"
+                                        name="id"
+                                        value={d.id}
+                                      />
+                                      <label className="flex flex-col gap-0.5">
+                                        <span className="text-warn-700">
+                                          Nuevo instructor / DM
+                                        </span>
+                                        <select
+                                          name="to_instructor_id"
+                                          defaultValue={d.instructorId ?? ""}
+                                          className="rounded border border-ink-200 bg-ink-100/60 px-1.5 py-0.5 text-ink-900"
+                                        >
+                                          <option value="">
+                                            Sin asignar (desligar)
+                                          </option>
+                                          {activeInstructors.map((i) => (
+                                            <option key={i.id} value={i.id}>
+                                              {i.nombre} [
+                                              {i.role === "divemaster"
+                                                ? "DM"
+                                                : "INST"}
+                                              ]
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                      <fieldset className="flex flex-col gap-0.5">
+                                        <legend className="text-warn-700">
+                                          Alcance
+                                        </legend>
+                                        <label className="flex items-center gap-1.5">
+                                          <input
+                                            type="radio"
+                                            name="scope"
+                                            value="this_day"
+                                            defaultChecked
+                                            className="accent-warn-500"
+                                          />
+                                          <span>Solo este día</span>
+                                        </label>
+                                        <label className="flex items-center gap-1.5">
+                                          <input
+                                            type="radio"
+                                            name="scope"
+                                            value="all_program"
+                                            className="accent-warn-500"
+                                          />
+                                          <span>
+                                            Todo el programa (cascada
+                                            multi-día)
+                                          </span>
+                                        </label>
+                                      </fieldset>
+                                      <SubmitButton
+                                        variant="warn"
+                                        loadingLabel="reasignando…"
+                                        className="text-[10px]"
+                                      >
+                                        aplicar
+                                      </SubmitButton>
+                                      <a
+                                        href="#"
+                                        className="text-[10px] text-ink-500 hover:text-ink-700"
+                                      >
+                                        cancelar
+                                      </a>
+                                    </ActionForm>
+                                  </td>
+                                </tr>
+                              ) : null}
+                            </Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+
                   {unassigned.length > 0 ? (
                     <div className="rounded-xl border border-warn-500/40 bg-warn-500/5 p-3">
                       <div className="mb-2 h-section text-warn-700">
@@ -727,11 +975,17 @@ export default async function EnginePage({
                         {unassigned.map((d) => (
                           <li key={d.id} className="space-y-1">
                             <div className="flex items-center justify-between gap-2">
-                              <span>
-                                {d.nombre} ({d.activity} /{" "}
-                                {d.nivelCertificacion})
-                                {d.origen === "Manual" ? " · walk-in" : ""}
-                              </span>
+                              <div className="flex flex-col">
+                                <span>
+                                  {d.nombre} ({d.activity} /{" "}
+                                  {d.nivelCertificacion})
+                                  {d.origen === "Manual" ? " · walk-in" : ""}
+                                </span>
+                                {/* §2 — ref code visible (Miguel 2026-06-30) */}
+                                <span className="font-mono text-[9px] text-ink-500">
+                                  {d.codigoBuceador}
+                                </span>
+                              </div>
                               {d.origen === "Manual" ? (
                                 <span className="flex gap-2 text-[10px]">
                                   <a
@@ -829,6 +1083,126 @@ export default async function EnginePage({
           );
         })}
       </div>
+
+      {/* §3 — Miguel 2026-06-30: per-day flat listing. Collapsible
+          <details> block so the operator can audit "did all my walk-ins
+          land?" in one sortable table without parsing the per-instructor
+          grouping above. Default closed; one click expands. */}
+      <section className="card">
+        <details className="group">
+          <summary className="flex cursor-pointer items-baseline justify-between gap-3 list-none">
+            <div className="flex items-baseline gap-3">
+              <span className="h-section">
+                Listado plano del día — para auditoría
+              </span>
+              <span className="text-[11px] text-ink-500">
+                {totalDiversToday} fila
+                {totalDiversToday === 1 ? "" : "s"}
+              </span>
+            </div>
+            <span className="text-[11px] text-ink-500 group-open:hidden">
+              ▾ mostrar
+            </span>
+            <span className="hidden text-[11px] text-ink-500 group-open:inline">
+              ▴ ocultar
+            </span>
+          </summary>
+          <div className="mt-3 overflow-x-auto">
+            {totalDiversToday === 0 ? (
+              <p className="text-xs text-ink-600">
+                Sin buceadores cargados para {fecha}.
+              </p>
+            ) : (
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-ink-300/60 text-left text-[10px] uppercase text-ink-500">
+                    <th className="py-1.5 pr-3">Slot</th>
+                    <th className="py-1.5 pr-3">Nombre</th>
+                    <th className="py-1.5 pr-3">Código</th>
+                    <th className="py-1.5 pr-3">Actividad</th>
+                    <th className="py-1.5 pr-3">Nivel</th>
+                    <th className="py-1.5 pr-3">Instructor</th>
+                    <th className="py-1.5 pr-3">Origen</th>
+                    <th className="py-1.5 pr-3">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {divers
+                    .slice()
+                    .sort((a, b) => {
+                      // Stable sort: slot order then name.
+                      const slotOrder = [
+                        "AM",
+                        "POOL_AM",
+                        "PM",
+                        "POOL_PM",
+                        "NIGHT",
+                      ];
+                      const ia = slotOrder.indexOf(a.slot);
+                      const ib = slotOrder.indexOf(b.slot);
+                      if (ia !== ib) return ia - ib;
+                      return a.nombre.localeCompare(b.nombre);
+                    })
+                    .map((d) => {
+                      const inst = d.instructorId
+                        ? instructorById.get(d.instructorId)
+                        : null;
+                      return (
+                        <tr
+                          key={d.id}
+                          className="border-b border-ink-200/40 last:border-b-0"
+                        >
+                          <td className="py-1.5 pr-3 font-medium text-ink-700">
+                            {d.slot}
+                          </td>
+                          <td className="py-1.5 pr-3 text-ink-900">
+                            {d.nombre}
+                          </td>
+                          <td className="py-1.5 pr-3 font-mono text-[10px] text-ink-600">
+                            {d.codigoBuceador}
+                          </td>
+                          <td className="py-1.5 pr-3 text-ink-600">
+                            {d.activity}
+                            {d.activityDetail
+                              ? `:${d.activityDetail}`
+                              : ""}
+                          </td>
+                          <td className="py-1.5 pr-3 text-ink-500">
+                            {d.nivelCertificacion}
+                          </td>
+                          <td className="py-1.5 pr-3 text-ink-700">
+                            {inst ? (
+                              <span className="inline-flex items-center gap-1">
+                                {inst.nombre}
+                                <span
+                                  className={`rounded px-1 text-[9px] font-bold uppercase ${
+                                    inst.role === "divemaster"
+                                      ? "bg-warn-500/20 text-warn-700"
+                                      : "bg-brand-400/20 text-brand-300"
+                                  }`}
+                                >
+                                  {inst.role === "divemaster" ? "DM" : "INST"}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="text-warn-700">sin asignar</span>
+                            )}
+                          </td>
+                          <td className="py-1.5 pr-3 text-ink-500">
+                            {d.origen}
+                          </td>
+                          <td className="py-1.5 pr-3 text-ink-500">
+                            {d.estadoPago}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </details>
+      </section>
 
       {/* Walk-in form */}
       <section className="card">
@@ -963,17 +1337,20 @@ export default async function EnginePage({
           </div>
           <div>
             <label className="mb-1 block text-ink-700" htmlFor="walkin-codigo">
-              Código (auto si vacío)
+              Código del buceador (opcional)
             </label>
             <input
               id="walkin-codigo"
               name="codigo_buceador"
-              placeholder="DPM-XX-MMDD-XXXXXX o vacío"
+              placeholder="Dejar vacío → se genera solo"
               className="w-full rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900 placeholder:text-ink-500"
             />
             <p className="mt-1 text-[10px] leading-tight text-ink-500">
-              Mismo formato que la AI — el buceador lo usa para acceder al
-              registro online cuando esté listo.
+              ℹ️ Solo llenar si el cliente YA tiene un código del flujo de la
+              AI. Si está vacío, el server genera uno automáticamente con la
+              forma <code className="text-brand-300">DPM-&lt;SEDE&gt;-MMDD-XXXXXX</code>
+              {" "}
+              (mismo formato que usa la AI para el futuro registro online).
             </p>
           </div>
           <div className="flex items-end">

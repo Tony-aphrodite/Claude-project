@@ -97,6 +97,7 @@ import {
 import { followUpProcessor } from "../services/follow-up.js";
 import { sendMetaProductCard } from "../services/meta-whatsapp.js";
 import { rosterDbService } from "../services/roster-db.js";
+import { writeAiRosterDivers } from "../services/ai-roster-divers.js";
 import { salesLoggerService } from "../services/sales-logger.js";
 import {
   agenteCierreFor,
@@ -893,6 +894,55 @@ export async function processIncomingMessage(
                     "roster_booking_ids metadata patch failed (non-blocking)",
                   ),
                 );
+
+              // §5 Miguel 2026-06-30 — also write per-pax × per-day
+              // roster_divers rows so the AI customers show up as
+              // individual cards on /roster/engine. Idempotent: skips
+              // (codigo, fecha, slot) triples that already exist.
+              // Non-blocking — failure here logs but doesn't roll back
+              // the bookings (those are authoritative for capacity).
+              const refCodesByPax =
+                (freshMeta.ref_codes_by_pax as string[] | undefined) ?? [];
+              if (
+                Array.isArray(refCodesByPax) &&
+                refCodesByPax.length === pax
+              ) {
+                try {
+                  // For FunDive-family programs we need the customer's
+                  // chosen turno (AM vs PM) to compute the engine slot.
+                  // LeadMetadata doesn't store fundive_slot directly,
+                  // but required_slots[0].slot was resolved by
+                  // consultar_disponibilidad — that's our source.
+                  const firstSlot = requiredSlots[0]?.slot;
+                  const fundiveSlot: "AM" | "PM" | undefined =
+                    firstSlot === "AM" || firstSlot === "PM"
+                      ? firstSlot
+                      : undefined;
+                  await writeAiRosterDivers({
+                    sedeId: sede.id,
+                    conversacionId: conversation.id,
+                    programa,
+                    startDate,
+                    pax,
+                    refCodesByPax,
+                    ...(fundiveSlot !== undefined ? { fundiveSlot } : {}),
+                  });
+                } catch (err) {
+                  log.warn(
+                    { err, convId: conversation.id },
+                    "writeAiRosterDivers failed (non-blocking) — roster_bookings still authoritative",
+                  );
+                }
+              } else {
+                log.info(
+                  {
+                    convId: conversation.id,
+                    pax,
+                    refCodesByPaxLength: refCodesByPax.length,
+                  },
+                  "writeAiRosterDivers: skipped — ref_codes_by_pax missing or count mismatch (pre-v2.2 booking?)",
+                );
+              }
             }
           }
         }
