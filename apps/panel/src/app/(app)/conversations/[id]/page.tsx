@@ -39,6 +39,7 @@ import { SubmitButton } from "~/app/_components/submit-button";
 import { markConversationSeen } from "~/app/actions/conversation-tracking";
 import { releaseConversationToAi } from "~/app/actions/inbox";
 import { overrideLeadStage, triggerReroll } from "~/app/actions/leads";
+import { listPanelUsersForMention } from "~/app/actions/mentions";
 import { saveAiResponseAsTemplate } from "~/app/actions/saved-responses";
 import { requireUserContext } from "~/lib/auth-context";
 import { getConversation } from "~/lib/db-queries";
@@ -79,9 +80,14 @@ export default async function ConversationDetail({
   // etc.) reflects the new state.
   void markConversationSeen(id);
 
-  const quickReplies = conv.conv.sedeId
-    ? await listQuickRepliesForSede({ sedeId: conv.conv.sedeId })
-    : [];
+  // Both loads happen in parallel — quick replies for the composer
+  // sidebar + panel users for the @-mention picker (Steve 2026-07-01).
+  const [quickReplies, mentionableUsers] = await Promise.all([
+    conv.conv.sedeId
+      ? listQuickRepliesForSede({ sedeId: conv.conv.sedeId })
+      : Promise.resolve([]),
+    listPanelUsersForMention(),
+  ]);
 
   const contact = conv.contact;
   const stage = conv.conv.leadStage as LeadStage;
@@ -327,6 +333,7 @@ export default async function ConversationDetail({
           <ChatComposer
             conversacionId={conv.conv.id}
             humanAttending={meta.human_took_over === true}
+            mentionableUsers={mentionableUsers}
           />
         </div>
       </section>

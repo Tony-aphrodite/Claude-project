@@ -60,6 +60,23 @@ export async function sendInternalNoteToAi(
     const conversacionId = String(formData.get("conversacionId") ?? "").trim();
     const text = String(formData.get("text") ?? "").trim();
 
+    // Steve 2026-07-01 — mentioned users the operator @-tagged in the
+    // composer. Comes in as a single space-or-comma-separated string of
+    // Supabase user IDs (uuids). We accept + de-dupe defensively; any
+    // token that isn't a well-formed uuid is dropped silently rather
+    // than throwing, so a UI bug never blocks the note itself from being
+    // saved.
+    const mentionedRaw = String(formData.get("mentionedUserIds") ?? "").trim();
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const mentionedUserIds = Array.from(
+      new Set(
+        mentionedRaw
+          .split(/[\s,]+/)
+          .map((s) => s.trim())
+          .filter((s) => UUID_RE.test(s)),
+      ),
+    );
+
     if (!conversacionId) {
       throw new Error("conversacionId requerido");
     }
@@ -99,6 +116,10 @@ export async function sendInternalNoteToAi(
         source: "panel_composer",
         note_id: noteId,
         by: ctx.email,
+        // Steve 2026-07-01 — panel users the operator @-tagged. Rendered
+        // in the note bubble + used by the future "Mentions" sidebar tab.
+        mentioned_user_ids:
+          mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
       },
     });
 

@@ -31,7 +31,9 @@
 // ============================================================================
 
 import {
+  useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -42,6 +44,9 @@ import { ActionForm } from "~/app/_components/action-form";
 import { SubmitButton } from "~/app/_components/submit-button";
 import { sendOperatorMessage } from "~/app/actions/inbox";
 import { sendInternalNoteToAi } from "~/app/actions/internal-note";
+import type { MentionUser } from "~/app/actions/mentions";
+
+import { MentionPicker } from "./_mention-picker";
 
 const MAX_LENGTH = 4096;
 const WARN_LENGTH = 3800; // start nagging before the hard wall
@@ -61,17 +66,107 @@ type ChatComposerProps = {
    * state; sending an internal note NEVER silences it.
    */
   humanAttending: boolean;
+  /** Panel users available for @-mention autocomplete on internal notes. */
+  mentionableUsers: MentionUser[];
 };
 
 export function ChatComposer({
   conversacionId,
   humanAttending,
+  mentionableUsers,
 }: ChatComposerProps) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const whatsappFormRef = useRef<HTMLFormElement | null>(null);
   const length = text.length;
   const router = useRouter();
+
+  // ── @-mention autocomplete state ─────────────────────────────────────
+  // `mentionQuery` is the substring after "@" the operator is typing;
+  // null means the picker is closed. `mentionAnchor` records the offset
+  // of the "@" in the textarea so we can splice the picked email back in.
+  // `mentionedUserIds` accumulates picked users for the server action.
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const mentionAnchorRef = useRef<number | null>(null);
+  const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
+
+  const updateMentionState = useCallback((value: string, caret: number) => {
+    // Walk backward from the caret until we hit either whitespace/newline
+    // or an "@". If we hit "@" first, we're in a mention-in-progress.
+    let i = caret - 1;
+    while (i >= 0) {
+      const ch = value[i];
+      if (ch === "@") {
+        const query = value.slice(i + 1, caret);
+        // A mention shouldn't span whitespace — if the substring has
+        // any, the operator moved past the mention.
+        if (/\s/.test(query)) {
+          setMentionQuery(null);
+          mentionAnchorRef.current = null;
+          return;
+        }
+        mentionAnchorRef.current = i;
+        setMentionQuery(query);
+        return;
+      }
+      if (ch === undefined || /\s/.test(ch)) break;
+      i--;
+    }
+    setMentionQuery(null);
+    mentionAnchorRef.current = null;
+  }, []);
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setText(value);
+    updateMentionState(value, e.target.selectionStart ?? value.length);
+  };
+
+  const handleSelectionChange = () => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    updateMentionState(ta.value, ta.selectionStart ?? ta.value.length);
+  };
+
+  const insertMention = useCallback(
+    (user: MentionUser) => {
+      const anchor = mentionAnchorRef.current;
+      const ta = textareaRef.current;
+      if (anchor === null || !ta) return;
+      const before = text.slice(0, anchor);
+      const after = text.slice(ta.selectionStart ?? text.length);
+      const inserted = `@${user.email} `;
+      const nextText = `${before}${inserted}${after}`;
+      setText(nextText);
+      setMentionedUserIds((prev) =>
+        prev.includes(user.id) ? prev : [...prev, user.id],
+      );
+      setMentionQuery(null);
+      mentionAnchorRef.current = null;
+      // Move caret to just after the inserted mention on next tick.
+      requestAnimationFrame(() => {
+        const t = textareaRef.current;
+        if (!t) return;
+        const pos = before.length + inserted.length;
+        t.focus();
+        t.setSelectionRange(pos, pos);
+      });
+    },
+    [text],
+  );
+
+  // Rebuild the list of ACTUAL mentions that survive in the text — if the
+  // operator deleted "@email" after picking, we drop that userId. The
+  // server-authoritative list uses the intersection of "picked" and
+  // "email appears in text".
+  const activeMentionedIds = useMemo(() => {
+    if (mentionedUserIds.length === 0) return [] as string[];
+    return mentionedUserIds.filter((id) => {
+      const user = mentionableUsers.find((u) => u.id === id);
+      if (!user) return false;
+      return text.includes(`@${user.email}`);
+    });
+  }, [mentionedUserIds, mentionableUsers, text]);
 
   // ── Auto-refresh polling after internal note ─────────────────────────
   // `pollingUntil` is the timestamp (ms since epoch) after which we stop
@@ -96,6 +191,10 @@ export function ChatComposer({
   };
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // While the mention picker is open, DON'T send — Enter picks a
+    // user from the popover (handled inside MentionPicker). Same
+    // rule for Tab / Arrow keys.
+    if (mentionQuery !== null) return;
     // Enter alone = send to WhatsApp. Shift+Enter / Ctrl+Enter = newline.
     // Internal notes are click-only — the operator has to explicitly
     // pick the "Instruir a la AI" button to route to the note flow.
@@ -132,15 +231,29 @@ export function ChatComposer({
           id="composer-textarea"
           rows={3}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={handleTextChange}
+          onKeyUp={handleSelectionChange}
+          onClick={handleSelectionChange}
           onKeyDown={handleKeyDown}
           placeholder={
             humanAttending
-              ? "Enviar mensaje → respuesta al cliente · Instruir a la AI → nota interna. Enter envía; Shift+Enter para nueva línea."
-              : "Escribí acá. Enviar mensaje toma la conversación (AI silenciada). Instruir a la AI es una nota interna — no llega al cliente y la AI responde el próximo turno."
+              ? "Enviar mensaje → respuesta al cliente · Instruir a la AI → nota interna. Escribí @ para mencionar usuario. Enter envía; Shift+Enter para nueva línea."
+              : "Escribí acá. Enviar mensaje toma la conversación (AI silenciada). Instruir a la AI es una nota interna — escribí @ para mencionar a otro usuario."
           }
           className="w-full resize-y rounded-lg border border-ink-300/70 bg-ink-100/70 px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30"
         />
+        {/* Mention picker overlays above the textarea when in mention mode. */}
+        {mentionQuery !== null ? (
+          <MentionPicker
+            query={mentionQuery}
+            users={mentionableUsers}
+            onPick={insertMention}
+            onDismiss={() => {
+              setMentionQuery(null);
+              mentionAnchorRef.current = null;
+            }}
+          />
+        ) : null}
       </div>
 
       {/* AI-is-thinking hint — Steve 2026-07-01. Fires immediately after
@@ -206,11 +319,17 @@ export function ChatComposer({
             successMessage="Nota enviada · AI respondiendo (10–25s)"
             onSuccess={() => {
               clearText();
+              setMentionedUserIds([]);
               startPollingForAiReply();
             }}
           >
             <input type="hidden" name="conversacionId" value={conversacionId} />
             <input type="hidden" name="text" value={text} />
+            <input
+              type="hidden"
+              name="mentionedUserIds"
+              value={activeMentionedIds.join(",")}
+            />
             <SubmitButton
               variant="warn"
               loadingLabel="Enviando nota…"

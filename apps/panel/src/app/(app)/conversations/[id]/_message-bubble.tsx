@@ -66,6 +66,40 @@ function fileLabel(mime: string | null | undefined): string {
   return mime.split("/")[1]?.toUpperCase() ?? "Archivo";
 }
 
+/**
+ * Split note text into an alternating sequence of plain-text runs and
+ * @-mention spans. A mention token is `@` followed by an email-shaped
+ * substring (word chars, dots, dashes, plus, and exactly one @-domain).
+ * Keys are index-based because mention text can legitimately repeat.
+ * Steve 2026-07-01 — used by the internal-note bubble.
+ */
+function renderMentionText(text: string) {
+  const MENTION_RE =
+    /@[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+  const nodes: React.ReactNode[] = [];
+  let lastIdx = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = MENTION_RE.exec(text)) !== null) {
+    if (match.index > lastIdx) {
+      nodes.push(text.slice(lastIdx, match.index));
+    }
+    nodes.push(
+      <span
+        key={`m-${key++}`}
+        className="rounded bg-brand-500/20 px-1 font-medium text-brand-300"
+      >
+        {match[0]}
+      </span>,
+    );
+    lastIdx = match.index + match[0].length;
+  }
+  if (lastIdx < text.length) {
+    nodes.push(text.slice(lastIdx));
+  }
+  return nodes;
+}
+
 export function MessageBubble({
   message,
   contactInitials,
@@ -83,11 +117,20 @@ export function MessageBubble({
   const isInternal = sender === "internal_note" || sender === "system";
 
   if (isInternal) {
-    // Internal notes are admin-only context, render as centered grey strip.
+    // Internal notes are operator-facing context. Rendered as a centered
+    // grey strip, but with @-mention tokens highlighted so anyone reading
+    // the timeline sees who was tagged. Steve 2026-07-01.
     return (
       <div className="my-2 flex justify-center">
-        <div className="max-w-md rounded-md bg-ink-200/40 px-3 py-1.5 text-[11px] text-ink-500">
-          {message.content}
+        <div className="max-w-md rounded-md bg-ink-200/40 px-3 py-1.5 text-[11px] text-ink-600">
+          <span className="whitespace-pre-wrap">
+            {renderMentionText(message.content)}
+          </span>
+          {message.agenteName ? (
+            <span className="ml-2 text-[10px] text-ink-500">
+              · {message.agenteName}
+            </span>
+          ) : null}
         </div>
       </div>
     );
