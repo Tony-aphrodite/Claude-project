@@ -49,37 +49,56 @@ export function agenteCierreFor(sedeNombre: string): string {
  * (2026-06-07). See `reference/koh-phi-phi-2026-06-07-tarifario-phi-phi.md`
  * for the full list including prices + gaps analysis.
  */
+// Verified against Miguel's Koh Phi Phi tarifario (2026-06-07). Any
+// non-PP sede that reuses these EXACT strings gets a row that Miguel's
+// revenue calc scores correctly. If a sede has different display names,
+// Miguel will see the row in his sheet (correct programa, wrong revenue
+// calc) and can flag it — a row we CAN see beats an errored write we
+// can't (Steve 2026-07-01, "no está escribiendo en las hojas").
+const PP_TARIFARIO_2026_06_07: Record<string, string> = {
+  TryScuba: "DSD / Try Scuba", // 3,600 THB
+  ScubaDiver: "Scuba Diver", // 8,500 THB
+  OW: "OW 18", // 12,900 THB
+  OW30: "OW 30", // 18,900 THB
+  AOW: "Advanced (AOW)", // 10,400 THB
+  FunDive: "Fun Dive", // 2,700 THB
+  Refresh: "Refresh", // 3,400 THB
+  DeepAdvFD: "Deep Adventure + Fun Dive", // 3,700 THB
+  ReactRight: "React Right", // 4,500 THB
+  RescueDiver: "Rescue", // 12,500 THB
+  NitroxSpecialty: "Nitrox Specialty", // 9,000 THB
+  // DeepSpecialty has two variants in Miguel's tarifario depending on
+  // the customer's existing certification:
+  //   "Deep Specialty (OW cert)"        — 8,900 THB
+  //   "Deep Specialty (Advanced cert)"  — 7,900 THB
+  // Our enum has a single `DeepSpecialty` value — default to the
+  // OW-cert variant (more common case). When the AI knows the
+  // customer is Advanced-certified, future work would route to the
+  // other variant via a new enum value or context flag.
+  DeepSpecialty: "Deep Specialty (OW cert)",
+  // Programs in our enum without a tarifario line (see the tarifario
+  // memo for the gap analysis): RefreshAdv, Adventures, OWAOWCombo,
+  // OWDeepCombo, StressRescue, DMT. These will SKIP the row with a
+  // warning until Miguel adds them.
+};
+
 export const PROGRAMA_DISPLAY_NAME: Record<string, Record<string, string>> = {
-  "Koh Phi Phi": {
-    // ALL entries below from Miguel's tarifario 2026-06-07. DO NOT
-    // edit casing / spacing / punctuation — his revenue calc compares
-    // verbatim. Any future change must come from Miguel directly.
-    TryScuba: "DSD / Try Scuba", // 3,600 THB
-    ScubaDiver: "Scuba Diver", // 8,500 THB
-    OW: "OW 18", // 12,900 THB
-    OW30: "OW 30", // 18,900 THB
-    AOW: "Advanced (AOW)", // 10,400 THB
-    FunDive: "Fun Dive", // 2,700 THB
-    Refresh: "Refresh", // 3,400 THB
-    DeepAdvFD: "Deep Adventure + Fun Dive", // 3,700 THB
-    ReactRight: "React Right", // 4,500 THB
-    RescueDiver: "Rescue", // 12,500 THB
-    NitroxSpecialty: "Nitrox Specialty", // 9,000 THB
-    // DeepSpecialty has two variants in Miguel's tarifario depending on
-    // the customer's existing certification:
-    //   "Deep Specialty (OW cert)"        — 8,900 THB
-    //   "Deep Specialty (Advanced cert)"  — 7,900 THB
-    // Our enum has a single `DeepSpecialty` value — default to the
-    // OW-cert variant (more common case). When the AI knows the
-    // customer is Advanced-certified, future work would route to the
-    // other variant via a new enum value or context flag.
-    DeepSpecialty: "Deep Specialty (OW cert)",
-    // Programs in our enum without a tarifario line (see the tarifario
-    // memo for the gap analysis): RefreshAdv, Adventures, OWAOWCombo,
-    // OWDeepCombo, StressRescue, DMT. These will SKIP the row with a
-    // warning until Miguel adds them.
-  },
-  // Other sedes' mappings deferred until those sedes activate.
+  "Koh Phi Phi": PP_TARIFARIO_2026_06_07,
+  // Steve 2026-07-01 — production sees sales_logger_failed with
+  // reason=no_program_mapping every deposit-paid from KT / GT / GA / NP
+  // because the mapping table was PP-only. Miguel needs to see rows in
+  // his master sheet even if the display name doesn't match his
+  // per-sede tarifario perfectly. Interim: reuse the PP tarifario
+  // strings for the other 4 sedes so every sale writes a row. If a
+  // sede's revenue-calc returns 0 for the row, Miguel spots it
+  // immediately and tells us the correct string per program.
+  //
+  // These are LIVE mappings, not placeholders. Replace verbatim when
+  // Miguel sends the per-sede tarifario.
+  "Koh Tao": PP_TARIFARIO_2026_06_07,
+  "Gili Trawangan": PP_TARIFARIO_2026_06_07,
+  "Gili Air": PP_TARIFARIO_2026_06_07,
+  "Nusa Penida": PP_TARIFARIO_2026_06_07,
 };
 
 /**
