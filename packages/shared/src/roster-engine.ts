@@ -74,9 +74,12 @@ export const ALL_NIVELES: readonly NivelCertificacion[] = [
 export type Activity =
   | "BD_CONFINADA"   // baptism in pool
   | "BD_BARCO"       // baptism on boat (max 12m)
+  | "SCUBA_DIVER"    // SSI/PADI Scuba Diver cert (short cert, 2-day program) — Steve 2026-07-01
   | "OW1"            // OW day 1 — pool
   | "OW2"            // OW day 2 — 12m boat dives
   | "OW3"            // OW day 3 — 18m boat dives
+  | "BD_TO_OW"       // upgrade day — customer already did BD, converting to OW — Steve 2026-07-01
+  | "SD_TO_OW"       // upgrade day — customer already did Scuba Diver, converting to OW — Steve 2026-07-01
   | "FD"             // fun dive (depth derives from nivel + acceptsCap)
   | "AA"             // Advanced course day 1
   | "AA2"            // Advanced course day 2
@@ -89,9 +92,12 @@ export type Activity =
 export const ALL_ACTIVITIES: readonly Activity[] = [
   "BD_CONFINADA",
   "BD_BARCO",
+  "SCUBA_DIVER",
   "OW1",
   "OW2",
   "OW3",
+  "BD_TO_OW",
+  "SD_TO_OW",
   "FD",
   "AA",
   "AA2",
@@ -362,6 +368,41 @@ export function deriveActivityProfile(
     case "RES":
       return {
         grupoActividad: "dedicado_res",
+        perfilProfundidad: 18,
+        ratioCap: 4,
+      };
+
+    // ─── Steve 2026-07-01 — Scuba Diver + upgrade activities ───
+    // These are additive placeholders so the walk-in operator can
+    // classify a diver on these programs; engine grouping treats them
+    // as compatible with the equivalent OW day-type they parallel.
+    // Once Miguel provides the exact day-by-day footprint (see
+    // reference/2026-07-01-miguel-feedback-followups.md #10) we may
+    // refine the depth caps / ratios, but this baseline is safe.
+    case "SCUBA_DIVER":
+      // Scuba Diver mimics OW2 in the water — 12m boat dives without
+      // the third-day 18m depth. Group with mar_12m so an SD student
+      // and an OW2 student can share an instructor safely.
+      return {
+        grupoActividad: "mar_12m",
+        perfilProfundidad: 12,
+        ratioCap: 4,
+      };
+    case "BD_TO_OW":
+      // BD→OW upgrade: customer already did the BD pool + first shallow
+      // dive; they need the remaining OW work. Behaves like OW3 (18m
+      // open-water day) for capacity + grouping. Operator can log
+      // additional day if needed.
+      return {
+        grupoActividad: "ow_18m",
+        perfilProfundidad: 18,
+        ratioCap: 4,
+      };
+    case "SD_TO_OW":
+      // SD→OW upgrade: only the final 18m OW day is missing. Same
+      // grouping as OW3.
+      return {
+        grupoActividad: "ow_18m",
         perfilProfundidad: 18,
         ratioCap: 4,
       };

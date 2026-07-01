@@ -710,9 +710,18 @@ export default async function EnginePage({
                                             <option value="BD_BARCO">
                                               BD_BARCO
                                             </option>
+                                            <option value="SCUBA_DIVER">
+                                              SCUBA_DIVER
+                                            </option>
                                             <option value="OW1">OW1</option>
                                             <option value="OW2">OW2</option>
                                             <option value="OW3">OW3</option>
+                                            <option value="BD_TO_OW">
+                                              BD → OW
+                                            </option>
+                                            <option value="SD_TO_OW">
+                                              SD → OW
+                                            </option>
                                             <option value="FD">FD</option>
                                             <option value="AA">AA</option>
                                             <option value="AA2">AA2</option>
@@ -1347,9 +1356,12 @@ export default async function EnginePage({
             >
               <option value="BD_CONFINADA">BD_CONFINADA (pool)</option>
               <option value="BD_BARCO">BD_BARCO (boat)</option>
+              <option value="SCUBA_DIVER">SCUBA_DIVER (cert corta)</option>
               <option value="OW1">OW1</option>
               <option value="OW2">OW2</option>
               <option value="OW3">OW3</option>
+              <option value="BD_TO_OW">Upgrade BD → OW</option>
+              <option value="SD_TO_OW">Upgrade Scuba Diver → OW</option>
               <option value="FD">FD</option>
               <option value="AA">AA</option>
               <option value="AA2">AA2</option>

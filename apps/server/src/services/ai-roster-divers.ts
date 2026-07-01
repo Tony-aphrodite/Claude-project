@@ -60,8 +60,11 @@ function defaultDepthForActivity(activity: string, nivel: string): number {
       return 5;
     case "BD_BARCO":
     case "OW2":
+    case "SCUBA_DIVER":     // Steve 2026-07-01
       return 12;
     case "OW3":
+    case "BD_TO_OW":         // Steve 2026-07-01
+    case "SD_TO_OW":         // Steve 2026-07-01
       return 18;
     case "FD":
     case "REF_FASE2":

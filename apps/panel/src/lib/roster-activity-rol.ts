@@ -14,9 +14,12 @@
 const COURSE_ACTIVITIES = new Set<string>([
   "BD_CONFINADA",
   "BD_BARCO",
+  "SCUBA_DIVER",   // Steve 2026-07-01
   "OW1",
   "OW2",
   "OW3",
+  "BD_TO_OW",      // Steve 2026-07-01 — upgrade paths still need instructor
+  "SD_TO_OW",      // Steve 2026-07-01
   "AA",
   "AA2",
   "ADV",
