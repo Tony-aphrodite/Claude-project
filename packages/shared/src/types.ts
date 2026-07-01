@@ -1228,8 +1228,10 @@ export type LeadMetadata = {
     /** ISO timestamp of webhook receipt. */
     at: string;
     /** Respond.io userId of the AI user that was @-mentioned — written for
-     *  audit even though the lookup already passed at receive time. */
-    mentioned_ai_id: number;
+     *  audit even though the lookup already passed at receive time.
+     *  NULL when the note originated from the panel composer (Steve
+     *  2026-07-01) — there is no Respond.io @-mention in that flow. */
+    mentioned_ai_id: number | null;
   }>;
 };
 
