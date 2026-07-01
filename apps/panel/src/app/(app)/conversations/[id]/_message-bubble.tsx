@@ -8,6 +8,15 @@
 //               fuentes chip strip, "Guardar" link
 //   • agente  — outgoing, right-aligned, teal/agent bubble, operator name
 //
+// Attachments (Steve 2026-07-01): when a customer sends an image or PDF,
+// the server stores a `[attachment:image/jpeg]` placeholder in `content`
+// and the real URL in mensajes.metadata. This component detects the
+// placeholder + reads the metadata to render:
+//   • images  → inline <img> preview (click to open full-size in a tab)
+//   • PDFs / other files → a clickable chip with the file icon + mime.
+// Without this the operator sees "[attachment:image/jpeg]" text and has
+// no idea what the customer actually sent (Miguel/Steve 2026-07-01).
+//
 // The component is pure presentation; the "Save as quick reply" form
 // stays in the parent page so we can keep it as a server-rendered
 // ActionForm next to the bubble.
@@ -17,6 +26,13 @@ import type { ReactNode } from "react";
 
 type Sender = "cliente" | "ai" | "agente" | "system" | "internal_note";
 
+export type BubbleAttachment = {
+  /** Direct URL to the attachment (Respond.io CDN typically). */
+  url: string;
+  /** MIME type as reported by WhatsApp / Respond.io. */
+  mimeType?: string | null;
+};
+
 export type BubbleMessage = {
   id: string;
   sender: string;
@@ -24,7 +40,31 @@ export type BubbleMessage = {
   createdAt: Date;
   agenteName?: string | null;
   fuentes?: string[];
+  /**
+   * Normalised list of attachments derived from mensajes.metadata.
+   * Empty when the message is pure text.
+   */
+  attachments?: BubbleAttachment[];
 };
+
+/** True when `content` is a server-generated attachment placeholder. */
+function isAttachmentPlaceholder(content: string): boolean {
+  return /^\[attachment:[^\]]+\](?:\s*x\d+)?$/.test(content.trim());
+}
+
+function isImage(mime: string | null | undefined): boolean {
+  return typeof mime === "string" && mime.startsWith("image/");
+}
+function isPdf(mime: string | null | undefined): boolean {
+  return typeof mime === "string" && mime === "application/pdf";
+}
+
+function fileLabel(mime: string | null | undefined): string {
+  if (isImage(mime)) return "Imagen";
+  if (isPdf(mime)) return "PDF";
+  if (!mime) return "Archivo";
+  return mime.split("/")[1]?.toUpperCase() ?? "Archivo";
+}
 
 export function MessageBubble({
   message,
@@ -88,9 +128,77 @@ export function MessageBubble({
               {formatTime(message.createdAt)}
             </span>
           </div>
-          <div className="whitespace-pre-wrap break-words leading-snug">
-            {message.content}
-          </div>
+          {/* Attachment rendering (Steve 2026-07-01). When the message
+              content is a `[attachment:...]` placeholder, we suppress
+              the placeholder text and show the actual file(s) instead.
+              Free-text messages fall through to the normal rendering.
+              Mixed messages (text + attachment) render both. */}
+          {message.attachments && message.attachments.length > 0 ? (
+            <div className="flex flex-col gap-1.5">
+              {message.attachments.map((a, i) => (
+                <a
+                  key={`${a.url}-${i}`}
+                  href={a.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`block overflow-hidden rounded-lg ring-1 ring-inset ${
+                    isCliente
+                      ? "ring-ink-300/60 bg-ink-100/40 hover:ring-brand-400/60"
+                      : "ring-white/25 bg-white/10 hover:ring-white/50"
+                  }`}
+                  title={
+                    isImage(a.mimeType)
+                      ? "Abrir imagen en tamaño real"
+                      : isPdf(a.mimeType)
+                        ? "Descargar / abrir PDF"
+                        : "Descargar archivo"
+                  }
+                >
+                  {isImage(a.mimeType) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={a.url}
+                      alt="Adjunto del cliente"
+                      className="max-h-64 w-full max-w-xs object-contain"
+                    />
+                  ) : (
+                    <div className="flex items-center gap-2 px-3 py-2 text-xs">
+                      <span aria-hidden="true" className="text-lg">
+                        {isPdf(a.mimeType) ? "📄" : "📎"}
+                      </span>
+                      <span
+                        className={
+                          isCliente ? "text-ink-800" : "text-white/95"
+                        }
+                      >
+                        {fileLabel(a.mimeType)}
+                        {a.mimeType ? (
+                          <span
+                            className={`ml-1 text-[10px] ${
+                              isCliente
+                                ? "text-ink-500"
+                                : "text-white/70"
+                            }`}
+                          >
+                            · {a.mimeType}
+                          </span>
+                        ) : null}
+                      </span>
+                    </div>
+                  )}
+                </a>
+              ))}
+            </div>
+          ) : null}
+          {/* Text content. Skipped only when the whole content is a
+              placeholder AND we have attachments to render — otherwise
+              a customer's plain text still shows normally. */}
+          {(message.attachments?.length ?? 0) > 0 &&
+          isAttachmentPlaceholder(message.content) ? null : (
+            <div className="whitespace-pre-wrap break-words leading-snug">
+              {message.content}
+            </div>
+          )}
           {isAi && fuentes.length > 0 ? (
             <div className="mt-1.5 flex flex-wrap gap-1">
               {fuentes.map((f) => (

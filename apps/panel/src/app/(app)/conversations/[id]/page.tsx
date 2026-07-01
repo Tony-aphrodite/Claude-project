@@ -164,6 +164,45 @@ export default async function ConversationDetail({
                   ? (m.fuentes as string[])
                   : [];
                 const isAi = m.sender === "ai";
+                // Steve 2026-07-01 — pull attachments off the message
+                // metadata jsonb so MessageBubble can render inline
+                // previews for images / PDFs the customer sent.
+                // Supported shapes on metadata:
+                //   { attachments: [{url, mimeType}, ...] }  ← preferred
+                //   { attachmentUrl, attachmentMime }        ← legacy single
+                const meta =
+                  m.metadata && typeof m.metadata === "object"
+                    ? (m.metadata as Record<string, unknown>)
+                    : null;
+                const attachmentsRaw = Array.isArray(meta?.attachments)
+                  ? (meta.attachments as Array<{
+                      url?: unknown;
+                      mimeType?: unknown;
+                    }>)
+                  : [];
+                const attachments = attachmentsRaw
+                  .filter(
+                    (a): a is { url: string; mimeType?: string | null } =>
+                      typeof a?.url === "string",
+                  )
+                  .map((a) => ({
+                    url: a.url,
+                    mimeType:
+                      typeof a.mimeType === "string" ? a.mimeType : null,
+                  }));
+                // Legacy single-attachment fallback.
+                if (
+                  attachments.length === 0 &&
+                  typeof meta?.attachmentUrl === "string"
+                ) {
+                  attachments.push({
+                    url: meta.attachmentUrl as string,
+                    mimeType:
+                      typeof meta.attachmentMime === "string"
+                        ? (meta.attachmentMime as string)
+                        : null,
+                  });
+                }
                 return (
                   <Fragment key={m.id}>
                     <MessageBubble
@@ -174,6 +213,7 @@ export default async function ConversationDetail({
                         createdAt: m.createdAt,
                         agenteName: m.agenteName,
                         fuentes,
+                        attachments,
                       }}
                       contactInitials={initials}
                       saveAction={
