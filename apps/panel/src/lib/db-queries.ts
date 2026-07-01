@@ -117,7 +117,7 @@ export async function getDashboardSnapshot(rangeHours = 24) {
       COALESCE(COUNT(l.id) FILTER (WHERE l.status != 'success'), 0)::int AS err_count,
       COALESCE(
         percentile_cont(0.95) WITHIN GROUP (
-          ORDER BY l.latencia_ms
+          ORDER BY l.latency_ms
         ) FILTER (WHERE l.status = 'success'),
         0
       )::int AS p95_ms
