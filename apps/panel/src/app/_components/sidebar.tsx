@@ -393,6 +393,14 @@ export function Sidebar({ user }: { user: UserContext | null }) {
                 <span className="text-ink-800 font-medium">
                   admin · todas las sedes
                 </span>
+              ) : user.sedeId === null ? (
+                // Miguel 2026-07-01 #7 — cross-sede oficina cohort
+                // (role=office + sedeId=null). Show a clear label so
+                // the operator knows they can see every sede, not
+                // "sede no encontrada" which reads like a bug.
+                <span className="text-ink-800 font-medium">
+                  oficina · todas las sedes
+                </span>
               ) : (
                 <>
                   <span className="text-ink-600">oficina ·</span>

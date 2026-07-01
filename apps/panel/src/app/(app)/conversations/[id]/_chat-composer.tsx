@@ -67,6 +67,10 @@ export function ChatComposer({
       action={sendOperatorMessage}
       className="flex flex-col gap-2"
       successMessage="Mensaje enviado al cliente"
+      // Steve 2026-07-01 — clear the controlled textarea state after
+      // a successful send. The form's native reset can't touch
+      // React's `text` state because the textarea is controlled.
+      onSuccess={() => setText("")}
     >
       <input type="hidden" name="conversacionId" value={conversacionId} />
 

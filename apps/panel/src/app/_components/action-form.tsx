@@ -62,6 +62,13 @@ type ActionFormProps = {
   successMessage?: string;
   /** Where the banner appears: 'top' (default) or 'bottom'. */
   errorPosition?: "top" | "bottom";
+  /**
+   * Called AFTER a successful submit + router.refresh. Use to clear
+   * any controlled React state the form's native reset can't touch
+   * (e.g. a <textarea value={text} /> where text lives in useState).
+   * Steve 2026-07-01 — needed for the chat composer.
+   */
+  onSuccess?: () => void;
 };
 
 export function ActionForm({
@@ -71,6 +78,7 @@ export function ActionForm({
   resetOnSuccess = false,
   successMessage,
   errorPosition = "top",
+  onSuccess,
 }: ActionFormProps) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
@@ -105,6 +113,9 @@ export function ActionForm({
         router.refresh();
         if (resetOnSuccess) {
           formEl.reset();
+        }
+        if (onSuccess) {
+          onSuccess();
         }
         if (successMessage) {
           setShowSuccess(true);

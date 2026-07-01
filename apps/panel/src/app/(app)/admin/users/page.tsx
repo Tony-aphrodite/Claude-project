@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { DismissibleBanner } from "~/app/_components/dismissible-banner";
 import { PageHeader } from "~/app/_components/page-header";
 import {
   consumeNewUserFlash,
@@ -69,11 +70,15 @@ export default async function AdminUsersPage({
       />
 
       {/* Flash: just-created credentials (shown ONCE) ──────────────── */}
+      {/* Steve 2026-07-01: auto-dismiss after 3s + manual close ×.
+          Longer timeout for credentials because the operator needs to
+          select+copy a 32-char password before it goes away. */}
       {flash && (
-        <section
-          className="card flex items-start gap-3 ring-1 ring-inset ring-ok-500/30 bg-ok-500/10"
-          role="status"
-        >
+        <DismissibleBanner timeoutMs={10000} closeLabel="Cerrar credenciales">
+          <section
+            className="card flex items-start gap-3 ring-1 ring-inset ring-ok-500/30 bg-ok-500/10"
+            role="status"
+          >
           <span className="mt-0.5 shrink-0 text-ok-700">
             <svg viewBox="0 0 20 20" fill="none" className="h-5 w-5">
               <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.6" />
@@ -116,27 +121,36 @@ export default async function AdminUsersPage({
               contraseña creando el usuario otra vez con el mismo email.
             </p>
           </div>
-        </section>
+          </section>
+        </DismissibleBanner>
       )}
 
       {/* Status banners ─────────────────────────────────────────────── */}
+      {/* Steve 2026-07-01: wrap all status banners in DismissibleBanner
+          so they auto-dismiss after 3s + can be closed manually. */}
       {params.deleted === "1" && !flash && (
-        <section className="card ring-1 ring-inset ring-ok-500/30 bg-ok-500/10 !py-3 text-sm text-ink-700">
-          ✓ Acceso revocado. La próxima request del usuario lo va a redirigir
-          al login.
-        </section>
+        <DismissibleBanner>
+          <section className="card ring-1 ring-inset ring-ok-500/30 bg-ok-500/10 !py-3 text-sm text-ink-700">
+            ✓ Acceso revocado. La próxima request del usuario lo va a
+            redirigir al login.
+          </section>
+        </DismissibleBanner>
       )}
       {params.created === "1" && !flash && (
-        <section className="card ring-1 ring-inset ring-warn-500/30 bg-warn-500/10 !py-3 text-sm text-ink-700">
-          ⚠ El usuario se creó pero ya cerraste la pantalla con las
-          credenciales. Volvé a "crear usuario" con el mismo email para
-          generar una contraseña nueva.
-        </section>
+        <DismissibleBanner>
+          <section className="card ring-1 ring-inset ring-warn-500/30 bg-warn-500/10 !py-3 text-sm text-ink-700">
+            ⚠ El usuario se creó pero ya cerraste la pantalla con las
+            credenciales. Volvé a "crear usuario" con el mismo email para
+            generar una contraseña nueva.
+          </section>
+        </DismissibleBanner>
       )}
       {errorMsg && (
-        <section className="card ring-1 ring-inset ring-bad-500/30 bg-bad-500/15 !py-3 text-sm text-bad-700">
-          Error: {errorMsg}
-        </section>
+        <DismissibleBanner timeoutMs={6000} closeLabel="Cerrar error">
+          <section className="card ring-1 ring-inset ring-bad-500/30 bg-bad-500/15 !py-3 text-sm text-bad-700">
+            Error: {errorMsg}
+          </section>
+        </DismissibleBanner>
       )}
 
       {/* Create form ───────────────────────────────────────────────── */}
@@ -216,9 +230,16 @@ export default async function AdminUsersPage({
                   )}
                 </td>
                 <td className="text-sm text-ink-700">
-                  {u.role === "office" && !u.sede ? (
-                    <span className="italic text-ink-500">
-                      todas <span className="text-[10px]">· remoto</span>
+                  {u.role === "office" &&
+                  (u.sede === null || u.sede === "todas") ? (
+                    // Miguel 2026-07-01 #7 — visually distinguish the
+                    // cross-sede oficina cohort from a plain admin's
+                    // "todas" so ops can tell them apart at a glance.
+                    <span className="italic text-warn-700">
+                      todas{" "}
+                      <span className="text-[10px] uppercase tracking-wider">
+                        · remoto 24/7
+                      </span>
                     </span>
                   ) : u.sede ? (
                     u.sede
