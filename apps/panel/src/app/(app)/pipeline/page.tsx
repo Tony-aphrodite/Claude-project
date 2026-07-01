@@ -17,13 +17,20 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// Miguel/Steve 2026-07-01 — column order tweak. Handoff to human
+// (`handed_off` / "Con humano") sits BETWEEN "Propuesto" and the two
+// deposit stages, not at the end. The operational reality: once the
+// AI proposes, a human often picks up the conversation to close the
+// deposit personally, so "Con humano" is a mid-funnel touchpoint,
+// not a terminal state. Cards then move into "Depósito pendiente"
+// (waiting for receipt / OCR) and finally "Depósito pagado".
 const ACTIVE_STAGES: LeadStage[] = [
   "new",
   "qualified",
   "proposed",
+  "handed_off",
   "deposit_pending",
   "deposit_paid",
-  "handed_off",
 ];
 
 const TONE_CHIP: Record<"ok" | "warn" | "bad", string> = {
