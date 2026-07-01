@@ -3610,31 +3610,105 @@ export async function processIncomingMessage(
     }
   }
   if (_stampableRefCodes.length > 0) {
-    const _replyLower = claudeResult.text;
-    const _alreadyHasAnyRef = _stampableRefCodes.some((c) => _replyLower.includes(c));
+    const _replyText = claudeResult.text;
+    // Count how many of the expected per-pax codes appear in the reply.
+    // A reply that mentions ONE of two codes counts as "incomplete" —
+    // we need every code to be reconcilable at OCR time.
+    const _perPaxCodes = Array.isArray(
+      _depositMetaForStamp?.ref_codes_by_pax,
+    )
+      ? (_depositMetaForStamp.ref_codes_by_pax.filter(
+          (c): c is string => typeof c === "string",
+        ) as string[])
+      : [];
+    const _expectedCount = _perPaxCodes.length > 0 ? _perPaxCodes.length : 1;
+    const _presentCodes = _stampableRefCodes.filter((c) => _replyText.includes(c));
+    const _missingCodes = _stampableRefCodes.filter(
+      (c) => !_replyText.includes(c),
+    );
+
     // Only stamp when the reply LOOKS like it should have the code —
     // i.e. the reply mentions a deposit-related concept. Otherwise we'd
     // append a stray "Reference: ..." line to unrelated turns (e.g. an
     // FAQ answer after the deposit was already paid). Conservative
     // signal: reply mentions any of "depósito", "deposit", "transfer",
     // "transferencia", "Wise", "IBAN", "Mandiri", "BPD", "Bangkok", or
-    // a currency code, AND ref_code is not already there.
-    const _replyTriggersStamp =
-      !_alreadyHasAnyRef &&
-      (/\b(dep[oó]sito|deposit|transfer(?:encia)?|wise|iban|mandiri|bpd|bangkok|cfsb|account)\b/i.test(
-        claudeResult.text,
-      ) ||
-        /\b(EUR|USD|GBP|AUD|IDR|THB)\b/.test(claudeResult.text));
-    if (_replyTriggersStamp) {
-      const _refToAppend = _stampableRefCodes[0]!;
-      claudeResult.text = `${claudeResult.text}\n\nReference: ${_refToAppend}`;
+    // a currency code.
+    const _looksLikeDepositTurn =
+      /\b(dep[oó]sito|deposit|transfer(?:encia)?|wise|iban|mandiri|bpd|bangkok|cfsb|account|referencia|reference)\b/i.test(
+        _replyText,
+      ) || /\b(EUR|USD|GBP|AUD|IDR|THB)\b/.test(_replyText);
+
+    // Miguel 2026-07-01 #6 — detect the "vuestros nombres" hallucination
+    // where the AI substitutes personal names for the ref codes. If any
+    // deposit-turn reply drops ALL codes AND says "nombres/name(s) as
+    // reference", we log a hard error AND rewrite the reply to include
+    // every expected code. This has cost Miguel money-reconciliation
+    // work in the past (2026-07-01 Enrique Ortiz / GA).
+    const _mentionsNamesAsReference =
+      /(nombres?|name)\s+como\s+referencia|reference[:\s]+(your|vuestros?|sus)\s+(nombres?|names?)/i.test(
+        _replyText,
+      );
+    const _codesFullyMissing = _presentCodes.length === 0;
+
+    if (_looksLikeDepositTurn && _codesFullyMissing && _mentionsNamesAsReference) {
+      // Hard error path — the AI hallucinated. Log to errores and
+      // rewrite the closing lines with the correct reference block.
+      log.error(
+        {
+          conversationId: conversation.id,
+          expectedCodes: _stampableRefCodes,
+          replyExcerpt: _replyText.slice(0, 400),
+        },
+        "CRITICAL: AI deposit reply substituted 'nombres' for ref codes — auto-repairing (Miguel 2026-07-01 #6)",
+      );
+      try {
+        await getDb().insert(errores).values({
+          source: "internal",
+          conversacionId: conversation.id,
+          errorType: "deposit_ref_codes_hallucinated",
+          errorMessage: `AI reply for pax=${_expectedCount} substituted "nombres" for ref codes; auto-injected ${_stampableRefCodes.join(", ")}`,
+          context: {
+            expectedCodes: _stampableRefCodes,
+            replyExcerpt: _replyText.slice(0, 400),
+          },
+        });
+      } catch (err) {
+        log.warn({ err }, "errores insert failed (non-blocking)");
+      }
+      // Strip the offending "nombres" sentence and append the canonical
+      // reference block.
+      const _sanitized = _replyText.replace(
+        /(?:como\s+referencia\s+pod[eé]is\s+poner\s+(?:vuestros?\s+)?nombres?\.?|Reference[:\s]+(?:your|vuestros?)\s+names?\.?)/gi,
+        "",
+      );
+      const _refBlock =
+        _perPaxCodes.length > 1
+          ? [
+              "Referencias (una por persona):",
+              ..._perPaxCodes.map((c, i) => `${i + 1}. ${c}`),
+            ].join("\n")
+          : `Reference: ${_stampableRefCodes[0]}`;
+      claudeResult.text = `${_sanitized.trimEnd()}\n\n${_refBlock}`;
+    } else if (_looksLikeDepositTurn && _missingCodes.length > 0) {
+      // Softer path: some codes present but not all — append the missing
+      // ones so multi-pax bookings don't ship partial references.
+      const _refBlock =
+        _perPaxCodes.length > 1 && _presentCodes.length === 0
+          ? [
+              "\n\nReferencias (una por persona):",
+              ..._perPaxCodes.map((c, i) => `${i + 1}. ${c}`),
+            ].join("\n")
+          : `\n\nReference: ${_missingCodes[0]}`;
+      claudeResult.text = `${_replyText.trimEnd()}${_refBlock}`;
       log.info(
         {
           conversationId: conversation.id,
-          refCode: _refToAppend,
-          additionalRefsAvailable: _stampableRefCodes.length - 1,
+          presentCount: _presentCodes.length,
+          missingCount: _missingCodes.length,
+          expectedCount: _expectedCount,
         },
-        "state-based ref-code stamp: appended ref to AI reply (authoritative path, no regex)",
+        "state-based ref-code stamp: appended missing refs to AI reply (Miguel 2026-07-01 #6 multi-pax hardening)",
       );
     }
   }

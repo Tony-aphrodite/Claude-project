@@ -10,6 +10,8 @@
 // minimal.
 // ============================================================================
 
+import Link from "next/link";
+
 import type { HealthSnapshot } from "~/lib/health-stats";
 
 const LEVEL_STYLES = {
@@ -50,6 +52,32 @@ function formatAgo(iso: string | null): string {
 
 export function HealthIndicator({ snap }: { snap: HealthSnapshot }) {
   const styles = LEVEL_STYLES[snap.level];
+  // Miguel 2026-07-01 #1 — the pill LOOKS like a button (rounded, ring,
+  // bold), so it should BE a button when the AI is in trouble. Clicking
+  // takes the operator to /conversations where they can pick up the
+  // stalled threads by hand. On `ok`/`unknown` we keep it passive so
+  // there's no dead click.
+  const linkTarget =
+    snap.level === "ok" || snap.level === "unknown" ? null : "/conversations";
+  const pillClasses = `inline-flex items-center gap-2 rounded-full px-3 py-1 ring-1 ring-inset transition ${styles.chip}${
+    linkTarget
+      ? " cursor-pointer hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+      : ""
+  }`;
+  const pillContent = (
+    <>
+      <span
+        aria-hidden="true"
+        className={`h-2 w-2 rounded-full ${styles.dot}`}
+      />
+      <span className="text-sm font-semibold">{snap.label}</span>
+      {linkTarget ? (
+        <span aria-hidden="true" className="text-sm font-semibold leading-none">
+          →
+        </span>
+      ) : null}
+    </>
+  );
 
   return (
     <section
@@ -57,17 +85,21 @@ export function HealthIndicator({ snap }: { snap: HealthSnapshot }) {
       aria-label="Estado de la AI"
     >
       <div className="flex items-center gap-3">
-        {/* Status pill */}
-        <div
-          className={`inline-flex items-center gap-2 rounded-full px-3 py-1 ring-1 ring-inset ${styles.chip}`}
-          title={snap.description}
-        >
-          <span
-            aria-hidden="true"
-            className={`h-2 w-2 rounded-full ${styles.dot}`}
-          />
-          <span className="text-sm font-semibold">{snap.label}</span>
-        </div>
+        {/* Status pill — Link when actionable, passive div otherwise. */}
+        {linkTarget ? (
+          <Link
+            href={linkTarget}
+            className={pillClasses}
+            title={snap.description}
+            aria-label={`${snap.label} — abrir conversaciones`}
+          >
+            {pillContent}
+          </Link>
+        ) : (
+          <div className={pillClasses} title={snap.description}>
+            {pillContent}
+          </div>
+        )}
         {/* Description — readable on every viewport, not just on hover */}
         <p className="max-w-prose text-xs text-ink-600">{snap.description}</p>
       </div>

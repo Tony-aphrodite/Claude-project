@@ -160,16 +160,35 @@ export async function getHealthSnapshot(): Promise<HealthSnapshot> {
   const now = new Date();
   const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
-  // Run the three queries in parallel — each is short and hits a
-  // covering index (mensajes.createdAt; errores.createdAt;
-  // conversaciones.leadStage).
+  // Miguel 2026-07-01 #3 — the semaphore MUST ignore conversations where
+  // the AI is intentionally silent. Otherwise a customer sending a new
+  // WhatsApp on a handed_off / closed / lost / human_took_over thread
+  // registers as "esperando" and paints the banner red even when the
+  // AI is behaving correctly. We express the exclusion once here as a
+  // raw SQL fragment and reuse it for BOTH the "last AI reply" pointer
+  // and the "still waiting" count so the two metrics stay coherent.
+  //
+  // We do NOT exclude conversations by `is_simulated`: the health signal
+  // is over PRODUCTION traffic already (simulator writes to a separate
+  // conversation flow); if that changes, add the filter here.
+  const ACTIVE_CONV_FILTER = sql`c.lead_stage NOT IN ('handed_off','closed','lost') AND COALESCE((c.lead_metadata->>'human_took_over')::boolean, false) = false`;
+
+  // Run the queries in parallel — each is short and hits a covering
+  // index (mensajes.createdAt; errores.createdAt; conversaciones.leadStage).
   const [lastAiRow, errorRow, handedOffRow, inboundRow] = await Promise.all([
-    db
-      .select({ at: mensajes.createdAt })
-      .from(mensajes)
-      .where(eq(mensajes.sender, "ai"))
-      .orderBy(desc(mensajes.createdAt))
-      .limit(1),
+    // "Latest AI reply" over conversations where AI is still expected
+    // to answer. A handed_off conv's AI messages must not count as the
+    // baseline — otherwise a stale AI reply on a paused thread makes
+    // the whole system look healthy.
+    db.execute<{ at: Date | null }>(sql`
+      SELECT m.created_at AS at
+        FROM mensajes m
+        JOIN conversaciones c ON c.id = m.conversacion_id
+       WHERE m.sender = 'ai'
+         AND ${ACTIVE_CONV_FILTER}
+       ORDER BY m.created_at DESC
+       LIMIT 1
+    `),
     db
       .select({ n: sql<number>`COUNT(*)::int` })
       .from(errores)
@@ -178,30 +197,43 @@ export async function getHealthSnapshot(): Promise<HealthSnapshot> {
       .select({ n: sql<number>`COUNT(*)::int` })
       .from(conversaciones)
       .where(eq(conversaciones.leadStage, "handed_off")),
-    // Inbound waiting on AI: cliente messages newer than the latest AI
-    // reply. We compute this in a single query using a window — if
-    // there's no AI reply yet, it counts every cliente message ever,
-    // which the semaphore reads as "no AI activity at all" and flags
-    // unknown.
-    db
-      .select({ n: sql<number>`COUNT(*)::int` })
-      .from(mensajes)
-      .where(
-        and(
-          eq(mensajes.sender, "cliente"),
-          sql`${mensajes.createdAt} > COALESCE((SELECT MAX(${mensajes.createdAt}) FROM ${mensajes} WHERE ${mensajes.sender} = 'ai'), '1970-01-01'::timestamptz)`,
-        ),
-      ),
+    // "Clientes esperando" — cliente messages newer than the last AI
+    // reply, restricted to conversations where the AI is still
+    // supposed to reply. Both the timestamp cursor AND the row filter
+    // use ACTIVE_CONV_FILTER so a handed_off cliente message doesn't
+    // count against the AI.
+    db.execute<{ n: number }>(sql`
+      SELECT COUNT(*)::int AS n
+        FROM mensajes m
+        JOIN conversaciones c ON c.id = m.conversacion_id
+       WHERE m.sender = 'cliente'
+         AND ${ACTIVE_CONV_FILTER}
+         AND m.created_at > COALESCE(
+           (SELECT MAX(m2.created_at)
+              FROM mensajes m2
+              JOIN conversaciones c2 ON c2.id = m2.conversacion_id
+             WHERE m2.sender = 'ai'
+               AND c2.lead_stage NOT IN ('handed_off','closed','lost')
+               AND COALESCE((c2.lead_metadata->>'human_took_over')::boolean, false) = false),
+           '1970-01-01'::timestamptz
+         )
+    `),
   ]);
 
-  const lastAiAt = lastAiRow[0]?.at ?? null;
+  // db.execute returns raw rows; timestamps come back as Date already
+  // via postgres-js, but be defensive when the row is missing.
+  const rawAt = (lastAiRow as unknown as Array<{ at: Date | string | null }>)[0]?.at ?? null;
+  const lastAiAt: Date | null =
+    rawAt instanceof Date ? rawAt : rawAt ? new Date(rawAt) : null;
   const minutesSinceLastAi =
     lastAiAt === null
       ? Number.POSITIVE_INFINITY
       : (now.getTime() - lastAiAt.getTime()) / 60_000;
   const recentErrorCount = Number(errorRow[0]?.n ?? 0);
   const handsOffPending = Number(handedOffRow[0]?.n ?? 0);
-  const inboundSinceLastAi = Number(inboundRow[0]?.n ?? 0);
+  const inboundSinceLastAi = Number(
+    (inboundRow as unknown as Array<{ n: number | string }>)[0]?.n ?? 0,
+  );
 
   const sem = semaphoreFor({
     lastAiMessageAt: lastAiAt,

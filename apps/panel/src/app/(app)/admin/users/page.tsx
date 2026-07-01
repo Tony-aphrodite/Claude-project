@@ -167,9 +167,16 @@ export default async function AdminUsersPage({
             </select>
           </label>
           <label className="text-xs">
-            <div className="metric-label mb-1">Sede (solo si rol=oficina)</div>
+            <div className="metric-label mb-1">
+              Sede (oficina: una sede o todas)
+            </div>
             <select name="sede" defaultValue="" className="select w-full">
               <option value="">—</option>
+              {/* Miguel 2026-07-01 #7 — cross-sede oficina for the remote
+                  24/7 team. Value "todas" tells auth-context to keep
+                  role=office with sedeId=null (office privileges across
+                  every sede, no admin surfaces). */}
+              <option value="todas">Todas las sedes (remoto 24/7)</option>
               {VALID_SEDES.map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -209,7 +216,13 @@ export default async function AdminUsersPage({
                   )}
                 </td>
                 <td className="text-sm text-ink-700">
-                  {u.sede ?? (
+                  {u.role === "office" && !u.sede ? (
+                    <span className="italic text-ink-500">
+                      todas <span className="text-[10px]">· remoto</span>
+                    </span>
+                  ) : u.sede ? (
+                    u.sede
+                  ) : (
                     <span className="text-ink-500 italic">todas</span>
                   )}
                 </td>

@@ -6,9 +6,16 @@
 // directly. Cached per request via React's cache() so multiple pages on
 // one render share one DB roundtrip.
 //
-// Two roles exist:
-//   • admin  — no sede scoping (sedeId === null). Sees everything.
-//   • office — sede-scoped (sedeId === <uuid>). The DPM front-desk role.
+// Roles (Miguel 2026-07-01 #7):
+//   • admin  — no sede scoping (sedeId === null). Sees everything + admin
+//              surfaces (/admin/users, /prompts, /kb/new, /regression).
+//   • office — front-desk operator role. TWO shapes:
+//              (a) sedeId set    → scoped to that one sede. Original shape.
+//              (b) sedeId=null   → cross-sede oficina. Same permissions
+//                                   as (a) but can read/write EVERY sede.
+//                                   For the remote 24/7 team who cover
+//                                   all five centers. Does NOT gain any
+//                                   admin surface access.
 
 import { cache } from "react";
 
@@ -47,9 +54,42 @@ export const getCurrentUserContext = cache(async (): Promise<UserContext | null>
   // role="panel_admin" (a string we now normalize away). Anything that
   // isn't "office" maps to admin.
   const role: UserRole = meta.role === "office" ? "office" : "admin";
-  const sedeName = typeof meta.sede === "string" ? meta.sede : null;
+  const rawSede = typeof meta.sede === "string" ? meta.sede : null;
 
-  if (role === "admin" || !sedeName) {
+  // Miguel 2026-07-01 #7 — a magic sede value "todas" (or "*") on an
+  // office user means the account is a cross-sede oficina (24/7 remote
+  // team). Keep role="office" (they still don't get admin surfaces)
+  // but leave sedeId=null so queries treat them like admin for scope.
+  const isOfficeAllSedes =
+    role === "office" &&
+    typeof rawSede === "string" &&
+    (rawSede.toLowerCase() === "todas" ||
+      rawSede.toLowerCase() === "*" ||
+      rawSede.toLowerCase() === "all");
+
+  if (role === "admin") {
+    return {
+      userId: data.user.id,
+      email: data.user.email ?? "",
+      role: "admin",
+      sedeId: null,
+      sedeName: null,
+    };
+  }
+
+  if (isOfficeAllSedes) {
+    return {
+      userId: data.user.id,
+      email: data.user.email ?? "",
+      role: "office",
+      sedeId: null,
+      sedeName: null,
+    };
+  }
+
+  if (!rawSede) {
+    // Office user with no sede assigned — legacy shape, treat as
+    // admin-visible-but-scope-broken. Fail open like before.
     return {
       userId: data.user.id,
       email: data.user.email ?? "",
@@ -68,7 +108,7 @@ export const getCurrentUserContext = cache(async (): Promise<UserContext | null>
   const [row] = await db
     .select({ id: sedes.id, nombre: sedes.nombre })
     .from(sedes)
-    .where(eq(sedes.nombre, sedeName))
+    .where(eq(sedes.nombre, rawSede))
     .limit(1);
 
   return {
@@ -76,7 +116,7 @@ export const getCurrentUserContext = cache(async (): Promise<UserContext | null>
     email: data.user.email ?? "",
     role: "office",
     sedeId: row?.id ?? null,
-    sedeName: row?.nombre ?? sedeName,
+    sedeName: row?.nombre ?? rawSede,
   };
 });
 
@@ -143,6 +183,10 @@ export async function requireSedeWriteAccess(
 ): Promise<UserContext> {
   const ctx = await requireUserContext();
   if (ctx.role === "admin") return ctx;
+  // Miguel 2026-07-01 #7 — office user with sedeId=null is the
+  // cross-sede (todas las sedes) shape. Same write escape hatch as
+  // admin: no target-sede match required.
+  if (ctx.role === "office" && ctx.sedeId === null) return ctx;
   if (!targetSedeId) {
     throw new Error("forbidden: target sede required for office user");
   }

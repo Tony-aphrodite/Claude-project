@@ -98,6 +98,11 @@ export async function getDashboardSnapshot(rangeHours = 24) {
   // aggregate so the chart matches what the KPI cards report). The
   // generate_series fills in zero-volume hours so the SVG has a stable
   // x-axis even when traffic is sparse.
+  //
+  // Miguel 2026-07-01 #5 — added p95_ms per hour so the operator can
+  // see WHEN latency spiked (currently sitting at 18-19s p95) rather
+  // than just the 24h aggregate. A steady climb points to prompt/KB
+  // bloat; a spike points to an Anthropic brownout.
   const hourlyBuckets = (await db.execute(sql`
     WITH hours AS (
       SELECT generate_series(
@@ -109,7 +114,13 @@ export async function getDashboardSnapshot(rangeHours = 24) {
     SELECT
       h.bucket_start AS bucket,
       COALESCE(COUNT(l.id) FILTER (WHERE l.status = 'success'), 0)::int AS ok_count,
-      COALESCE(COUNT(l.id) FILTER (WHERE l.status != 'success'), 0)::int AS err_count
+      COALESCE(COUNT(l.id) FILTER (WHERE l.status != 'success'), 0)::int AS err_count,
+      COALESCE(
+        percentile_cont(0.95) WITHIN GROUP (
+          ORDER BY l.latencia_ms
+        ) FILTER (WHERE l.status = 'success'),
+        0
+      )::int AS p95_ms
     FROM hours h
     LEFT JOIN llamadas_api l
       ON date_trunc('hour', l.created_at) = h.bucket_start
@@ -122,12 +133,14 @@ export async function getDashboardSnapshot(rangeHours = 24) {
     bucket: string | Date;
     ok_count: number;
     err_count: number;
+    p95_ms: number;
   }>;
 
   const volumeBuckets = hourlyBuckets.map((b) => ({
     bucket: typeof b.bucket === "string" ? new Date(b.bucket) : b.bucket,
     okCount: b.ok_count,
     errCount: b.err_count,
+    p95Ms: b.p95_ms,
   }));
 
   return {

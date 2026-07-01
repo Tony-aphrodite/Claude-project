@@ -61,7 +61,14 @@ export default async function ConversationDetail({
   const conv = await getConversation(id);
   if (!conv) notFound();
 
-  if (user.role === "office" && conv.conv.sedeId !== user.sedeId) {
+  // Sede access: office users see only their own sede. Miguel 2026-07-01
+  // #7 exception — office users with sedeId=null are the cross-sede
+  // (todas las sedes) shape and can view any conversation.
+  if (
+    user.role === "office" &&
+    user.sedeId !== null &&
+    conv.conv.sedeId !== user.sedeId
+  ) {
     notFound();
   }
 

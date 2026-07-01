@@ -101,20 +101,22 @@ class RespondIoProvider implements OutboundMessageProvider {
       };
     }
 
-    // Respond.io behaviour (verified 2026-05-10): the conversation
-    // endpoint sometimes returns 404 if Respond.io has rolled the
-    // conversation id over to a new one. The /contact endpoint always
-    // resolves to the customer's current open conversation, so we use
-    // it as the canonical path when the conversation id looks unresolved
-    // (placeholder template, empty, or obviously synthetic).
-    const useContactFallback =
-      !input.respondIoConversationId ||
-      input.respondIoConversationId.startsWith("{{") ||
-      input.respondIoConversationId === "unresolved";
-
-    const url = useContactFallback
-      ? `${baseUrl}/contact/id:${encodeURIComponent(input.respondIoContactId)}/message`
-      : `${baseUrl}/conversation/${encodeURIComponent(input.respondIoConversationId)}/message`;
+    // Miguel 2026-07-01 #4 — Respond.io returns 404 when the stored
+    // `respondIoConversationId` has been rolled to a new one on their
+    // side. The `/contact/id:{id}/message` endpoint always resolves to
+    // the customer's current open conversation, so we use it as the
+    // ONLY path. The `/conversation/<id>/message` variant offered no
+    // measurable benefit and produced repeated 404s in the wild
+    // (Miguel: Jose Mora / GA / 248200040 · 2026-07-01).
+    if (!input.respondIoContactId) {
+      return {
+        ok: false,
+        provider: this.name,
+        error:
+          "El contact_id de Respond.io no está disponible para esta conversación. No podemos enviar sin él — pasalo a Miguel para revisar la sincronización.",
+      };
+    }
+    const url = `${baseUrl}/contact/id:${encodeURIComponent(input.respondIoContactId)}/message`;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);

@@ -345,6 +345,8 @@ export function mockGetDashboardSnapshot() {
       bucket: new Date(Date.now() - (23 - i) * 60 * 60 * 1000),
       okCount: Math.round(1 + i * 0.4 + Math.sin(i / 3) * 2),
       errCount: i === 17 ? 1 : 0,
+      // Miguel 2026-07-01 #5 — per-hour p95 latency for the dashboard trend.
+      p95Ms: Math.round(2500 + Math.sin(i / 4) * 500 + i * 60),
     })),
   };
 }

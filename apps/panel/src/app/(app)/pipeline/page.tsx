@@ -42,9 +42,12 @@ export default async function PipelinePage({
   // Office users see only their assigned sede regardless of what's in the
   // URL — pasting `?sede=<other-id>` does not escape the scope. Admins can
   // filter freely with `?sede=…` or get all sedes if no param.
+  // Miguel 2026-07-01 #7 — cross-sede oficina (role=office + sedeId=null)
+  // sees every sede's pipeline. Only the single-sede office cohort is
+  // pinned to their assignment.
   const effectiveSedeId =
     user.role === "office"
-      ? user.sedeId ?? NIL_SEDE_ID
+      ? user.sedeId ?? undefined
       : params.sede ?? undefined;
 
   const [sedes, rows] = await Promise.all([
@@ -78,7 +81,7 @@ export default async function PipelinePage({
           <form className="flex items-end gap-2">
             <label className="text-xs">
               <div className="metric-label mb-1">Sede</div>
-              {user.role === "office" ? (
+              {user.role === "office" && user.sedeId !== null ? (
                 <select
                   name="sede"
                   defaultValue={user.sedeId ?? ""}

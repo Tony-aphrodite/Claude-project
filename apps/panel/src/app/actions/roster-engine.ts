@@ -1109,12 +1109,23 @@ export async function reassignDiverThisDay(formData: FormData): Promise<ActionRe
     }
   }
 
-  await db.transaction(
+  // Miguel 2026-07-01 #2 — the reassign has been reported as "stuck on
+  // asignando..." twice now (2026-06-30 + 2026-07-01). Verify the
+  // update actually wrote a row before returning success so a silent
+  // no-op can't slip through. `.returning({...})` surfaces the row we
+  // just updated; if the transaction commits with zero rows updated
+  // (e.g. FK / RLS silently rejects), we throw a clear error the
+  // ActionForm renders inline instead of the UI thinking success.
+  const [updated] = await db.transaction(
     async (tx) => {
-      await tx
+      const rows = await tx
         .update(rosterDivers)
         .set({ instructorId: toInstructorId, updatedAt: new Date() })
-        .where(eq(rosterDivers.id, id));
+        .where(eq(rosterDivers.id, id))
+        .returning({
+          id: rosterDivers.id,
+          instructorId: rosterDivers.instructorId,
+        });
       await writeAuditLog(tx, {
         sedeId: row.sedeId,
         action: "reassign_instructor_this_day",
@@ -1130,9 +1141,21 @@ export async function reassignDiverThisDay(formData: FormData): Promise<ActionRe
           days: [row.fecha],
         },
       });
+      return rows;
     },
     { isolationLevel: "serializable" },
   );
+
+  if (!updated) {
+    throw new Error(
+      "La reasignación no impactó ninguna fila. Recargá /roster/engine para ver el estado real (Miguel 2026-07-01 #2).",
+    );
+  }
+  if (updated.instructorId !== toInstructorId) {
+    throw new Error(
+      `La reasignación se persistió con un instructor distinto del solicitado (esperado ${toInstructorId ?? "null"}, quedó ${updated.instructorId ?? "null"}). Reintentá.`,
+    );
+  }
 
   revalidatePath("/roster/engine");
   });

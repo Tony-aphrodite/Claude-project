@@ -93,11 +93,19 @@ function parseArgs(argv: string[]): Args {
   }
   if (role === "office") {
     if (!args.sede) {
-      console.error("--sede is required when --role=office");
+      console.error("--sede is required when --role=office (use 'todas' for the cross-sede remote team)");
       process.exit(1);
     }
-    if (!VALID_SEDES.includes(args.sede as (typeof VALID_SEDES)[number])) {
-      console.error(`invalid --sede='${args.sede}'. Must be one of: ${VALID_SEDES.join(", ")}`);
+    // Miguel 2026-07-01 #7 — `todas` is a magic value that promotes
+    // the office user to cross-sede access without granting admin
+    // powers. Stored verbatim in user_metadata.sede.
+    if (
+      args.sede !== "todas" &&
+      !VALID_SEDES.includes(args.sede as (typeof VALID_SEDES)[number])
+    ) {
+      console.error(
+        `invalid --sede='${args.sede}'. Must be one of: ${VALID_SEDES.join(", ")}, or 'todas' for the cross-sede oficina role.`,
+      );
       process.exit(1);
     }
   }

@@ -51,7 +51,11 @@ export default async function ConversationsLayout({
     <div className="fixed inset-y-0 left-0 right-0 z-10 flex overflow-hidden md:left-60">
       <ConversationSidebar
         conversations={conversations}
-        showSede={user.role === "admin"}
+        // Miguel 2026-07-01 #7 — cross-sede oficina (role=office +
+        // sedeId=null) needs the sede column too so they know which
+        // center each conversation belongs to. Only single-sede
+        // office users hide it (they only see one sede anyway).
+        showSede={user.role === "admin" || user.sedeId === null}
       />
       <div className="flex min-w-0 flex-1">{children}</div>
     </div>

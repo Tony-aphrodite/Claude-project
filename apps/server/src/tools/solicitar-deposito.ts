@@ -31,11 +31,16 @@ export const solicitarDepositoTool: Anthropic.Tool = {
     "USAR SOLO cuando el cliente manifiesta intención clara de reservar (no para sondeos). " +
     "El depósito es OBLIGATORIO, NO REEMBOLSABLE, y se descuenta del precio total. " +
     "Monto: 40 EUR / 40 GBP / 40 AUD / 40 USD por persona, o 700,000 IDR (solo con cuenta bancaria local indonesia). " +
-    "La herramienta devuelve un código de referencia único y las instrucciones de pago; " +
-    "tu respuesta debe incluir el código y el monto literalmente y en mensaje SEPARADO " +
-    "(precio en mensaje 1, datos bancarios en mensaje 2, pregunta de cierre en mensaje 3). " +
-    "Si la herramienta indica reused_existing=true, NO menciones que el código fue 'reusado' " +
-    "— simplemente repetí los datos con naturalidad.",
+    "La herramienta devuelve el campo `instrucciones` con TODOS los datos: cuenta bancaria + monto + código(s) de referencia. " +
+    "REGLA CRÍTICA (Miguel 2026-07-01 #6): tu mensaje DEBE incluir el bloque `instrucciones` completo TEXTUALMENTE, " +
+    "incluyendo la sección de referencias EXACTA que devuelve la herramienta. " +
+    "NUNCA sustituyas las referencias por texto propio como \"pongan sus nombres\" o \"su nombre como referencia\" — " +
+    "eso rompe la conciliación del pago y viola la regla de Miguel de un código por persona. " +
+    "Si `pax > 1` la herramienta devuelve `ref_codes_by_pax` con N códigos (uno por buzo) y `instrucciones` los renderiza como " +
+    "\"Referencias (una por persona): 1. DPM-XX-…  2. DPM-XX-…\"; copiá esa lista SIN modificar. " +
+    "Podés reformular la introducción (\"Aquí van los datos…\") pero el bloque técnico (cuenta + monto + códigos) va literal, " +
+    "en mensaje SEPARADO (precio en mensaje 1, datos bancarios en mensaje 2, pregunta de cierre en mensaje 3). " +
+    "Si la herramienta indica reused_existing=true, NO menciones que el código fue 'reusado' — simplemente repetí los datos con naturalidad.",
   input_schema: {
     type: "object",
     properties: {

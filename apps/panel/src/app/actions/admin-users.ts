@@ -136,12 +136,22 @@ export async function createPanelUserAction(formData: FormData): Promise<void> {
   if (role !== "admin" && role !== "office") {
     redirect("/admin/users?error=invalid_role");
   }
-  let sede: ValidSede | null = null;
+  // Miguel 2026-07-01 #7 — "todas" is a magic sede value that promotes
+  // an office user to cross-sede access (24/7 remote team). Stored
+  // verbatim in user_metadata.sede; auth-context.getCurrentUserContext
+  // reads it and returns `sedeId=null` while keeping `role="office"`.
+  let sede: ValidSede | "todas" | null = null;
   if (role === "office") {
-    if (!sedeRaw || !VALID_SEDES.includes(sedeRaw as ValidSede)) {
+    if (!sedeRaw) {
       redirect("/admin/users?error=invalid_sede");
     }
-    sede = sedeRaw as ValidSede;
+    if (sedeRaw === "todas") {
+      sede = "todas";
+    } else if (VALID_SEDES.includes(sedeRaw as ValidSede)) {
+      sede = sedeRaw as ValidSede;
+    } else {
+      redirect("/admin/users?error=invalid_sede");
+    }
   }
 
   // 24 bytes → 32 chars base64 → comfortable strength + readable to copy

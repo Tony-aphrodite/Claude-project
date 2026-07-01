@@ -58,8 +58,16 @@ export default async function FollowUpsPage({
   // missing sede assignment from accidentally seeing the global queue
   // while ops fixes the assignment (returns zero rows, valid UUID
   // syntax — `"__no_sede__"` would crash with a UUID cast error).
+  // Miguel 2026-07-01 #7 — cross-sede oficina (role=office + sedeId=null)
+  // gets the unfiltered view like admin. Only fall back to NIL_SEDE_ID
+  // for a broken/missing sede assignment (role=office with a sede name
+  // that didn't resolve to a UUID).
   const sedeIdScope =
-    user.role === "office" ? user.sedeId ?? NIL_SEDE_ID : undefined;
+    user.role === "office"
+      ? user.sedeName === null
+        ? undefined
+        : user.sedeId ?? NIL_SEDE_ID
+      : undefined;
 
   const [metrics, { rows, total, page, pageSize }] = await Promise.all([
     getFollowUpMetrics({ ...(sedeIdScope ? { sedeId: sedeIdScope } : {}) }),

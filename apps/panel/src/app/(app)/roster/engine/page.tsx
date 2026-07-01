@@ -23,6 +23,8 @@ import {
 import { ActionForm } from "~/app/_components/action-form";
 import { PageHeader } from "~/app/_components/page-header";
 import { SubmitButton } from "~/app/_components/submit-button";
+
+import { CopyCodeButton } from "./_copy-code-button";
 import { requireUserContext } from "~/lib/auth-context";
 import {
   listDiversForDate,
@@ -41,6 +43,24 @@ function todayYmd(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
     now.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+/**
+ * Add N days to an ISO date string (YYYY-MM-DD) and return the shifted
+ * ISO date. Uses UTC math to avoid DST-off-by-one when the local
+ * timezone crosses a boundary. Miguel 2026-07-01 #9 — prev/next day
+ * navigation on the roster engine.
+ */
+function addDaysIso(ymd: string, deltaDays: number): string {
+  const parts = ymd.split("-");
+  const y = Number.parseInt(parts[0] ?? "1970", 10);
+  const m = Number.parseInt(parts[1] ?? "01", 10);
+  const d = Number.parseInt(parts[2] ?? "01", 10);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + deltaDays);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    dt.getUTCDate(),
   ).padStart(2, "0")}`;
 }
 
@@ -179,6 +199,20 @@ export default async function EnginePage({
         <label htmlFor="fecha" className="ml-4 text-ink-700">
           Fecha:
         </label>
+        {/* Miguel 2026-07-01 #9 — prev / next day shortcuts. Two hidden-
+            value submit buttons flank the date input; they submit the
+            same form with the neighbouring ISO date so the operator can
+            navigate multi-day programs without opening the picker. */}
+        <button
+          type="submit"
+          name="fecha"
+          value={addDaysIso(fecha, -1)}
+          title="Día anterior"
+          aria-label="Día anterior"
+          className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-700 hover:bg-ink-200/60"
+        >
+          ←
+        </button>
         <input
           id="fecha"
           name="fecha"
@@ -186,6 +220,16 @@ export default async function EnginePage({
           defaultValue={fecha}
           className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
         />
+        <button
+          type="submit"
+          name="fecha"
+          value={addDaysIso(fecha, 1)}
+          title="Día siguiente"
+          aria-label="Día siguiente"
+          className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-700 hover:bg-ink-200/60"
+        >
+          →
+        </button>
         <button type="submit" className="btn-primary ml-auto text-sm">
           Ver
         </button>
@@ -506,8 +550,9 @@ export default async function EnginePage({
                                           must be visible. Used by the
                                           diver to access the future SSI
                                           online registro. */}
-                                      <span className="font-mono text-[9px] text-ink-500">
+                                      <span className="inline-flex items-center font-mono text-[9px] text-ink-500">
                                         {d.codigoBuceador}
+                                        <CopyCodeButton code={d.codigoBuceador} />
                                       </span>
                                     </div>
                                   </td>
@@ -819,8 +864,11 @@ export default async function EnginePage({
                                 <td className="py-1 pr-2 text-ink-900">
                                   <div className="flex flex-col">
                                     <span>{d.nombre}</span>
-                                    <span className="font-mono text-[9px] text-ink-500">
+                                    <span className="inline-flex items-center font-mono text-[9px] text-ink-500">
                                       {d.codigoBuceador}
+                                      <CopyCodeButton
+                                        code={d.codigoBuceador}
+                                      />
                                     </span>
                                   </div>
                                 </td>
@@ -982,8 +1030,9 @@ export default async function EnginePage({
                                   {d.origen === "Manual" ? " · walk-in" : ""}
                                 </span>
                                 {/* §2 — ref code visible (Miguel 2026-06-30) */}
-                                <span className="font-mono text-[9px] text-ink-500">
+                                <span className="inline-flex items-center font-mono text-[9px] text-ink-500">
                                   {d.codigoBuceador}
+                                  <CopyCodeButton code={d.codigoBuceador} />
                                 </span>
                               </div>
                               {d.origen === "Manual" ? (
@@ -1159,7 +1208,10 @@ export default async function EnginePage({
                             {d.nombre}
                           </td>
                           <td className="py-1.5 pr-3 font-mono text-[10px] text-ink-600">
-                            {d.codigoBuceador}
+                            <span className="inline-flex items-center">
+                              {d.codigoBuceador}
+                              <CopyCodeButton code={d.codigoBuceador} />
+                            </span>
                           </td>
                           <td className="py-1.5 pr-3 text-ink-600">
                             {d.activity}
