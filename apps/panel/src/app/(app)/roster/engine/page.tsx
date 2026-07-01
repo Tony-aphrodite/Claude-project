@@ -97,9 +97,11 @@ export default async function EnginePage({
       </div>
     );
   }
-  // Office users are scoped to their sede.
+  // Office users are scoped to their sede — except the cross-sede
+  // oficina cohort (Miguel 2026-07-01 #7: role=office + sedeId=null)
+  // which sees every sede like admin.
   const selectableSedes =
-    ctx.role === "admin"
+    ctx.role === "admin" || ctx.sedeId === null
       ? allSedes
       : allSedes.filter((s) => s.id === ctx.sedeId);
   if (selectableSedes.length === 0) {
@@ -204,7 +206,7 @@ export default async function EnginePage({
           id="sede"
           name="sede"
           defaultValue={selectedSede.id}
-          disabled={ctx.role !== "admin"}
+          disabled={ctx.role !== "admin" && ctx.sedeId !== null}
           className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900 disabled:opacity-60"
         >
           {selectableSedes.map((s) => (
