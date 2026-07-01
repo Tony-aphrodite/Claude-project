@@ -46,6 +46,12 @@ export function ConversationSidebar({ conversations, showSede }: Props) {
   const pathname = usePathname();
   const [tab, setTab] = useState<Tab>("recents");
   const [query, setQuery] = useState("");
+  // Steve 2026-07-01 — sede dropdown next to Search. Cross-sede oficina
+  // (24/7 remote team) and admins get overwhelmed when 5 sedes'
+  // conversations are mixed in the same list; this narrows the view to
+  // ONE sede at a time. Empty string = "todas". Single-sede office
+  // users don't see the dropdown (they already see just their sede).
+  const [sedeFilter, setSedeFilter] = useState<string>("");
 
   // Selected id = the segment after /conversations/. usePathname returns
   // "/conversations" or "/conversations/<id>". Match on the prefix.
@@ -55,8 +61,23 @@ export function ConversationSidebar({ conversations, showSede }: Props) {
     return m ? (m[1] ?? null) : null;
   }, [pathname]);
 
+  // Distinct sede names appearing in the loaded set — powers the
+  // dropdown options. Order is stable (first-seen wins) so the same
+  // list doesn't reshuffle as conversations arrive.
+  const sedeOptions = useMemo(() => {
+    const seen: string[] = [];
+    for (const c of conversations) {
+      if (c.sedeName && !seen.includes(c.sedeName)) seen.push(c.sedeName);
+    }
+    return seen.sort();
+  }, [conversations]);
+
   const filtered = useMemo(() => {
     let rows = conversations;
+    // Sede filter (applied first — cheapest cut).
+    if (sedeFilter) {
+      rows = rows.filter((r) => r.sedeName === sedeFilter);
+    }
     // Tab filter.
     if (tab === "unread") rows = rows.filter((r) => r.isUnread);
     else if (tab === "starred") rows = rows.filter((r) => r.starred);
@@ -73,9 +94,16 @@ export function ConversationSidebar({ conversations, showSede }: Props) {
       });
     }
     return rows;
-  }, [conversations, tab, query]);
+  }, [conversations, tab, query, sedeFilter]);
 
-  const unreadCount = conversations.filter((c) => c.isUnread).length;
+  // Unread count respects the sede filter too — a Koh Tao operator
+  // filtered to KT sees the KT unread total, not the panel-wide one.
+  const unreadCount = useMemo(() => {
+    const scope = sedeFilter
+      ? conversations.filter((c) => c.sedeName === sedeFilter)
+      : conversations;
+    return scope.filter((c) => c.isUnread).length;
+  }, [conversations, sedeFilter]);
 
   return (
     <aside className="flex h-full w-[320px] flex-col border-r border-ink-300/40 bg-ink-100/30">
@@ -106,25 +134,47 @@ export function ConversationSidebar({ conversations, showSede }: Props) {
         })}
       </div>
 
-      {/* Search */}
+      {/* Search + Sede filter */}
       <div className="border-b border-ink-300/40 p-3">
-        <div className="relative">
-          <svg
-            viewBox="0 0 20 20"
-            fill="none"
-            className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-500"
-            aria-hidden="true"
-          >
-            <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
-            <path d="M14 14l3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search"
-            className="w-full rounded-lg border border-ink-300/60 bg-ink-100/80 py-1.5 pl-9 pr-3 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30"
-          />
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <svg
+              viewBox="0 0 20 20"
+              fill="none"
+              className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-500"
+              aria-hidden="true"
+            >
+              <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
+              <path d="M14 14l3 3" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search"
+              className="w-full rounded-lg border border-ink-300/60 bg-ink-100/80 py-1.5 pl-9 pr-3 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30"
+            />
+          </div>
+          {/* Sede dropdown — Steve 2026-07-01. Only rendered for
+              cross-sede users (admin OR office-todas): showSede is
+              true precisely for those cohorts. Single-sede office
+              gets a scoped list already, so the dropdown would just
+              show one option and add noise. */}
+          {showSede && sedeOptions.length > 1 ? (
+            <select
+              value={sedeFilter}
+              onChange={(e) => setSedeFilter(e.target.value)}
+              aria-label="Filtrar por sede"
+              className="shrink-0 rounded-lg border border-ink-300/60 bg-ink-100/80 py-1.5 pl-2 pr-6 text-[12px] text-ink-900 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30"
+            >
+              <option value="">Todas</option>
+              {sedeOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          ) : null}
         </div>
       </div>
 
