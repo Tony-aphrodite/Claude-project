@@ -93,8 +93,8 @@ export function ChatComposer({
           onKeyDown={handleKeyDown}
           placeholder={
             humanAttending
-              ? "Enviar a WhatsApp → respuesta al cliente · Instruir a la AI → nota interna. Enter dispara WhatsApp; Shift+Enter para nueva línea."
-              : "Escribí acá. WhatsApp toma la conversación (AI silenciada). Instruir a la AI es una nota interna — no llega al cliente y la AI responde el próximo turno."
+              ? "Enviar mensaje → respuesta al cliente · Instruir a la AI → nota interna. Enter envía; Shift+Enter para nueva línea."
+              : "Escribí acá. Enviar mensaje toma la conversación (AI silenciada). Instruir a la AI es una nota interna — no llega al cliente y la AI responde el próximo turno."
           }
           className="w-full resize-y rounded-lg border border-ink-300/70 bg-ink-100/70 px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-400/30"
         />
@@ -161,7 +161,7 @@ export function ChatComposer({
               loadingLabel="Enviando…"
               disabled={isEmpty || isOverWaLimit}
             >
-              Enviar a WhatsApp
+              Enviar mensaje
             </SubmitButton>
             {/* Sentinel input that lets us grab the actual <form>
                 for Enter-to-send. document.getElementById is fine
