@@ -172,8 +172,7 @@ export default async function DepositosAutoPage({
                 <th>Esperado</th>
                 <th>Hace</th>
                 <th>OCR</th>
-                <th>Estado</th>
-                <th className="pr-5"></th>
+                <th className="pr-5">Estado</th>
               </tr>
             </thead>
             <tbody>
@@ -271,34 +270,14 @@ export default async function DepositosAutoPage({
                         <span className="badge-ok">AI ✓</span>
                       )}
                     </td>
-                    <td className="text-xs">
-                      {isFlagged ? (
-                        <span
-                          className="badge-warn"
-                          title={
-                            r.flaggedBy
-                              ? `Flageado por ${r.flaggedBy}`
-                              : "Flageado"
-                          }
-                        >
-                          Flag · revisar
-                        </span>
-                      ) : isResolved ? (
-                        <span
-                          className="badge-neutral"
-                          title={
-                            r.flaggedBy
-                              ? `Resuelto por ${r.flaggedBy}`
-                              : "Resuelto"
-                          }
-                        >
-                          Resuelto
-                        </span>
-                      ) : (
-                        <span className="badge-ok">OK</span>
-                      )}
-                    </td>
-                    <td className="pr-5 text-right whitespace-nowrap space-x-2">
+                    {/* Steve 2026-07-01 — the Estado pill IS the action.
+                        Clicking it flags/resolves in one step. Removes
+                        the separate "Flag/Resolver" column at the far
+                        right (was line-noise). Resolved rows stay read-
+                        only — the operator already triaged them and
+                        re-flagging would re-trigger the Respond.io
+                        comment (useless audit noise). */}
+                    <td className="pr-5 text-xs">
                       {isFlagged ? (
                         <form
                           action={unflagAutoConfirm}
@@ -311,18 +290,28 @@ export default async function DepositosAutoPage({
                           />
                           <button
                             type="submit"
-                            className="btn-ghost text-ink-700"
-                            title="Marcar como revisado y OK"
+                            className="inline-flex items-center gap-1 rounded-full bg-warn-500/15 px-2.5 py-0.5 text-xs font-medium text-warn-700 ring-1 ring-inset ring-warn-500/40 transition hover:bg-warn-500/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn-400"
+                            title={
+                              r.flaggedBy
+                                ? `Flageado por ${r.flaggedBy} — clic para resolver`
+                                : "Flageado — clic para resolver"
+                            }
                           >
-                            Resolver
+                            Flag · revisar
+                            <span aria-hidden="true">↺</span>
                           </button>
                         </form>
                       ) : isResolved ? (
-                        // Resolved rows are read-only in the audit view —
-                        // the operator already triaged them. Re-flagging
-                        // would just re-trigger the comment on Respond.io,
-                        // which isn't useful audit information.
-                        <span className="text-xs text-ink-400">—</span>
+                        <span
+                          className="badge-neutral"
+                          title={
+                            r.flaggedBy
+                              ? `Resuelto por ${r.flaggedBy}`
+                              : "Resuelto"
+                          }
+                        >
+                          Resuelto
+                        </span>
                       ) : (
                         <form
                           action={flagAutoConfirm}
@@ -335,10 +324,11 @@ export default async function DepositosAutoPage({
                           />
                           <button
                             type="submit"
-                            className="btn-ghost text-warn-700 hover:bg-warn-50"
-                            title="Marcar para revisión contra el email del banco"
+                            className="inline-flex items-center gap-1 rounded-full bg-ok-500/15 px-2.5 py-0.5 text-xs font-medium text-ok-700 ring-1 ring-inset ring-ok-500/30 transition hover:bg-warn-500/15 hover:text-warn-700 hover:ring-warn-500/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                            title="Clic para marcar como Flag (revisar contra el email del banco)"
                           >
-                            Flag
+                            OK
+                            <span aria-hidden="true">→</span>
                           </button>
                         </form>
                       )}
