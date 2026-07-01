@@ -114,7 +114,7 @@ export default async function PipelinePage({
                 </select>
               )}
             </label>
-            {user.role !== "office" && (
+            {(user.role !== "office" || user.sedeId === null) && (
               <button className="btn-primary">Filtrar</button>
             )}
           </form>

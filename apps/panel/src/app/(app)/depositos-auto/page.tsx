@@ -8,6 +8,7 @@ import { flagAutoConfirm, unflagAutoConfirm } from "~/app/actions/auto-confirm";
 import { requireUserContext } from "~/lib/auth-context";
 import {
   listAutoConfirmedDeposits,
+  listSedes,
   type AutoConfirmedScope,
 } from "~/lib/db-queries";
 
@@ -28,7 +29,7 @@ function hoursSince(iso: string | null): number {
 export default async function DepositosAutoPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ scope?: string; showResolved?: string }>;
+  searchParams?: Promise<{ scope?: string; showResolved?: string; sede?: string }>;
 }) {
   const params = (await searchParams) ?? {};
   const scope: AutoConfirmedScope =
@@ -37,24 +38,34 @@ export default async function DepositosAutoPage({
 
   // Sede scope (Miguel 2026-05-18): office staff see only their own
   // sede's auto-confirmed deposits — same model as /payments. Admins
-  // pass undefined and see every sede.
+  // pass undefined and see every sede. Steve 2026-07-01 — cross-sede
+  // oficina (role=office + sedeId=null) sees all by default and can
+  // narrow to one sede via `?sede=<uuid>`.
   const user = await requireUserContext();
   const sedeId =
-    user.role === "office" && user.sedeId ? user.sedeId : undefined;
+    user.role === "office" && user.sedeId
+      ? user.sedeId
+      : params.sede || undefined;
+  const canPickSede = user.role === "admin" || user.sedeId === null;
 
-  const rows = await listAutoConfirmedDeposits({
-    scope,
-    showResolved,
-    ...(sedeId ? { sedeId } : {}),
-  });
+  const [rows, sedes] = await Promise.all([
+    listAutoConfirmedDeposits({
+      scope,
+      showResolved,
+      ...(sedeId ? { sedeId } : {}),
+    }),
+    canPickSede ? listSedes() : Promise.resolve([]),
+  ]);
   const total = rows.length;
   const flagged = rows.filter((r) => r.flagState === "flagged").length;
   const lastHour = rows.filter((r) => hoursSince(r.autoConfirmedAt) <= 1).length;
 
-  // Helper for preserving toggle state across tab clicks.
+  // Helper for preserving toggle state across tab clicks — sede filter
+  // survives every intra-page navigation.
+  const preserveSede = params.sede ? `&sede=${encodeURIComponent(params.sede)}` : "";
   const tabHref = (s: AutoConfirmedScope) =>
-    `/depositos-auto?scope=${s}${showResolved ? "&showResolved=1" : ""}`;
-  const toggleHref = `/depositos-auto?scope=${scope}${showResolved ? "" : "&showResolved=1"}`;
+    `/depositos-auto?scope=${s}${showResolved ? "&showResolved=1" : ""}${preserveSede}`;
+  const toggleHref = `/depositos-auto?scope=${scope}${showResolved ? "" : "&showResolved=1"}${preserveSede}`;
 
   return (
     <>
@@ -62,6 +73,33 @@ export default async function DepositosAutoPage({
         eyebrow="Red de seguridad"
         title="Depósitos auto-confirmados"
         description="Conversaciones donde la AI auto-confirmó el depósito por OCR. Cruzá esta lista contra los emails de Wise/Mandiri/BCA en gilit@dpmdiving.com — si algo no aparece en el banco, marcalo con Flag para revisar."
+        actions={
+          canPickSede ? (
+            <form className="flex items-end gap-2">
+              {/* Preserve the other query params when filtering. */}
+              <input type="hidden" name="scope" value={scope} />
+              {showResolved ? (
+                <input type="hidden" name="showResolved" value="1" />
+              ) : null}
+              <label className="text-xs">
+                <div className="metric-label mb-1">Sede</div>
+                <select
+                  name="sede"
+                  defaultValue={params.sede ?? ""}
+                  className="select"
+                >
+                  <option value="">Todas</option>
+                  {sedes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="btn-primary">Filtrar</button>
+            </form>
+          ) : undefined
+        }
       />
 
       <nav className="flex items-center gap-1 text-sm">

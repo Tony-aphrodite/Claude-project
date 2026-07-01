@@ -1,6 +1,10 @@
 import { PageHeader } from "~/app/_components/page-header";
 import { NIL_SEDE_ID, requireUserContext } from "~/lib/auth-context";
-import { getFollowUpMetrics, listFollowUps } from "~/lib/db-queries";
+import {
+  getFollowUpMetrics,
+  listFollowUps,
+  listSedes,
+} from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +48,7 @@ export default async function FollowUpsPage({
     status?: "pending" | "sent" | "cancelled";
     page?: string;
     q?: string;
+    sede?: string;
   }>;
 }) {
   const [params, user] = await Promise.all([searchParams, requireUserContext()]);
@@ -62,44 +67,58 @@ export default async function FollowUpsPage({
   // gets the unfiltered view like admin. Only fall back to NIL_SEDE_ID
   // for a broken/missing sede assignment (role=office with a sede name
   // that didn't resolve to a UUID).
+  // Steve 2026-07-01 — cross-sede + admin can further narrow to one
+  // sede via `?sede=<uuid>`. Single-sede office is pinned regardless.
+  const canPickSede = user.role === "admin" || user.sedeId === null;
   const sedeIdScope =
-    user.role === "office"
-      ? user.sedeName === null
-        ? undefined
-        : user.sedeId ?? NIL_SEDE_ID
-      : undefined;
+    user.role === "office" && user.sedeId
+      ? user.sedeId
+      : user.role === "office" && user.sedeName === null
+        ? params.sede || undefined // cross-sede oficina + URL param
+        : params.sede || undefined; // admin
+  // Guard: office with a broken sede assignment still gets NIL_SEDE_ID
+  // (not undefined) so they can't see the global queue by accident.
+  const effectiveSedeScope =
+    user.role === "office" && user.sedeId === null && user.sedeName !== null
+      ? NIL_SEDE_ID
+      : sedeIdScope;
 
-  const [metrics, { rows, total, page, pageSize }] = await Promise.all([
-    getFollowUpMetrics({ ...(sedeIdScope ? { sedeId: sedeIdScope } : {}) }),
+  const [metrics, { rows, total, page, pageSize }, sedes] = await Promise.all([
+    getFollowUpMetrics({
+      ...(effectiveSedeScope ? { sedeId: effectiveSedeScope } : {}),
+    }),
     listFollowUps({
       status: params.status,
       page: requestedPage,
       q: searchQuery || undefined,
-      ...(sedeIdScope ? { sedeId: sedeIdScope } : {}),
+      ...(effectiveSedeScope ? { sedeId: effectiveSedeScope } : {}),
     }),
+    canPickSede ? listSedes() : Promise.resolve([]),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const startIdx = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const endIdx = Math.min(total, page * pageSize);
 
-  // Helper that builds a `?status=…&q=…&page=N` URL preserving the
-  // active status tab + search query — avoids dropping filters when
-  // you click Next or switch tabs.
+  // Helper that builds a `?status=…&q=…&sede=…&page=N` URL preserving
+  // the active status tab + search query + sede filter — avoids
+  // dropping filters when you click Next or switch tabs.
   const pageHref = (n: number) => {
     const qs = new URLSearchParams();
     if (params.status) qs.set("status", params.status);
     if (searchQuery) qs.set("q", searchQuery);
+    if (params.sede) qs.set("sede", params.sede);
     if (n > 1) qs.set("page", String(n));
     const q = qs.toString();
     return q ? `?${q}` : "?";
   };
 
-  // URL for a status-tab click: keep search query, reset page.
+  // URL for a status-tab click: keep search query + sede, reset page.
   const tabHref = (status?: string) => {
     const qs = new URLSearchParams();
     if (status) qs.set("status", status);
     if (searchQuery) qs.set("q", searchQuery);
+    if (params.sede) qs.set("sede", params.sede);
     const s = qs.toString();
     return s ? `?${s}` : "?";
   };
@@ -110,6 +129,34 @@ export default async function FollowUpsPage({
         eyebrow="Reactivación de leads"
         title="Follow-ups"
         description="State machine de 5 niveles (4 h / 24 h / 48 h / 7 d / 30 d). El scanner los programa, el processor los envía respetando la ventana 24 h de WhatsApp."
+        actions={
+          canPickSede ? (
+            <form className="flex items-end gap-2">
+              {params.status ? (
+                <input type="hidden" name="status" value={params.status} />
+              ) : null}
+              {searchQuery ? (
+                <input type="hidden" name="q" value={searchQuery} />
+              ) : null}
+              <label className="text-xs">
+                <div className="metric-label mb-1">Sede</div>
+                <select
+                  name="sede"
+                  defaultValue={params.sede ?? ""}
+                  className="select"
+                >
+                  <option value="">Todas</option>
+                  {sedes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="btn-primary">Filtrar</button>
+            </form>
+          ) : undefined
+        }
       />
 
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">

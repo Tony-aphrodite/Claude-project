@@ -4,7 +4,7 @@ import { PageHeader } from "~/app/_components/page-header";
 import { ageTone, elapsedHours, formatElapsed } from "~/app/_components/stage";
 import { confirmDepositReceived, markLeadLost } from "~/app/actions/leads";
 import { requireUserContext } from "~/lib/auth-context";
-import { listDepositPending } from "~/lib/db-queries";
+import { listDepositPending, listSedes } from "~/lib/db-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -51,18 +51,38 @@ function OcrChip({ result }: { result: NonNullable<LeadMetadata["ocr_result"]> }
   return <span className="badge-warn" title={`No coincide: ${summary || "varios campos"}`}>AI ⚠ {summary || "?"}</span>;
 }
 
-export default async function PaymentsPage() {
+export default async function PaymentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ sede?: string }>;
+}) {
   // Office users are scoped to their own sede — Miguel's hard requirement
   // ("solo tengan acceso a lo que necesitan ver que es sobre todo la de
   // depositos que tienen que aceptar"). Admins see all pending deposits
-  // across every sede. Sede assignment lives in Supabase user_metadata
-  // and is resolved by requireUserContext.
-  const user = await requireUserContext();
-  const rows = await listDepositPending(
+  // across every sede. Steve 2026-07-01 — cross-sede oficina
+  // (role=office + sedeId=null) sees all by default and can filter to
+  // a single sede via `?sede=<uuid>` querystring.
+  const [params, user] = await Promise.all([
+    searchParams,
+    requireUserContext(),
+  ]);
+
+  // Single-sede office is pinned to their sede regardless of URL.
+  // Admin + cross-sede oficina pick freely (or "all" when no param).
+  const effectiveSedeId =
     user.role === "office" && user.sedeId
-      ? { sedeId: user.sedeId }
-      : {},
-  );
+      ? user.sedeId
+      : params.sede || undefined;
+
+  const [rows, sedes] = await Promise.all([
+    listDepositPending(effectiveSedeId ? { sedeId: effectiveSedeId } : {}),
+    // Only load the sede list when the user can actually pick — saves
+    // one query on single-sede office loads.
+    user.role === "admin" || user.sedeId === null
+      ? listSedes()
+      : Promise.resolve([]),
+  ]);
+  const canPickSede = user.role === "admin" || user.sedeId === null;
   const total = rows.length;
   const requiringHuman = rows.filter((r) => {
     const meta = (r.conv.leadMetadata as LeadMetadata | null) ?? {};
@@ -76,6 +96,28 @@ export default async function PaymentsPage() {
         eyebrow="Verificación humana"
         title="Depósitos pendientes"
         description={`Conversaciones esperando que confirmes que el depósito de ${DEPOSIT_AMOUNT} llegó vía Wise / Revolut / banco. Confirmar dispara el aviso al cliente y entrega la conversación a tu equipo de la sede.`}
+        actions={
+          canPickSede ? (
+            <form className="flex items-end gap-2">
+              <label className="text-xs">
+                <div className="metric-label mb-1">Sede</div>
+                <select
+                  name="sede"
+                  defaultValue={params.sede ?? ""}
+                  className="select"
+                >
+                  <option value="">Todas</option>
+                  {sedes.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button className="btn-primary">Filtrar</button>
+            </form>
+          ) : undefined
+        }
       />
 
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
