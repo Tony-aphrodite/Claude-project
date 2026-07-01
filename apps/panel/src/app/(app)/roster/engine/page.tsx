@@ -12,6 +12,7 @@
 // of raw Tailwind zinc/emerald — matches Dashboard / Pipeline / etc.
 
 import { Fragment } from "react";
+import Link from "next/link";
 
 import {
   createWalkInDiver,
@@ -67,10 +68,26 @@ function addDaysIso(ymd: string, deltaDays: number): string {
 export default async function EnginePage({
   searchParams,
 }: {
-  searchParams: Promise<{ sede?: string; fecha?: string }>;
+  // Both fields may arrive as `string | string[]` when the URL carries
+  // duplicate params (Next.js parses ?fecha=A&fecha=B as an array).
+  // We accept both and coerce below so a stale link with duplicates
+  // doesn't crash the page.
+  searchParams: Promise<{
+    sede?: string | string[];
+    fecha?: string | string[];
+  }>;
 }) {
   const ctx = await requireUserContext();
-  const { sede: sedeParam, fecha: fechaParam } = await searchParams;
+  const params = await searchParams;
+  // Steve 2026-07-01: defensive coercion — take the LAST value when a
+  // param is duplicated. The prev/next day navigation used to submit a
+  // form that produced ?fecha=A&fecha=B; we now use <Link>s, but old
+  // bookmarks or manual URL tweaks can still land here.
+  const asString = (
+    v: string | string[] | undefined,
+  ): string | undefined => (Array.isArray(v) ? v[v.length - 1] : v);
+  const sedeParam = asString(params.sede);
+  const fechaParam = asString(params.fecha);
 
   const allSedes = await listEngineSedes();
   if (allSedes.length === 0) {
@@ -199,20 +216,21 @@ export default async function EnginePage({
         <label htmlFor="fecha" className="ml-4 text-ink-700">
           Fecha:
         </label>
-        {/* Miguel 2026-07-01 #9 — prev / next day shortcuts. Two hidden-
-            value submit buttons flank the date input; they submit the
-            same form with the neighbouring ISO date so the operator can
-            navigate multi-day programs without opening the picker. */}
-        <button
-          type="submit"
-          name="fecha"
-          value={addDaysIso(fecha, -1)}
+        {/* Miguel 2026-07-01 #9 — prev / next day shortcuts.
+            IMPORTANT: these are <Link>s, NOT submit buttons — a submit
+            button with `name="fecha"` next to a date <input name="fecha">
+            causes BOTH values to land in the querystring (browsers append
+            the clicked button's name/value to the form data). That
+            broke the page with two ?fecha=... params. Links sidestep
+            the form entirely and produce a clean URL. */}
+        <Link
+          href={`/roster/engine?sede=${encodeURIComponent(selectedSede.id)}&fecha=${addDaysIso(fecha, -1)}`}
           title="Día anterior"
           aria-label="Día anterior"
           className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-700 hover:bg-ink-200/60"
         >
           ←
-        </button>
+        </Link>
         <input
           id="fecha"
           name="fecha"
@@ -220,16 +238,14 @@ export default async function EnginePage({
           defaultValue={fecha}
           className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-900"
         />
-        <button
-          type="submit"
-          name="fecha"
-          value={addDaysIso(fecha, 1)}
+        <Link
+          href={`/roster/engine?sede=${encodeURIComponent(selectedSede.id)}&fecha=${addDaysIso(fecha, 1)}`}
           title="Día siguiente"
           aria-label="Día siguiente"
           className="rounded border border-ink-200 bg-ink-100/60 px-2 py-1 text-ink-700 hover:bg-ink-200/60"
         >
           →
-        </button>
+        </Link>
         <button type="submit" className="btn-primary ml-auto text-sm">
           Ver
         </button>
