@@ -32,7 +32,11 @@ type Props = {
   onDismiss: () => void;
 };
 
-const MAX_RESULTS = 6;
+// Steve 2026-07-01 — bumped from 6 to 12 so the initial "@" (empty
+// query) view surfaces all sede accounts + admins + cross-sede oficina
+// on a typical DPM install (~9 users). Popover scrolls internally
+// past ~7 items via max-h-64 so it never grows past the composer.
+const MAX_RESULTS = 12;
 
 export function MentionPicker({ query, users, onPick, onDismiss }: Props) {
   const [activeIdx, setActiveIdx] = useState(0);
@@ -101,7 +105,7 @@ export function MentionPicker({ query, users, onPick, onDismiss }: Props) {
       <div className="border-b border-ink-300/40 px-2.5 py-1 text-[10px] uppercase tracking-wider text-ink-500">
         Mencionar usuario · Enter para elegir · Esc para cerrar
       </div>
-      <ul>
+      <ul className="max-h-64 overflow-y-auto">
         {filtered.map((u, i) => {
           const active = i === activeIdx;
           return (
